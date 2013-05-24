@@ -98,6 +98,7 @@ void writeweights(char *f){
   int i,e0,e1,v0,v1;
   FILE *fp;
   fp=fopen(f,"w");assert(fp);
+  fprintf(fp,"%d %d\n",N,N);
   for(i=0;i<NE;i++){
     v0=elist[i][0];v1=elist[i][2];
     e0=elist[i][1];e1=elist[i][3];
@@ -110,9 +111,11 @@ void writeweights(char *f){
 }
 
 void readweights(char *f){
-  int i,w,x0,y0,o0,i0,e0,x1,y1,o1,i1,e1;
+  int i,w,x0,y0,o0,i0,e0,x1,y1,o1,i1,e1,nx,ny;
   FILE *fp;
   fp=fopen(f,"r");assert(fp);
+  assert(fscanf(fp,"%d %d",&nx,&ny)==2);
+  assert(nx==N&&ny==N);
   for(i=0;i<NE;i++){
     assert(fscanf(fp,"%d %d %d %d %d %d %d %d %d %d %d",
                   &x0,&y0,&o0,&i0,&e0,
@@ -144,21 +147,26 @@ int main(int ac,char**av){
   if(ac<2){initweights();printf("Initialising random weight matrix\n");}else
     {readweights(av[1]);printf("Reading weight matrix from file \"%s\"\n",av[1]);}
   writeweights("tempproblem");
-  int i,o,p,r,x,y,bv,cv,dv,nn;
+  int i,p,r,bv,cv,dv;
+  long long int nn;
   bv=1000000000;nn=0;
-  while(nn<1000000){
+  while(1){
     initspins();
     cv=val();
     r=0;
     while(r<NV){
-      for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(i=0;i<4;i++){
-        p=enc(x,y,o,i);
+      for(i=0;i<NV;i++){
+        p=vlist[i];
         dv=dval(p)*(1-2*X[p]);
         if(dv<0){cv+=dv;X[p]=1-X[p];r=0;} else {r++;if(r==NV)break;}
       }
     }
     nn++;
-    if(cv<bv){bv=cv;printf("%10d %10d %10d %8.2f\n",nn,cv,bv,clock()/(double)CLOCKS_PER_SEC);}
+    if(cv<bv||((nn&(nn-1))==0)){
+      if(cv<bv)bv=cv;
+      printf("%12lld %10d %8.2f\n",nn,bv,clock()/(double)CLOCKS_PER_SEC);
+      fflush(stdout);
+    }
   }
   /*
   int b,i,p,s,v;
