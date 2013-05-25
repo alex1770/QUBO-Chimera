@@ -214,6 +214,80 @@ int opt0(double maxt){// Simple K_4,4-wise optimisation
   return bv;
 }
 
+int lineexhaust(int c,int d){
+  // If d=0 exhaust column c, else exhaust row c
+  // Comments and variable names are as if column case (d=0)
+  
+  int b,o,r,s,v,smin0,smin1,vmin0,vmin1;
+  int v0[16],v1[16];
+  int h0[16][N][2],h1[16][N][2];// history
+
+  if(d)return 0;//alter
+  
+  for(r=0;r<N;r++){
+    for(b=0;b<16;b++){// b = state of (c,r,1)
+      if(r>0){
+        vmin0=1000000000;smin0=-1;
+        for(s=0;s<16;s++){// s = state of (c,r-1,1)
+          v=v0[s]+QB[c][r-1][1][s][b][2];
+          if(v<vmin0){vmin0=v;smin0=s;}
+        }
+        memcpy(h1[b],h0[smin0],(2*r-1)*sizeof(int));
+        h1[b][r-1][1]=smin0;
+      }else vmin0=0;
+      vmin1=1000000000;smin1=-1;
+      for(s=0;s<16;s++){// s = state of (c,r,0)
+        v=QB[c][r][0][s][b][0]+
+          QB[c][r][0][s][XB[c-1][r][0]][1]+
+          QB[c][r][0][s][XB[c+1][r][0]][2];
+        if(v<vmin1){vmin1=v;smin1=s;}
+      }
+      v1[b]=vmin0+vmin1;
+      h1[b][r][0]=smin1;
+    }//b
+    memcpy(v0,v1,sizeof(v0));
+    memcpy(h0,h1,sizeof(h0));
+  }//r
+
+  vmin0=1000000000;smin0=-1;
+  for(s=0;s<16;s++){// s = state of (c,N-1,1)
+    v=v0[s];
+    if(v<vmin0){vmin0=v;smin0=s;}
+  }
+  for(r=0;r<N;r++)for(o=0;o<2;o++)XB[c][r][o]=h0[smin0][r][o];
+  XB[c][N-1][1]=smin0;
+  return vmin0;
+}
+
+int opt1(double maxt){// Optimisation using line (column/row) exhausts
+  int o,r,v,x,bv,cv;
+  long long int nn;
+  double t0,t1,tt;
+  bv=1000000000;nn=0;t0=cpu();t1=0;
+  while(cpu()-t0<maxt){
+    init_state();
+    cv=val();
+    r=0;
+    while(1){
+      for(o=0;o<2;o++)for(x=0;x<N;x++){
+        lineexhaust(x,o);
+        v=val();
+        if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*N)goto el0;}
+      }
+    }
+  el0:
+    nn++;
+    tt=cpu()-t0;
+    if(cv<bv||tt>=t1){
+      if(cv<bv)bv=cv;
+      printf("%12lld %10d %8.2f\n",nn,bv,tt);
+      t1=MAX(tt*1.2,tt+5);
+      fflush(stdout);
+    }
+  }
+  return bv;
+}
+
 int main(int ac,char**av){
   printf("N=%d\n",N);
   memset(XBplus,0,sizeof(XBplus));
@@ -223,31 +297,6 @@ int main(int ac,char**av){
     {readweights(av[1]);printf("Reading weight matrix from file \"%s\"\n",av[1]);}
   getbigweights();
   writeweights("tempproblem");
-  opt0(1e100);
-  /*
-  int b,i,p,s,v;
-  int h0[16][N][2],h1[16][N][2];// history
-  for(b=0;b<16;b++){
-    vmin=1000000000;
-    p=enc(c,r-1,1,0);
-    for(s=0;s<16;s++){
-      v=v0[s];
-      for(i=0;i<4;i++)v+=Q[p+i][4]*((s>>i)&1)*((b>>i)&1);
-      if(v<vmin){vmin=v;smin=s;}
-    }
-    memcpy(h1[b],h0[smin],(2*r-1)*sizeof(int));
-    h1[b][r-1][1]=smin;
-    h1[b][r][0]=0;
-    p=enc(c,r,0,0);
-    for(i=0;i<4;i++){
-      v=0;
-      for(j=0;j<4;j++)v+=Q[p+i][j]*((b>>j)&1);
-      if(Q[p+i][4]>=0)v+=Q[p+i][4]*x[p-HORIZ];
-      if(Q[p+i][5]>=0)v+=Q[p+i][5]*x[p+HORIZ];
-      if(v<0){h1[b][r][0]|=1<<i;vmin+=v;}
-    }
-    v1[b]=vmin;
-  }
-  */
+  opt1(1e100);
   return 0;
 }
