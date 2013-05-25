@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <assert.h>
 
@@ -19,7 +20,7 @@
 // i is the index within the "semi-K4,4"
 
 #define L 3
-#define N 4
+#define N 8
 // Require 2^L >= N, but N doesn't have to be a power of 2
 
 #define HORIZ 3
@@ -53,16 +54,21 @@ int elist[NE][4]; // elist[e][0] = encoded start vertex of edge e
                   // elist[e][1] = edge number (0..5) from vertex elist[e][0] to elist[e][2]
                   // elist[e][2] = encoded end vertex of edge e
                   // elist[e][3] = edge number (0..5) from vertex elist[e][2] to elist[e][0]
-int XB[N][N][2];// State (0..15).  Index is (x,y,o) = big vert
+int XBplus[N+2][N][2];
+int (*XB)[N][2]=&XBplus[1];// XB[x][y][o] = State (0..15) of big vert
+                           // Allow extra space to avoid having to check for out-of-bounds accesses
 int QB[N][N][2][16][16][3]; // Weights for big verts (derived from Q[])
                             // QC[x][y][o][s0][s1][d] = total weight from big vert (x,y,o) in state s0
                             //                          to the big vert in direction d in state s1
                             // d=0 is intra K_4,4, d=1 is Left/Down, d=2 is Right/Up
 #define X(p) ((XB[decx(p)][decy(p)][deco(p)]>>deci(p))&1)
 
+#define MAX(x,y) ((x)>(y)?(x):(y))
 void initrand(){srandom(time(0));}
 int randbit(void){return (random()>>16)&1;}
 int randnib(void){return (random()>>16)&15;}
+
+double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
 void initgraph(void){
   int i,j,o,p,q,x,y,nv,ne;
@@ -118,17 +124,16 @@ void init_state(void){// Initialise state randomly
 }
 
 void writeweights(char *f){
-  int i,e0,e1,v0,v1;
+  int i,v0,v1;
   FILE *fp;
   fp=fopen(f,"w");assert(fp);
   fprintf(fp,"%d %d\n",N,N);
   for(i=0;i<NE;i++){
     v0=elist[i][0];v1=elist[i][2];
-    e0=elist[i][1];e1=elist[i][3];
-    fprintf(fp,"%d %d %d %d  %d        %d %d %d %d  %d        %6d\n",
-            decx(v0),decy(v0),deco(v0),deci(v0),e0,
-            decx(v1),decy(v1),deco(v1),deci(v1),e1,
-            Q[v0][e0]);
+    fprintf(fp,"%d %d %d %d   %d %d %d %d   %8d\n",
+            decx(v0),decy(v0),deco(v0),deci(v0),
+            decx(v1),decy(v1),deco(v1),deci(v1),
+            Q[v0][elist[i][1]]);
   }
   fclose(fp);
 }
@@ -141,10 +146,14 @@ void readweights(char *f){
   assert(nx==N&&ny==N);
   for(i=0;i<NV;i++)for(j=0;j<6;j++)Q[i][j]=0; // Ensure weight=0 for non-existent edges
   for(i=0;i<NE;i++){
-    assert(fscanf(fp,"%d %d %d %d %d %d %d %d %d %d %d",
-                  &x0,&y0,&o0,&i0,&e0,
-                  &x1,&y1,&o1,&i1,&e1,
-                  &w)==11);
+    assert(fscanf(fp,"%d %d %d %d %d %d %d %d %d",
+                  &x0,&y0,&o0,&i0,
+                  &x1,&y1,&o1,&i1,
+                  &w)==9);
+    if(x1==x0&&y1==y0){assert(o0!=o1);e0=i1;e1=i0;}else{
+      if(abs(x1-x0)==1&&y1==y0&&o0==0&&o1==0){e0=4+(x1-x0+1)/2;e1=9-e0;}else
+        if(x1==x0&&abs(y1-y0)==1&&o0==1&&o1==1){e0=4+(y1-y0+1)/2;e1=9-e0;}else assert(0);
+    }
     Q[enc(x0,y0,o0,i0)][e0]=Q[enc(x1,y1,o1,i1)][e1]=w;
   }
   fclose(fp);
@@ -155,8 +164,8 @@ int val(void){
   v=0;
   for(x=0;x<N;x++)for(y=0;y<N;y++){
     v+=QB[x][y][0][XB[x][y][0]][XB[x][y][1]][0];
-    if(x<N-1)v+=QB[x][y][0][XB[x][y][0]][XB[x+1][y][0]][2];
-    if(y<N-1)v+=QB[x][y][1][XB[x][y][1]][XB[x][y+1][1]][2];
+    v+=QB[x][y][0][XB[x][y][0]][XB[x+1][y][0]][2];
+    v+=QB[x][y][1][XB[x][y][1]][XB[x][y+1][1]][2];
   }
   return v;
 }
@@ -171,18 +180,12 @@ int dval(int p){
   return v;
 }
 
-int main(int ac,char**av){
-  printf("N=%d\n",N);
-  initrand();
-  initgraph();
-  if(ac<2){initweights();printf("Initialising random weight matrix\n");}else
-    {readweights(av[1]);printf("Reading weight matrix from file \"%s\"\n",av[1]);}
-  getbigweights();
-  writeweights("tempproblem");
+int opt0(double maxt){// Simple K_4,4-wise optimisation
   int r,v,x,y,s0,s1,bv,cv,vmin;
   long long int nn;
-  bv=1000000000;nn=0;
-  while(1){
+  double t0,t1,tt;
+  bv=1000000000;nn=0;t0=cpu();t1=0;
+  while(cpu()-t0<maxt){
     init_state();
     cv=val();
     do{
@@ -190,22 +193,37 @@ int main(int ac,char**av){
         vmin=1000000000;
         for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++){
           v=QB[x][y][0][s0][s1][0];
-          if(x>0)v+=QB[x][y][0][s0][XB[x-1][y][0]][1];
-          if(x<N-1)v+=QB[x][y][0][s0][XB[x+1][y][0]][2];
-          if(y>0)v+=QB[x][y][1][s1][XB[x][y-1][1]][1];
-          if(y<N-1)v+=QB[x][y][1][s1][XB[x][y+1][1]][2];
+          v+=QB[x][y][0][s0][XB[x-1][y][0]][1];
+          v+=QB[x][y][0][s0][XB[x+1][y][0]][2];
+          v+=QB[x][y][1][s1][XB[x][y-1][1]][1];
+          v+=QB[x][y][1][s1][XB[x][y+1][1]][2];
           if(v<vmin){vmin=v;XB[x][y][0]=s0;XB[x][y][1]=s1;}
         }
       }
       v=val();r=(v<cv);if(r)cv=v;
     }while(r);
     nn++;
-    if(cv<bv||((nn&(nn-1))==0)){
+    tt=cpu()-t0;
+    if(cv<bv||tt>=t1){
       if(cv<bv)bv=cv;
-      printf("%12lld %10d %8.2f\n",nn,bv,clock()/(double)CLOCKS_PER_SEC);
+      printf("%12lld %10d %8.2f\n",nn,bv,tt);
+      t1=MAX(tt*1.2,tt+5);
       fflush(stdout);
     }
   }
+  return bv;
+}
+
+int main(int ac,char**av){
+  printf("N=%d\n",N);
+  memset(XBplus,0,sizeof(XBplus));
+  initrand();
+  initgraph();
+  if(ac<2){initweights();printf("Initialising random weight matrix\n");}else
+    {readweights(av[1]);printf("Reading weight matrix from file \"%s\"\n",av[1]);}
+  getbigweights();
+  writeweights("tempproblem");
+  opt0(1e100);
   /*
   int b,i,p,s,v;
   int h0[16][N][2],h1[16][N][2];// history
