@@ -21,34 +21,21 @@
 // o is the "orientation" (0=horizontally connected, 1=vertically connected)
 // i is the index within the "semi-K4,4"
 
-#define L 3
 #define N 8
-// Require 2^L >= N, but N doesn't have to be a power of 2
-#define M (1<<(2*L+3))
 #define NV (8*N*N)
 #define NE (8*N*(3*N-1))
 #define NBV (2*N*N)
 #define NBE (N*(3*N-2))
-#define enc(x,y,o,i) ((i)+((o)<<2)+((x)<<3)+((y)<<(L+3)))
-#define decx(p) (((p)>>3)&((1<<L)-1))
-#define decy(p) (((p)>>(L+3))&((1<<L)-1))
+#define enc(x,y,o,i) ((i)+((o)<<2)+(((x)*N+(y))<<3))
+#define decx(p) (((p)>>3)/N)
+#define decy(p) (((p)>>3)%N)
 #define deco(p) (((p)>>2)&1)
 #define deci(p) ((p)&3)
-// Bit encoding of vertex:
-// 876543210
-// \|/\|/|\|
-//  |  | | Bits 0,1 = i
-//  |  | Bit 2 = o
-//  |  Bits 3..(L+2) = x
-//  Bit (L+3)..(2L+2) = y
 
-// Convention is that smaller numbers always correspond to horizontal
-
-int adj[M][6];// Neighbours as encoded vertices (-1 for non-existent)
-              // 0-3 corresponds to intra-K_4,4 neighbours
-              // 4 = Left or Down, 5 = Right or Up
-int Q[M][6];// Weights
-int vlist[NV]; // encoded vertex list
+int adj[NV][6];// Neighbours as encoded vertices (-1 for non-existent)
+               // 0-3 corresponds to intra-K_4,4 neighbours
+               // 4 = Left or Down, 5 = Right or Up
+int Q[NV][6];// Weights
 int elist[NE][4]; // elist[e][0] = encoded start vertex of edge e
                   // elist[e][1] = edge number (0..5) from vertex elist[e][0] to elist[e][2]
                   // elist[e][2] = encoded end vertex of edge e
@@ -60,7 +47,8 @@ int QB[N][N][2][3][16][16]; // Weights for big verts (derived from Q[])
                             // QB[x][y][o][d][s0][s1] = total weight from big vert (x,y,o) in state s0
                             //                          to the big vert in direction d in state s1
                             // d=0 is intra K_4,4, d=1 is Left/Down, d=2 is Right/Up
-//#define X(p) statemap((XB[decx(p)][decy(p)][deco(p)]>>deci(p))&1)// ncu
+//#define X(p) (statemap[(XB[decx(p)][decy(p)][deco(p)]>>deci(p))&1])// ncu
+int okv[NV];
 
 int wn,seed;
 double maxt;
@@ -80,7 +68,7 @@ void initgraph(void){
   int i,j,o,p,q,x,y,nv,ne;
   nv=ne=0;
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(i=0;i<4;i++){
-    p=enc(x,y,o,i);vlist[nv++]=p;
+    p=enc(x,y,o,i);nv++;
     for(j=0;j<4;j++)adj[p][j]=enc(x,y,1-o,j);
     if(o==0){
       adj[p][4]=x>0?enc(x-1,y,o,i):-1;
@@ -103,12 +91,12 @@ void initgraph(void){
 
 void initweights(void){// Initialise a symmetric weight matrix with random +/-1s,
   //                      and a random subset of wn working vertices
-  int i,j,t,v0,v1,ok[NV];
+  int i,j,t,v0,v1;
   for(i=0;i<NV;i++)for(j=0;j<6;j++)Q[i][j]=0; // Ensure weight=0 for non-existent edges
-  for(i=0,t=wn;i<NV;i++){ok[i]=(randint(NV-i)<t);t-=ok[i];}
+  for(i=0,t=wn;i<NV;i++){okv[i]=(randint(NV-i)<t);t-=okv[i];}
   for(i=0;i<NE;i++){
     v0=elist[i][0];v1=elist[i][2];
-    Q[v0][elist[i][1]]=Q[v1][elist[i][3]]=(randbit()*2-1)*ok[v0]*ok[v1];
+    Q[v0][elist[i][1]]=Q[v1][elist[i][3]]=(randbit()*2-1)*okv[v0]*okv[v1];
   }
 }
 
@@ -149,12 +137,13 @@ void writeweights(char *f){
 }
 
 void readweights(char *f){
-  int i,j,w,x0,y0,o0,i0,e0,x1,y1,o1,i1,e1,nx,ny;
+  int i,j,w,v0,v1,x0,y0,o0,i0,e0,x1,y1,o1,i1,e1,nx,ny;
   FILE *fp;
   fp=fopen(f,"r");assert(fp);
   assert(fscanf(fp,"%d %d %d",&nx,&ny,&wn)==3);
   assert(nx==N&&ny==N);
-  for(i=0;i<NV;i++)for(j=0;j<6;j++)Q[i][j]=0; // Ensure weight=0 for non-existent edges
+  for(i=0;i<NV;i++)okv[i]=0;
+  for(i=0;i<NV;i++)for(j=0;j<6;j++)Q[i][j]=0; // Ensure weight=0 for edges that go out of bounds
   for(i=0;i<NE;i++){
     assert(fscanf(fp,"%d %d %d %d %d %d %d %d %d",
                   &x0,&y0,&o0,&i0,
@@ -164,7 +153,10 @@ void readweights(char *f){
       if(abs(x1-x0)==1&&y1==y0&&o0==0&&o1==0){e0=4+(x1-x0+1)/2;e1=9-e0;}else
         if(x1==x0&&abs(y1-y0)==1&&o0==1&&o1==1){e0=4+(y1-y0+1)/2;e1=9-e0;}else assert(0);
     }
-    Q[enc(x0,y0,o0,i0)][e0]=Q[enc(x1,y1,o1,i1)][e1]=w;
+    v0=enc(x0,y0,o0,i0);
+    v1=enc(x1,y1,o1,i1);
+    Q[v0][e0]=Q[v1][e1]=w;
+    if(w)okv[v0]=okv[v1]=1;
   }
   fclose(fp);
 }
@@ -221,8 +213,44 @@ int lineexhaust(int c,int d){
   int v0[16],v1[16];
   int h0[16][N][2],h1[16][N][2];// history
 
-  if(d)return 0;//alter
-  
+  if(d){
+    //return 0;
+    for(r=0;r<N;r++){
+      for(b=0;b<16;b++){// b = state of (c,r,1)
+        if(r>0){
+          vmin0=1000000000;smin0=-1;
+          for(s=0;s<16;s++){// s = state of (c,r-1,1)
+            v=v0[s]+QB[r-1][c][0][2][s][b];
+            if(v<vmin0){vmin0=v;smin0=s;}
+          }
+          memcpy(h1[b],h0[smin0],(2*r-1)*sizeof(int));
+          h1[b][r-1][1]=smin0;
+        }else vmin0=0;
+        vmin1=1000000000;smin1=-1;
+        for(s=0;s<16;s++){// s = state of (c,r,0)
+          v=QB[r][c][1][0][s][b]+
+            QB[r][c][1][1][s][XB[r][c-1][1]]+
+            QB[r][c][1][2][s][XB[r][c+1][1]];
+          if(v<vmin1){vmin1=v;smin1=s;}
+        }
+        v1[b]=vmin0+vmin1;
+        h1[b][r][0]=smin1;
+      }//b
+      memcpy(v0,v1,sizeof(v0));
+      memcpy(h0,h1,sizeof(h0));
+    }//r
+
+    vmin0=1000000000;smin0=-1;
+    for(s=0;s<16;s++){// s = state of (c,N-1,1)
+      v=v0[s];
+      if(v<vmin0){vmin0=v;smin0=s;}
+    }
+    for(r=0;r<N;r++)for(o=0;o<2;o++)XB[r][c][1-o]=h0[smin0][r][o];
+    XB[N-1][c][0]=smin0;
+    return vmin0;
+  }
+
+  //return 0;
   for(r=0;r<N;r++){
     for(b=0;b<16;b++){// b = state of (c,r,1)
       if(r>0){
@@ -258,7 +286,7 @@ int lineexhaust(int c,int d){
   return vmin0;
 }
 
-int opt1(double maxt,int pr){// Optimisation using line (column/row) exhausts
+int opt1(double maxt,int pr,double *lut){// Optimisation using line (column/row) exhausts
   int o,r,v,x,bv,cv;
   long long int nn;
   double t0,t1,tt;
@@ -278,7 +306,7 @@ int opt1(double maxt,int pr){// Optimisation using line (column/row) exhausts
     nn++;
     tt=cpu()-t0;
     if(cv<bv||tt>=t1||tt>=maxt){
-      if(cv<bv)bv=cv;
+      if(cv<bv){bv=cv;if(lut)*lut=tt;}
       t1=MAX(tt*1.2,tt+5);
       if(pr){printf("%12lld %10d %8.2f\n",nn,bv,tt);fflush(stdout);}
     }
@@ -289,6 +317,7 @@ int opt1(double maxt,int pr){// Optimisation using line (column/row) exhausts
 void initoptions(int ac,char**av){
   int opt;
   wn=NV;infile=outfile=0;seed=time(0);maxt=10;statemap[0]=-1;statemap[1]=1;
+  if(outfile)printf("outfile=%s\n",outfile);
   while((opt=getopt(ac,av,"n:o:s:t:x:"))!=-1){
     switch(opt){
     case 'n': wn=atoi(optarg);assert(wn<=NV);break;
@@ -302,6 +331,7 @@ void initoptions(int ac,char**av){
       exit(1);
     }
   }
+  if(outfile)printf("outfile=%s\n",outfile);
   if(optind<ac)infile=strdup(av[optind]);
   printf("Working nodes: %d of %d\n",wn,NV);
   printf("Seed: %d\n",seed);
@@ -309,7 +339,7 @@ void initoptions(int ac,char**av){
 }
 
 int main(int ac,char**av){
-  printf("N=%d\n",N);assert(N<=(1<<L));
+  printf("N=%d\n",N);
   initoptions(ac,av);
   memset(XBplus,0,sizeof(XBplus));
   initrand(seed);
@@ -319,17 +349,20 @@ int main(int ac,char**av){
   }else{
     initweights();printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
-  printf("%d working vertice%s\n",wn,wn==1?"":"s");
+  printf("%d working node%s\n",wn,wn==1?"":"s");
+  printf("States are %d,%d\n",statemap[0],statemap[1]);
+  if(outfile)printf("outfile=%s\n",outfile);
   if(outfile){writeweights(outfile);printf("Wrote weight matrix to file \"%s\"\n",outfile);}
   getbigweights();
-  double s0,s1,s2,v;
+  double v,s0,s1,s2;
   s0=s1=s2=0;
   while(0){
     initweights();getbigweights();
-    v=opt1(maxt,0);
+    v=0;
+    opt1(maxt,0,&v);
     s0+=1;s1+=v;s2+=v*v;
     if(1||((int)s0)%100==0)printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
   }
-  opt1(maxt,1);
+  opt1(maxt,1,0);
   return 0;
 }
