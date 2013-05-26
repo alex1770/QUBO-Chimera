@@ -11,6 +11,8 @@
 #   K=K_4,4
 #   L=4 lines
 
+def tr(x): return 1-2*x
+
 from random import randrange
 
 def k44():# pick random k44 weights
@@ -27,13 +29,13 @@ def valk44(g,b0,b1):
   v=0
   for i in range(4):
     for j in range(4):
-      v+=g[i][j]*((b0>>i)&1)*((b1>>j)&1)
+      v+=g[i][j]*tr((b0>>i)&1)*tr((b1>>j)&1)
   return v
 
 def vallines(g,b0,b1):
   v=0
   for i in range(4):
-    v+=g[i]*((b0>>i)&1)*((b1>>i)&1)
+    v+=g[i]*tr((b0>>i)&1)*tr((b1>>i)&1)
   return v
 
 
