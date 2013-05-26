@@ -80,7 +80,7 @@ void initgraph(void){
     for(i=0;i<4;i++){
       if(o==0)for(j=0;j<4;j++){
         elist[ne][0]=p;elist[ne][1]=i;elist[ne][2]=j;
-        elist[ne][3]=p;elist[ne][4]=j;elist[ne][5]=i;
+        elist[ne][3]=enc(x,y,1);elist[ne][4]=j;elist[ne][5]=i;
         ne++;
       }
       if((o?y:x)<N-1){
@@ -152,7 +152,8 @@ void readweights(char *f){
   fp=fopen(f,"r");assert(fp);
   assert(fscanf(fp,"%d %d %d",&nx,&ny,&wn)==3);
   assert(nx==N&&ny==N);
-  for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=0;for(j=0;j<6;j++)Q[p][i][j]=0;} // Ensure weight=0 for edges that go out of bounds
+  // Ensure weight=0 for edges that go out of bounds
+  for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=0;for(j=0;j<6;j++)Q[p][i][j]=0;}
   for(i=0;i<NE;i++){
     assert(fscanf(fp,"%d %d %d %d %d %d %d %d %d",
                   &x0,&y0,&o0,&i0,
