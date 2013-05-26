@@ -20,6 +20,7 @@
 // x,y are the horizontal,vertical co-ords of the K4,4
 // o is the "orientation" (0=horizontally connected, 1=vertically connected)
 // i is the index within the "semi-K4,4"
+// There is an involution given by {x<->y o<->1-o}
 
 #define N 8
 #define NV (8*N*N)
@@ -50,7 +51,7 @@ int QB[N][N][2][3][16][16]; // Weights for big verts (derived from Q[])
 //#define X(p) (statemap[(XB[decx(p)][decy(p)][deco(p)]>>deci(p))&1])// ncu
 int okv[NV];
 
-int wn,seed;
+int wn,seed,bm;
 double maxt;
 char *infile,*outfile;
 int statemap[2];
@@ -89,17 +90,6 @@ void initgraph(void){
   assert(nv==NV&&ne==NE);
 }
 
-void initweights(void){// Initialise a symmetric weight matrix with random +/-1s,
-  //                      and a random subset of wn working vertices
-  int i,j,t,v0,v1;
-  for(i=0;i<NV;i++)for(j=0;j<6;j++)Q[i][j]=0; // Ensure weight=0 for non-existent edges
-  for(i=0,t=wn;i<NV;i++){okv[i]=(randint(NV-i)<t);t-=okv[i];}
-  for(i=0;i<NE;i++){
-    v0=elist[i][0];v1=elist[i][2];
-    Q[v0][elist[i][1]]=Q[v1][elist[i][3]]=(randbit()*2-1)*okv[v0]*okv[v1];
-  }
-}
-
 void getbigweights(void){// Get derived weights on "big graph" QB[] from Q[]
   int i,j,o,p,t,x,y,s0,s1;
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++){
@@ -114,6 +104,18 @@ void getbigweights(void){// Get derived weights on "big graph" QB[] from Q[]
     for(i=0;i<4;i++)t+=Q[p+i][5]*statemap[(s0>>i)&1]*statemap[(s1>>i)&1];
     QB[x][y][o][2][s0][s1]=t;
   }
+}
+
+void initweights(void){// Initialise a symmetric weight matrix with random +/-1s,
+  //                      and a random subset of wn working vertices
+  int i,j,t,v0,v1;
+  for(i=0;i<NV;i++)for(j=0;j<6;j++)Q[i][j]=0; // Ensure weight=0 for non-existent edges
+  for(i=0,t=wn;i<NV;i++){okv[i]=(randint(NV-i)<t);t-=okv[i];}
+  for(i=0;i<NE;i++){
+    v0=elist[i][0];v1=elist[i][2];
+    Q[v0][elist[i][1]]=Q[v1][elist[i][3]]=(randbit()*2-1)*okv[v0]*okv[v1];
+  }
+  getbigweights();
 }
 
 void init_state(void){// Initialise state randomly
@@ -139,6 +141,7 @@ void writeweights(char *f){
 void readweights(char *f){
   int i,j,w,v0,v1,x0,y0,o0,i0,e0,x1,y1,o1,i1,e1,nx,ny;
   FILE *fp;
+  printf("Reading weight matrix from file \"%s\"\n",f);
   fp=fopen(f,"r");assert(fp);
   assert(fscanf(fp,"%d %d %d",&nx,&ny,&wn)==3);
   assert(nx==N&&ny==N);
@@ -159,6 +162,7 @@ void readweights(char *f){
     if(w)okv[v0]=okv[v1]=1;
   }
   fclose(fp);
+  getbigweights();
 }
 
 int val(void){
@@ -170,6 +174,21 @@ int val(void){
     v+=QB[x][y][1][2][XB[x][y][1]][XB[x][y+1][1]];
   }
   return v;
+}
+
+void prstate(void){
+  static int X0[N][N][2]={{{0}}};
+  int nb[16];
+  int i,j,o,t,x;
+  for(i=1,nb[0]=0;i<16;i++)nb[i]=nb[i>>1]+(i&1);
+  for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB[i][j][o]^X0[i][j][o]];
+  x=(t>=NV/2?15:0);
+  printf("\n");
+  for(j=N-1;j>=0;j--){
+    for(i=0;i<N;i++)printf(" %X%X",XB[i][j][0]^X0[i][j][0]^x,XB[i][j][1]^X0[i][j][1]^x);
+    printf("\n");
+  }
+  memcpy(X0,XB,sizeof(X0));
 }
 
 int opt0(double maxt,int pr){// Simple K_4,4-wise optimisation
@@ -286,40 +305,62 @@ int lineexhaust(int c,int d){
   return vmin0;
 }
 
-int opt1(double maxt,int pr,double *lut){// Optimisation using line (column/row) exhausts
-  int o,r,v,x,bv,cv;
+void shuf(int*a,int n){
+  int i,j,t;
+  for(i=0;i<n-1;i++){
+    j=i+randint(n-i);t=a[i];a[i]=a[j];a[j]=t;
+  }
+}
+
+int opt1(double maxt,int pr,int opt,double *tts){// Optimisation using line (column/row) exhausts
+  int o,r,v,x,bv,cv,ns;
   long long int nn;
   double t0,t1,tt;
-  bv=1000000000;nn=0;t0=cpu();t1=0;
+  bv=1000000000;nn=0;t0=cpu();t1=0;ns=0;
   do{
     init_state();
     cv=val();
     r=0;
     while(1){
-      for(o=0;o<2;o++)for(x=0;x<N;x++){
+      int i,ord[2*N];
+      for(i=0;i<2*N;i++)ord[i]=i;
+      //shuf(ord,2*N);
+      shuf(ord,N);shuf(ord+N,N);
+      for(i=0;i<2*N;i++){
+        x=ord[i]%N;o=ord[i]/N;
         lineexhaust(x,o);
         v=val();
         if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*N)goto el0;}
       }
     }
   el0:
+    if(pr==2&&cv<=bv){prstate();printf("cv %d\n",cv);}
     nn++;
     tt=cpu()-t0;
     if(cv<bv||tt>=t1||tt>=maxt){
-      if(cv<bv){bv=cv;if(lut)*lut=tt;}
+      if(cv<bv)bv=cv;
       t1=MAX(tt*1.2,tt+5);
-      if(pr){printf("%12lld %10d %8.2f\n",nn,bv,tt);fflush(stdout);}
+      if(pr==1){printf("%12lld %10d %8.2f\n",nn,bv,tt);fflush(stdout);}
     }
+    if(cv==opt){
+      ns++;
+      printf("Found %d solution%s from %lld trial%s\n",ns,ns==1?"":"s",nn,nn==1?"":"s");
+      fflush(stdout);
+    }
+    if(ns>=10&&tt>=1)break;
   }while(tt<maxt);
+  if(tts)*tts=tt/ns;
   return bv;
 }
 
 void initoptions(int ac,char**av){
   int opt;
-  wn=NV;infile=outfile=0;seed=time(0);maxt=10;statemap[0]=-1;statemap[1]=1;
+  wn=NV;infile=outfile=0;seed=time(0);maxt=1e10;statemap[0]=-1;statemap[1]=1;
+  bm=-1;
   if(outfile)printf("outfile=%s\n",outfile);
-  while((opt=getopt(ac,av,"n:o:s:t:x:"))!=-1){
+  while((opt=getopt(ac,av,"b:n:o:s:t:x:"))!=-1){
     switch(opt){
+    case 'b': bm=atoi(optarg);break;
     case 'n': wn=atoi(optarg);assert(wn<=NV);break;
     case 'o': outfile=strdup(optarg);break;
     case 's': seed=atoi(optarg);break;
@@ -338,6 +379,18 @@ void initoptions(int ac,char**av){
   printf("Max time: %gs\n",maxt);
 }
 
+void benchmark(void){
+  int gtr[16]={-886,-884,-890,-886,-900,-898,-882,-886,-898,-888,-878,-898,-894,-890,-900,-878};
+  char l[100];
+  double tts;
+  assert(N==8&&bm>=0&&bm<16);
+  sprintf(l,"problems/test8_%d",bm);
+  readweights(l);
+  printf("Ground truth value %d\n",gtr[bm]);
+  opt1(10000,1,gtr[bm],&tts);
+  printf("Time to solution %g\n",tts);
+}
+
 int main(int ac,char**av){
   printf("N=%d\n",N);
   initoptions(ac,av);
@@ -345,7 +398,7 @@ int main(int ac,char**av){
   initrand(seed);
   initgraph();
   if(infile){
-    readweights(infile);printf("Reading weight matrix from file \"%s\"\n",infile);
+    readweights(infile);
   }else{
     initweights();printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
@@ -353,16 +406,7 @@ int main(int ac,char**av){
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   if(outfile)printf("outfile=%s\n",outfile);
   if(outfile){writeweights(outfile);printf("Wrote weight matrix to file \"%s\"\n",outfile);}
-  getbigweights();
-  double v,s0,s1,s2;
-  s0=s1=s2=0;
-  while(0){
-    initweights();getbigweights();
-    v=0;
-    opt1(maxt,0,&v);
-    s0+=1;s1+=v;s2+=v*v;
-    if(1||((int)s0)%100==0)printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
-  }
-  opt1(maxt,1,0);
+  if(bm>=0){benchmark();return 0;}
+  opt1(maxt,1,1,0);
   return 0;
 }
