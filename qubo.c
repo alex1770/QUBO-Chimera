@@ -49,6 +49,7 @@ int okv[NBV][4];
 int XBplus[(N+2)*N*2];
 int *XBa=XBplus+N*2;// XBa[enc(x,y,o)] = State (0..15) of big vert
                     // Allow extra space to avoid having to check for out-of-bounds accesses
+                    // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
 int QBa[NBV][3][16][16]; // Weights for big verts (derived from Q[])
                          // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
                          //                              to the big vert in direction d in state s1
@@ -115,7 +116,7 @@ void initweights(void){// Initialise a symmetric weight matrix with random +/-1s
   int i,j,p,t,u,d0,d1,i0,i1,v0,v1;
   for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(j=0;j<6;j++)Q[p][i][j]=0; // Ensure weight=0 for non-existent edges
   t=wn;u=NV;
-  for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=(randint(u)<t);t-=okv[p][i];u--;}
+  for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=(randint(u)<t);t-=okv[p][i];u--;}// Choose random subset of wn working nodes
   for(i=0;i<NE;i++){
     v0=elist[i][0];i0=elist[i][1];d0=elist[i][2];
     v1=elist[i][3];i1=elist[i][4];d1=elist[i][5];
@@ -188,7 +189,7 @@ void prstate(void){
   int nb[16];
   int i,j,o,t,x;
   for(i=1,nb[0]=0;i<16;i++)nb[i]=nb[i>>1]+(i&1);
-  for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB(i,j,o)]^X0[enc(i,j,o)];
+  for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB(i,j,o)^X0[enc(i,j,o)]];
   x=(t>=NV/2?15:0);
   printf("\n");
   for(j=N-1;j>=0;j--){
@@ -237,7 +238,7 @@ int lineexhaust(int c,int d){
   
   int b,o,r,s,v,smin0,smin1,vmin0,vmin1;
   int v0[16],v1[16];// Map from boundary state to value
-  int h0[16][N][2],h1[16][N][2];// history
+  int h0[16][N][2],h1[16][N][2];// History
 
   for(r=0;r<N;r++){
     for(b=0;b<16;b++){// b = state of (c,r,1)
@@ -274,6 +275,34 @@ int lineexhaust(int c,int d){
   return vmin0;
 }
 
+int planeexhaust(int o){
+  // Exhaust (*,*,o) "plane" (x=*, y=*, o fixed)
+  // Comments and variable names are as if in the case o=0 (horizontally connected nodes)
+  int b,c,r,s,v,smin,vmin;
+  int v0[16],v1[16];// Map from boundary state to value
+  int h0[16][N],h1[16][N];// History
+  for(r=0;r<N;r++){
+    for(b=0;b<16;b++)v0[b]=0;
+    for(c=0;c<N;c++){
+      // Following is inefficient: should optimise bitwise
+      for(b=0;b<16;b++){// b = state of (c+1,r,0)
+        vmin=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s = state of (c,r,0)
+          v=v0[s]+QBI(o,c,r,0,2,s,b)+QBI(o,c,r,0,0,s,XBI(o,c,r,1));
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        memcpy(h1[b],h0[smin],c*sizeof(int));
+        h1[b][c]=smin;
+        v1[b]=vmin;
+      }//b
+      memcpy(v0,v1,sizeof(v0));
+      memcpy(h0,h1,sizeof(h0));
+    }//c
+    for(c=0;c<N;c++)XBI(o,c,r,0)=h0[0][c];
+  }
+  return 0;
+}
+
 void shuf(int*a,int n){
   int i,j,t;
   for(i=0;i<n-1;i++){
@@ -292,13 +321,17 @@ int opt1(double maxt,int pr,int opt,double *tts){// Optimisation using line (col
     r=0;
     while(1){
       int i,ord[2*N];
+      if(0)for(o=0;o<2;o++){
+        planeexhaust(o);v=val();assert(v<=cv);
+        if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*N+2)goto el0;}
+      }
       for(i=0;i<2*N;i++)ord[i]=i;
       //shuf(ord,2*N);
       shuf(ord,N);shuf(ord+N,N);
       for(i=0;i<2*N;i++){
         x=ord[i]%N;o=ord[i]/N;
         lineexhaust(x,o);
-        v=val();
+        v=val();assert(v<=cv);
         if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*N)goto el0;}
       }
     }
@@ -316,7 +349,7 @@ int opt1(double maxt,int pr,int opt,double *tts){// Optimisation using line (col
       printf("Found %d solution%s from %lld trial%s\n",ns,ns==1?"":"s",nn,nn==1?"":"s");
       fflush(stdout);
     }
-    if(ns>=10&&tt>=1)break;
+    if(ns>=100&&tt>=1)break;
   }while(tt<maxt);
   if(tts)*tts=tt/ns;
   return bv;
