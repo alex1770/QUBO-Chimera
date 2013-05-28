@@ -18,8 +18,8 @@
 // |y-y'|=1, x=x', o=o'=1, i=i'
 // 
 // x,y are the horizontal,vertical co-ords of the K4,4
-// o is the "orientation" (0=horizontally connected, 1=vertically connected)
-// i is the index within the "semi-K4,4"
+// o=0..1 is the "orientation" (0=horizontally connected, 1=vertically connected)
+// i=0..3 is the index within the "semi-K4,4"="bigvertex"
 // There is an involution given by {x<->y o<->1-o}
 
 #define N 8
@@ -59,8 +59,8 @@ int QBa[NBV][3][16][16]; // Weights for big verts (derived from Q[])
 
 // Globals corresponding to command line options
 int wn,seed,mode,weightmode,statemap[2];
-double maxt;
-char *infile,*outfile;
+double ttr;
+char *inprobfile,*outprobfile,*outstatefile;
 
 #define MAX(x,y) ((x)>(y)?(x):(y))
 // Isolate random number generator in case we need to replace it with something better
@@ -207,22 +207,34 @@ int readweights(char *f){
   return gtr;
 }
 
-void prstate(void){
+void prstate(FILE*fp,int style){
+  // style = 0: hex grid
+  // style = 1: hex grid xored with previous, "gauge-fixed" in the +/-1 case
+  // style = 2: list of vertices
   static int X0[NBV]={0};
   int nb[16];
-  int i,j,o,t,x;
-  for(i=1,nb[0]=0;i<16;i++)nb[i]=nb[i>>1]+(i&1);
-  for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB(i,j,o)^X0[enc(i,j,o)]];
-  x=(t>=NV/2?15:0);
-  printf("\n");
-  for(j=N-1;j>=0;j--){
-    for(i=0;i<N;i++){printf(" ");for(o=0;o<2;o++)printf("%X",XB(i,j,o)^X0[enc(i,j,o)]^x);}
-    printf("\n");
+  int i,j,o,p,t,x,xor;
+  x=xor=0;
+  if(style==1){
+    xor=-1;
+    if(statemap[0]==-1){
+      for(i=1,nb[0]=0;i<16;i++)nb[i]=nb[i>>1]+(i&1);
+      for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB(i,j,o)^X0[enc(i,j,o)]];
+      x=(t>=NV/2?15:0);
+    }
+  }
+  if(style<2){
+    for(j=N-1;j>=0;j--){
+      for(i=0;i<N;i++){fprintf(fp," ");for(o=0;o<2;o++)fprintf(fp,"%X",XB(i,j,o)^(X0[enc(i,j,o)]&xor)^x);}
+      fprintf(fp,"\n");
+    }
+  }else{
+    for(p=0;p<NBV;p++)for(i=0;i<4;i++)fprintf(fp,"%d %d %d %d  %4d\n",decx(p),decy(p),deco(p),i,statemap[(XBa[p]>>i)&1]);
   }
   memcpy(X0,XBa,sizeof(X0));
 }
 
-int opt0(double maxt,int pr){// Simple K_4,4-wise optimisation
+int opt0(double ttr,int pr){// Simple K_4,4-wise optimisation
   int r,v,x,y,s0,s1,bv,cv,vmin;
   long long int nn;
   double t0,t1,tt;
@@ -246,17 +258,17 @@ int opt0(double maxt,int pr){// Simple K_4,4-wise optimisation
     }while(r);
     nn++;
     tt=cpu()-t0;
-    if(cv<bv||tt>=t1||tt>=maxt){
+    if(cv<bv||tt>=t1||tt>=ttr){
       if(cv<bv)bv=cv;
       if(pr){printf("%12lld %10d %8.2f\n",nn,bv,tt);fflush(stdout);}
       t1=MAX(tt*1.2,tt+5);
     }
-  }while(tt<maxt);
+  }while(tt<ttr);
   return bv;
 }
 
 int lineexhaust(int c,int d){
-  // If d=0 exhaust column c, else exhaust row c
+  // If d=0 exhaust column c, if d=1 exhaust row c
   // Comments and variable names are as if in the column case (d=0)
   
   int b,o,r,s,v,smin0,smin1,vmin0,vmin1;
@@ -307,7 +319,7 @@ int planeexhaust(int o){// not currently used
   for(r=0;r<N;r++){
     for(b=0;b<16;b++)v0[b]=0;
     for(c=0;c<N;c++){
-      // Following is inefficient: should optimise bitwise
+      // Following is convenient but inefficient: should optimise bitwise
       for(b=0;b<16;b++){// b = state of (c+1,r,0)
         vmin=1000000000;smin=-1;
         for(s=0;s<16;s++){// s = state of (c,r,0)
@@ -333,8 +345,8 @@ void shuf(int*a,int n){
   }
 }
 
-int opt1(double maxt,int pr,int opt,double *tts){// Optimisation using line (column/row) exhausts
-  int o,r,v,x,bv,cv,ns;//,k,y,count[N][N][256];
+int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (column/row) exhausts
+  int o,r,v,x,bv,cv,ns,new,last;//,k,y,count[N][N][256];
   long long int nn;
   double t0,t1,tt;
   bv=1000000000;nn=0;t0=cpu();t1=0;ns=0;
@@ -360,86 +372,82 @@ int opt1(double maxt,int pr,int opt,double *tts){// Optimisation using line (col
     }
   el0:
     //for(x=0;x<N;x++)for(y=0;y<N;y++)count[x][y][XB(x,y,0)+(XB(x,y,1)<<4)]+=1;
-    if(pr==2&&cv<=bv){prstate();printf("cv %d\n",cv);}
+    if(pr==2&&cv<=bv){printf("\n");prstate(stdout,1);printf("cv %d\n",cv);}
     nn++;
     tt=cpu()-t0;
-    if(cv<bv||tt>=t1||tt>=maxt){
-      if(cv<bv)bv=cv;
+    if((new=(cv<bv))){bv=cv;ns=0;}
+    if(cv==bv)ns++;
+    last=(tt>=ttr&&ns>=tns);
+    if(new||tt>=t1||last){
       t1=MAX(tt*1.2,tt+5);
-      if(pr==1){printf("%12lld %10d %8.2f\n",nn,bv,tt);fflush(stdout);}
+      if(pr==1){printf("%12lld %10d %10d %8.2f\n",nn,bv,ns,tt);fflush(stdout);}
     }
-    if(cv==opt){
-      ns++;
-      printf("Found %d solution%s from %lld trial%s\n",ns,ns==1?"":"s",nn,nn==1?"":"s");
-      fflush(stdout);
-    }
-    if(ns>=100&&tt>=1)break;
-  }while(tt<maxt);
+  }while(!last);
   if(tts)*tts=tt/ns;
   return bv;
 }
 
 void initoptions(int ac,char**av){
   int opt;
-  wn=NV;infile=outfile=0;seed=time(0);maxt=1e10;statemap[0]=0;statemap[1]=1;
+  wn=NV;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=1e10;statemap[0]=0;statemap[1]=1;
   weightmode=0;mode=0;
-  while((opt=getopt(ac,av,"m:n:o:s:t:w:x:"))!=-1){
+  while((opt=getopt(ac,av,"m:n:o:s:t:w:x:O:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);assert(wn<=NV);break;
-    case 'o': outfile=strdup(optarg);break;
+    case 'o': outprobfile=strdup(optarg);break;
+    case 'O': outstatefile=strdup(optarg);break;
     case 's': seed=atoi(optarg);break;
-    case 't': maxt=atof(optarg);break;
+    case 't': ttr=atof(optarg);break;
     case 'w': weightmode=atoi(optarg);break;
     case 'x': statemap[0]=atoi(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [-m mode] [-n workingnodes] [-o outputprobfile] [-s seed] "
-              "[-t maxtime] [-w weightmode] [-x lowerstatevalue] [inputprobfile]\n",av[0]);
+              "[-t targettimetorun] [-w weightmode] [-x lowerstatevalue] [-O outputstatefile] "
+              "[inputprobfile]\n",av[0]);
       exit(1);
     }
   }
-  if(outfile)printf("outfile=%s\n",outfile);
-  if(optind<ac)infile=strdup(av[optind]);
-  printf("Working nodes: %d of %d\n",wn,NV);
+  if(optind<ac)inprobfile=strdup(av[optind]);
+  printf("N=%d\n",N);
+  printf("Mode: %d\n",mode);
   printf("Seed: %d\n",seed);
-  printf("Max time: %gs\n",maxt);
+  printf("Target time to run: %gs\n",ttr);
 }
 
 int main(int ac,char**av){
   int gtr;
-  printf("N=%d\n",N);
   initoptions(ac,av);
   memset(XBplus,0,sizeof(XBplus));
   initrand(seed);
   initgraph();
-  if(infile){
-    gtr=readweights(infile);
+  if(inprobfile){
+    gtr=readweights(inprobfile);
   }else{
     initweights();printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
-  printf("%d working node%s\n",wn,wn==1?"":"s");
+  printf("%d working node%s out of %d\n",wn,wn==1?"":"s",NV);
   printf("States are %d,%d\n",statemap[0],statemap[1]);
-  if(outfile){writeweights(outfile);printf("Wrote weight matrix to file \"%s\"\n",outfile);}
+  if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
   case 0:// Find single minimum value
-    opt1(maxt,1,1,0);
+    opt1(ttr,1,1,0);
+    if(outstatefile){FILE*fp=fopen(outstatefile,"w");prstate(fp,2);fclose(fp);}
     break;
   case 1:;// Find average minimum value
     double v,s0,s1,s2;
     s0=s1=s2=0;
     while(1){
       initweights();
-      v=opt1(maxt,0,1,0);
+      v=opt1(ttr,0,1,0);
       s0+=1;s1+=v;s2+=v*v;
       printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
     }
     break;
   case 2:;// Find rate of solution generation
     double tts;
-    //gtr=opt1(1.0,0,1,0);// Override gtr from file (only safe for easy cases).
-    printf("Ground truth value %d\n",gtr);
-    opt1(10000,1,gtr,&tts);
-    printf("Time to solution %g\n",tts);
+    gtr=opt1(0.5,1,1000,&tts);
+    printf("Time to solution %gs, assuming true minimum is %d\n",tts,gtr);
     break;
   }
   return 0;
