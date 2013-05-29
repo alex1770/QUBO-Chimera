@@ -7,8 +7,13 @@
 #include <assert.h>
 
 // QUBO solver
-// Solves QUBO problem as described in section 3.2 of
-// http://www.cs.amherst.edu/ccm/cf14-mcgeoch.pdf
+// Solves QUBO problem:
+// Minimise sum_{i,j} Q_ij x_i x_j over choices of x_i
+// i,j corresponds to an edge from i to j in the "Chimera" graph C_N.
+// The sum is taken over both directions (i,j and j,i) and includes the diagonal terms
+// (configurable using option -w).
+// x_i can take the values statemap[0] and statemap[1] (default 0,1).
+// This includes the case described in section 3.2 of http://www.cs.amherst.edu/ccm/cf14-mcgeoch.pdf
 // 
 // Chimera graph, C_N:
 // Vertices are (x,y,o,i)  0<=x,y<N, 0<=o<2, 0<=i<4
@@ -22,7 +27,6 @@
 // i=0..3 is the index within the "semi-K4,4"="bigvertex"
 // There is an involution given by {x<->y o<->1-o}
 
-#define N 6
 #define NV (8*N*N)        // Num vertices
 #define NE (8*N*(3*N-1))  // Num edges (not used)
 #define NBV (2*N*N)       // Num "big" vertices (semi-K4,4s)
@@ -36,29 +40,29 @@
 //#define encI(inv,x,y,o) ((inv)?enc(y,x,1-(o)):enc(x,y,o))
 //#define encI(inv,x,y,o) (enc(x,y,o)+(inv)*(enc(y,x,1-(o))-enc(x,y,o)))
 
-int Q[NBV][4][7]; // Weights: Q[r][i][d] = weight of i^th vertex of r^th big vertex in direction d
-                  // Directions 0-3 corresponds to intra-K_4,4 neighbours, and
-                  // 4 = Left or Down, 5 = Right or Up, 6 = self
-int adj[NBV][4][7][2]; // Complete adjacency list, including both directions along an edge and self-loops
-                       // adj[p][i][d]={q,j} <-> d^th neighbour of encoded vertex p, index i, is 
-                       //                        encoded vertex q, index j                    
-                       // d as above
-int okv[NBV][4];
-int XBplus[(N+2)*N*2];
-int *XBa=XBplus+N*2;// XBa[enc(x,y,o)] = State (0..15) of big vert
-                    // Allow extra space to avoid having to check for out-of-bounds accesses
-                    // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
-int QBa[NBV][3][16][16]; // Weights for big verts (derived from Q[])
-                         // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
-                         //                              to the big vert in direction d in state s1
-                         // d=0 is intra-K_4,4, d=1 is Left/Down, d=2 is Right/Up
+int (*Q)[4][7]; // Weights: Q[r][i][d] = weight of i^th vertex of r^th big vertex in direction d
+                // Directions 0-3 corresponds to intra-K_4,4 neighbours, and
+                // 4 = Left or Down, 5 = Right or Up, 6 = self
+int (*adj)[4][7][2]; // Complete adjacency list, including both directions along an edge and self-loops
+                     // adj[p][i][d]={q,j} <-> d^th neighbour of encoded vertex p, index i, is 
+                     //                        encoded vertex q, index j                    
+                     // d as above
+int (*okv)[4];
+int *XBplus; // [(N+2)*N*2]
+int *XBa;// XBplus+N*2;// XBa[enc(x,y,o)] = State (0..15) of big vert
+                       // Allow extra space to avoid having to check for out-of-bounds accesses
+                       // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
+int (*QBa)[3][16][16]; // Weights for big verts (derived from Q[])
+                       // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
+                       //                              to the big vert in direction d in state s1
+                       // d=0 is intra-K_4,4, d=1 is Left/Down, d=2 is Right/Up
 #define QB(x,y,o,d,s0,s1) (QBa[enc(x,y,o)][d][s0][s1])
 #define QBI(inv,x,y,o,d,s0,s1) (QBa[encI(inv,x,y,o)][d][s0][s1])
 #define XB(x,y,o) (XBa[enc(x,y,o)])
 #define XBI(inv,x,y,o) (XBa[encI(inv,x,y,o)])
 
 // Globals corresponding to command line options
-int wn,seed,mode,weightmode,statemap[2];
+int N,wn,seed,mode,weightmode,statemap[2];
 double ttr;
 char *inprobfile,*outprobfile,*outstatefile;
 
@@ -211,10 +215,11 @@ void prstate(FILE*fp,int style){
   // style = 0: hex grid
   // style = 1: hex grid xored with previous, "gauge-fixed" in the +/-1 case
   // style = 2: list of vertices
-  static int X0[NBV]={0};
+  static int *X0,first=1;
   int nb[16];
   int i,j,o,p,t,x,xor;
   x=xor=0;
+  if(first){X0=(int*)malloc(NBV*sizeof(int));first=0;}
   if(style==1){
     xor=-1;
     if(statemap[0]==-1){
@@ -231,7 +236,7 @@ void prstate(FILE*fp,int style){
   }else{
     for(p=0;p<NBV;p++)for(i=0;i<4;i++)fprintf(fp,"%d %d %d %d  %4d\n",decx(p),decy(p),deco(p),i,statemap[(XBa[p]>>i)&1]);
   }
-  memcpy(X0,XBa,sizeof(X0));
+  memcpy(X0,XBa,NBV*sizeof(int));
 }
 
 int opt0(double ttr,int pr){// Simple K_4,4-wise optimisation
@@ -348,8 +353,8 @@ int fullexhaust(void){
   memset(v0,0,M*sizeof(short));
   // Encoding of boundary into b is that the (*,*,0) term corresponds to nibble 0
   // and the (c,*,1) terms correspond to nibble c+1.
-  // This keeps more boundary than necessary for edge cases c=0,c=N-1,r=0,r=N-1, so could be
-  // sped up at the cost of making it messy.
+  // This inefficienly keeps more boundary than necessary for edge cases c=0,c=N-1,r=0,r=N-1,
+  // so could be sped up at the cost of making it messy.
   for(r=0;r<N;r++){
     for(b=0;b<M;b++)v0[b]+=QB(0,r,0,0,b&15,b>>4&15);
     for(c=0;c<N;c++){
@@ -437,12 +442,13 @@ int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (colu
 
 void initoptions(int ac,char**av){
   int opt;
-  wn=NV;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=0;mode=0;
-  while((opt=getopt(ac,av,"m:n:o:s:t:w:x:O:"))!=-1){
+  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=1e10;statemap[0]=0;statemap[1]=1;
+  weightmode=0;mode=0;N=8;
+  while((opt=getopt(ac,av,"m:n:N:o:O:s:t:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
-    case 'n': wn=atoi(optarg);assert(wn<=NV);break;
+    case 'n': wn=atoi(optarg);break;
+    case 'N': N=atoi(optarg);break;
     case 'o': outprobfile=strdup(optarg);break;
     case 'O': outstatefile=strdup(optarg);break;
     case 's': seed=atoi(optarg);break;
@@ -450,12 +456,20 @@ void initoptions(int ac,char**av){
     case 'w': weightmode=atoi(optarg);break;
     case 'x': statemap[0]=atoi(optarg);break;
     default:
-      fprintf(stderr,"Usage: %s [-m mode] [-n workingnodes] [-o outputprobfile] [-s seed] "
-              "[-t targettimetorun] [-w weightmode] [-x lowerstatevalue] [-O outputstatefile] "
-              "[inputprobfile]\n",av[0]);
+      fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
+      fprintf(stderr,"       -m   mode of operation\n");
+      fprintf(stderr,"       -n   num working nodes\n");
+      fprintf(stderr,"       -N   size of Chimera graph\n");
+      fprintf(stderr,"       -o   output problem file\n");
+      fprintf(stderr,"       -O   output state file\n");
+      fprintf(stderr,"       -s   seed\n");
+      fprintf(stderr,"       -t   target run time for some modes\n");
+      fprintf(stderr,"       -w   weight creation convention\n");
+      fprintf(stderr,"       -x   lower state value\n");
       exit(1);
     }
   }
+  if(wn<0)wn=NV; else assert(wn<=NV);
   if(optind<ac)inprobfile=strdup(av[optind]);
   printf("N=%d\n",N);
   printf("Mode: %d\n",mode);
@@ -466,7 +480,12 @@ void initoptions(int ac,char**av){
 int main(int ac,char**av){
   int gtr;
   initoptions(ac,av);
-  memset(XBplus,0,sizeof(XBplus));
+  Q=(int(*)[4][7])malloc(NBV*4*7*sizeof(int));
+  adj=(int(*)[4][7][2])malloc(NBV*4*7*2*sizeof(int));
+  okv=(int(*)[4])malloc(NBV*4*sizeof(int));
+  XBplus=(int*)calloc((N+2)*N*2*sizeof(int),1);
+  XBa=XBplus+N*2;
+  QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
   initrand(seed);
   initgraph();
   if(inprobfile){
