@@ -7,7 +7,7 @@
 #include <assert.h>
 
 // QUBO solver
-// Solves random instances of QUBO problem as described in section 3.2 of
+// Solves QUBO problem as described in section 3.2 of
 // http://www.cs.amherst.edu/ccm/cf14-mcgeoch.pdf
 // 
 // Chimera graph, C_N:
@@ -22,7 +22,7 @@
 // i=0..3 is the index within the "semi-K4,4"="bigvertex"
 // There is an involution given by {x<->y o<->1-o}
 
-#define N 8
+#define N 6
 #define NV (8*N*N)        // Num vertices
 #define NE (8*N*(3*N-1))  // Num edges (not used)
 #define NBV (2*N*N)       // Num "big" vertices (semi-K4,4s)
@@ -310,7 +310,7 @@ int lineexhaust(int c,int d){
   return vmin0;
 }
 
-int planeexhaust(int o){// not currently used
+void planeexhaust(int o){// not currently used
   // Exhaust (*,*,o) "plane" (x=*, y=*, o fixed)
   // Comments and variable names are as if in the case o=0 (horizontally connected nodes)
   int b,c,r,s,v,smin,vmin;
@@ -335,7 +335,55 @@ int planeexhaust(int o){// not currently used
     }//c
     for(c=0;c<N;c++)XBI(o,c,r,0)=h0[0][c];
   }
-  return 0;
+}
+
+int fullexhaust(void){
+  int c,r,v,bp,vmin;
+  long long int b,s,M;
+  short*v0,*v1;// Map from boundary state to value of interior
+  M=1LL<<4*(N+1);
+  v0=malloc(M*sizeof(short));
+  v1=malloc(M*sizeof(short));
+  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust\n",2.*M*sizeof(short)/(1<<30));return 1;}
+  memset(v0,0,M*sizeof(short));
+  // Encoding of boundary into b is that the (*,*,0) term corresponds to nibble 0
+  // and the (c,*,1) terms correspond to nibble c+1.
+  // This keeps more boundary than necessary for edge cases c=0,c=N-1,r=0,r=N-1, so could be
+  // sped up at the cost of making it messy.
+  for(r=0;r<N;r++){
+    for(b=0;b<M;b++)v0[b]+=QB(0,r,0,0,b&15,b>>4&15);
+    for(c=0;c<N;c++){
+      // Add c,r,0 to interior
+      // Old boundary <c,r+1,1  c,r,0  >=c,r,1
+      // New boundary <c,r+1,1  c+1,r,0  >=c,r,1
+      // New edges (c,r,0) to (c+1,r,0) and (c+1,r,0) to (c+1,r,1)
+      for(b=0;b<M;b++){// b=state of new boundary
+        vmin=1000000000;
+        for(s=0;s<16;s++){// s=state of (c,r,0)
+          v=v0[(b&~15)|s]+QB(c,r,0,2,s,b&15)+(c<N-1?QB(c+1,r,0,0,b&15,(b>>4*(c+2))&15):0);
+          if(v<vmin)vmin=v;
+        }
+        v1[b]=vmin;
+      }
+      // Add c,r,1 to interior
+      // Old boundary <c,r+1,1  c+1,r,0  >=c,r,1
+      // New boundary <c+1,r+1,1  c+1,r,0  >=c+1,r,1
+      // New edge (c,r,1) to (c,r+1,1)
+      bp=4*(c+1);
+      for(b=0;b<M;b++){// b=state of new boundary
+        vmin=1000000000;
+        for(s=0;s<16;s++){// s=state of (c,r,1)
+          v=v1[(b&~(15LL<<bp))|(s<<bp)]+QB(c,r,1,2,s,(b>>bp)&15);
+          if(v<vmin)vmin=v;
+        }
+        v0[b]=vmin;
+      }
+    }
+  }
+  for(b=0;b<M;b++)assert(v0[b]==v0[0]);
+  v=v0[0];
+  free(v1);free(v0);
+  return v;
 }
 
 void shuf(int*a,int n){
@@ -435,7 +483,8 @@ int main(int ac,char**av){
     if(outstatefile){FILE*fp=fopen(outstatefile,"w");prstate(fp,2);fclose(fp);}
     break;
   case 1:;// Find average minimum value
-    double v,s0,s1,s2;
+    int v;
+    double s0,s1,s2;
     s0=s1=s2=0;
     while(1){
       initweights();
@@ -446,8 +495,12 @@ int main(int ac,char**av){
     break;
   case 2:;// Find rate of solution generation
     double tts;
-    gtr=opt1(0.5,1,1000,&tts);
+    gtr=opt1(0.5,1,500,&tts);
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,gtr);
+    break;
+  case 3:// Full exhaust
+    v=fullexhaust();
+    printf("Value %d\n",v);
     break;
   }
   return 0;
