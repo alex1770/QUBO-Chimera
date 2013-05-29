@@ -40,26 +40,29 @@
 //#define encI(inv,x,y,o) ((inv)?enc(y,x,1-(o)):enc(x,y,o))
 //#define encI(inv,x,y,o) (enc(x,y,o)+(inv)*(enc(y,x,1-(o))-enc(x,y,o)))
 
-int (*Q)[4][7]; // Weights: Q[r][i][d] = weight of i^th vertex of r^th big vertex in direction d
+int (*Q)[4][7]; // Q[NBV][4][7]
+                // Weights: Q[r][i][d] = weight of i^th vertex of r^th big vertex in direction d
                 // Directions 0-3 corresponds to intra-K_4,4 neighbours, and
                 // 4 = Left or Down, 5 = Right or Up, 6 = self
-int (*adj)[4][7][2]; // Complete adjacency list, including both directions along an edge and self-loops
+int (*adj)[4][7][2]; // adj[NBV][4][7][2]
+                     // Complete adjacency list, including both directions along an edge and self-loops
                      // adj[p][i][d]={q,j} <-> d^th neighbour of encoded vertex p, index i, is 
                      //                        encoded vertex q, index j                    
                      // d as above
-int (*okv)[4];
-int *XBplus; // [(N+2)*N*2]
-int *XBa;// XBplus+N*2;// XBa[enc(x,y,o)] = State (0..15) of big vert
+int (*okv)[4]; // okv[NBV][4] list of working vertices
+int *XBplus; // XBplus[(N+2)*N*2]
+int *XBa;// XBa[NBV]   // XBa[enc(x,y,o)] = State (0..15) of big vert
                        // Allow extra space to avoid having to check for out-of-bounds accesses
                        // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
-int (*QBa)[3][16][16]; // Weights for big verts (derived from Q[])
+int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
+                       // Weights for big verts (derived from Q[])
                        // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
                        //                              to the big vert in direction d in state s1
                        // d=0 is intra-K_4,4, d=1 is Left/Down, d=2 is Right/Up
 #define QB(x,y,o,d,s0,s1) (QBa[enc(x,y,o)][d][s0][s1])
-#define QBI(inv,x,y,o,d,s0,s1) (QBa[encI(inv,x,y,o)][d][s0][s1])
+#define QBI(inv,x,y,o,d,s0,s1) (QBa[encI(inv,x,y,o)][d][s0][s1])// Involution-capable addressing of QB
 #define XB(x,y,o) (XBa[enc(x,y,o)])
-#define XBI(inv,x,y,o) (XBa[encI(inv,x,y,o)])
+#define XBI(inv,x,y,o) (XBa[encI(inv,x,y,o)])// Involution-capable addressing of XB
 
 // Globals corresponding to command line options
 int N,wn,seed,mode,weightmode,statemap[2];
@@ -123,6 +126,19 @@ int val(void){// Calculate value (energy)
     v+=QB(x,y,0,0,XB(x,y,0),XB(x,y,1));
     v+=QB(x,y,0,2,XB(x,y,0),XB(x+1,y,0));
     v+=QB(x,y,1,2,XB(x,y,1),XB(x,y+1,1));
+  }
+  return v;
+}
+
+int stripval(int c0,int c1,int d){
+  // If d=0, get value of columns c0..(c1-1), not including external edges
+  // If d=1 then same for rows c0..(c1-1)
+  int v,x,y;
+  v=0;
+  for(x=c0;x<c1;x++)for(y=0;y<N;y++){
+    v+=QBI(d,x,y,0,0,XBI(d,x,y,0),XBI(d,x,y,1));
+    if(x<c1-1)v+=QBI(d,x,y,0,2,XBI(d,x,y,0),XBI(d,x+1,y,0));
+    v+=QBI(d,x,y,1,2,XBI(d,x,y,1),XBI(d,x,y+1,1));
   }
   return v;
 }
@@ -239,6 +255,28 @@ void prstate(FILE*fp,int style){
   memcpy(X0,XBa,NBV*sizeof(int));
 }
 
+void writestate(char *f){
+  FILE *fp;
+  fp=fopen(f,"w");assert(fp);
+  prstate(fp,2);
+  fclose(fp);
+}
+
+void readstate(char *f){
+  int s,x,y,o,i;
+  char l[1000];
+  FILE *fp;
+  printf("Reading state from file \"%s\"\n",f);
+  fp=fopen(f,"r");assert(fp);
+  memset(XBa,0,NBV*sizeof(int));
+  while(fgets(l,1000,fp)){
+    assert(sscanf(l,"%d %d %d %d %d",&x,&y,&o,&i,&s)==5);
+    assert(s==statemap[0]||s==statemap[1]);
+    XB(x,y,o)|=(s==statemap[1])<<i;
+  }
+  fclose(fp);
+}
+
 int opt0(double ttr,int pr){// Simple K_4,4-wise optimisation
   int r,v,x,y,s0,s1,bv,cv,vmin;
   long long int nn;
@@ -342,30 +380,34 @@ void planeexhaust(int o){// not currently used
   }
 }
 
-int fullexhaust(void){
+int stripexhaust(int c0,int c1,int d){
+  // If d=0 exhaust columns c0..(c1-1), if d=1 exhaust rows c0..(c1-1)
+  // Comments and variable names are as if in the column case (d=0)
+
   int c,r,v,bp,vmin;
   long long int b,s,M;
   short*v0,*v1;// Map from boundary state to value of interior
-  M=1LL<<4*(N+1);
+  M=1LL<<4*(c1-c0+1);
   v0=malloc(M*sizeof(short));
   v1=malloc(M*sizeof(short));
-  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust\n",2.*M*sizeof(short)/(1<<30));return 1;}
+  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust\n",2.*M*sizeof(short)/(1<<30));return 1;}
   memset(v0,0,M*sizeof(short));
   // Encoding of boundary into b is that the (*,*,0) term corresponds to nibble 0
-  // and the (c,*,1) terms correspond to nibble c+1.
-  // This inefficienly keeps more boundary than necessary for edge cases c=0,c=N-1,r=0,r=N-1,
+  // and the (c,*,1) terms correspond to nibble c-c0+1.
+  // This inefficiently keeps more boundary than necessary for edge cases c=c1-1,r=0,r=N-1,
   // so could be sped up at the cost of making it messy.
   for(r=0;r<N;r++){
-    for(b=0;b<M;b++)v0[b]+=QB(0,r,0,0,b&15,b>>4&15);
-    for(c=0;c<N;c++){
+    for(b=0;b<M;b++)v0[b]+=QBI(d,c0,r,0,0,b&15,b>>4&15)+QBI(d,c0,r,0,1,b&15,XBI(d,c0-1,r,0));
+    for(c=c0;c<c1;c++){
+      bp=4*(c-c0+1);
       // Add c,r,0 to interior
       // Old boundary <c,r+1,1  c,r,0  >=c,r,1
       // New boundary <c,r+1,1  c+1,r,0  >=c,r,1
-      // New edges (c,r,0) to (c+1,r,0) and (c+1,r,0) to (c+1,r,1)
+      // New edges (c,r,0) to (c+1,r,0) and (if not at the RH edge) (c+1,r,0) to (c+1,r,1)
       for(b=0;b<M;b++){// b=state of new boundary
         vmin=1000000000;
         for(s=0;s<16;s++){// s=state of (c,r,0)
-          v=v0[(b&~15)|s]+QB(c,r,0,2,s,b&15)+(c<N-1?QB(c+1,r,0,0,b&15,(b>>4*(c+2))&15):0);
+          v=v0[(b&~15)|s]+QBI(d,c,r,0,2,s,b&15)+(c<c1-1?QBI(d,c+1,r,0,0,b&15,(b>>(bp+4))&15):0);
           if(v<vmin)vmin=v;
         }
         v1[b]=vmin;
@@ -374,22 +416,24 @@ int fullexhaust(void){
       // Old boundary <c,r+1,1  c+1,r,0  >=c,r,1
       // New boundary <c+1,r+1,1  c+1,r,0  >=c+1,r,1
       // New edge (c,r,1) to (c,r+1,1)
-      bp=4*(c+1);
       for(b=0;b<M;b++){// b=state of new boundary
         vmin=1000000000;
         for(s=0;s<16;s++){// s=state of (c,r,1)
-          v=v1[(b&~(15LL<<bp))|(s<<bp)]+QB(c,r,1,2,s,(b>>bp)&15);
+          v=v1[(b&~(15LL<<bp))|(s<<bp)]+QBI(d,c,r,1,2,s,(b>>bp)&15);
           if(v<vmin)vmin=v;
         }
         v0[b]=vmin;
       }
     }
+    for(b=0;b<M;b++)v0[b]=v0[(b&~15)|XBI(d,c1,r,0)];
   }
   for(b=0;b<M;b++)assert(v0[b]==v0[0]);
   v=v0[0];
   free(v1);free(v0);
-  return v;
+  return v+stripval(0,c0,d)+stripval(c1,N,d);
 }
+
+int fullexhaust(void){return stripexhaust(0,N,0);}
 
 void shuf(int*a,int n){
   int i,j,t;
@@ -399,7 +443,7 @@ void shuf(int*a,int n){
 }
 
 int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (column/row) exhausts
-  int o,r,v,x,bv,cv,ns,new,last;//,k,y,count[N][N][256];
+  int o,r,v,x,bv,cv,ns,new,last,Xbest[NBV];//,k,y,count[N][N][256];
   long long int nn;
   double t0,t1,tt;
   bv=1000000000;nn=0;t0=cpu();t1=0;ns=0;
@@ -428,7 +472,7 @@ int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (colu
     if(pr==2&&cv<=bv){printf("\n");prstate(stdout,1);printf("cv %d\n",cv);}
     nn++;
     tt=cpu()-t0;
-    if((new=(cv<bv))){bv=cv;ns=0;}
+    if((new=(cv<bv))){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv)ns++;
     last=(tt>=ttr&&ns>=tns);
     if(new||tt>=t1||last){
@@ -437,6 +481,7 @@ int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (colu
     }
   }while(!last);
   if(tts)*tts=tt/ns;
+  memcpy(XBa,Xbest,NBV*sizeof(int));
   return bv;
 }
 
@@ -489,7 +534,7 @@ int main(int ac,char**av){
   initrand(seed);
   initgraph();
   if(inprobfile){
-    gtr=readweights(inprobfile);
+    gtr=readweights(inprobfile);// This takes wn from file, overriding current setting
   }else{
     initweights();printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
@@ -499,7 +544,7 @@ int main(int ac,char**av){
   switch(mode){
   case 0:// Find single minimum value
     opt1(ttr,1,1,0);
-    if(outstatefile){FILE*fp=fopen(outstatefile,"w");prstate(fp,2);fclose(fp);}
+    if(outstatefile)writestate(outstatefile);
     break;
   case 1:;// Find average minimum value
     int v;
@@ -520,6 +565,15 @@ int main(int ac,char**av){
   case 3:// Full exhaust
     v=fullexhaust();
     printf("Value %d\n",v);
+    break;
+  case 4:;// check
+    opt1(ttr,1,1,0);
+    printf("Full %d\n",stripexhaust(0,N,0));
+    int o,c0,c1;
+    for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
+      v=stripexhaust(c0,c1,o);
+      printf("Strip %d %d %d    %d\n",c0,c1,o,v);
+    }
     break;
   }
   return 0;
