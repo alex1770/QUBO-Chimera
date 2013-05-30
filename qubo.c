@@ -51,9 +51,10 @@ int (*adj)[4][7][2]; // adj[NBV][4][7][2]
                      // d as above
 int (*okv)[4]; // okv[NBV][4] list of working vertices
 int *XBplus; // XBplus[(N+2)*N*2]
-int *XBa;// XBa[NBV]   // XBa[enc(x,y,o)] = State (0..15) of big vert
-                       // Allow extra space to avoid having to check for out-of-bounds accesses
-                       // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
+int *XBa; // XBa[NBV]
+          // XBa[enc(x,y,o)] = State (0..15) of big vert
+          // Allow extra space to avoid having to check for out-of-bounds accesses
+          // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
 int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
                        // Weights for big verts (derived from Q[])
                        // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
@@ -70,11 +71,17 @@ double ttr;
 char *inprobfile,*outprobfile,*outstatefile;
 
 #define MAX(x,y) ((x)>(y)?(x):(y))
+#define MAXVAL 10000 // Assume for convenience that all values (energies) are <= this in absolute value
+
 // Isolate random number generator in case we need to replace it with something better
 void initrand(int seed){srandom(seed);}
 int randbit(void){return (random()>>16)&1;}
 int randnib(void){return (random()>>16)&15;}
 int randint(int n){return random()%n;}
+
+typedef long long int int64;// gcc's 64-bit type
+double*work; // work[wid]=estimate of relative running time of stablestripexhaust at width wid
+             // (in arbitrary work units)
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
@@ -130,7 +137,7 @@ int val(void){// Calculate value (energy)
   return v;
 }
 
-int stripval(int c0,int c1,int d){
+int stripval(int d,int c0,int c1){
   // If d=0, get value of columns c0..(c1-1), not including external edges
   // If d=1 then same for rows c0..(c1-1)
   int v,x,y;
@@ -277,42 +284,17 @@ void readstate(char *f){
   fclose(fp);
 }
 
-int opt0(double ttr,int pr){// Simple K_4,4-wise optimisation
-  int r,v,x,y,s0,s1,bv,cv,vmin;
-  long long int nn;
-  double t0,t1,tt;
-  bv=1000000000;nn=0;t0=cpu();t1=0;
-  do{
-    init_state();
-    cv=val();
-    do{
-      for(x=0;x<N;x++)for(y=0;y<N;y++){
-        vmin=1000000000;
-        for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++){
-          v=QB(x,y,0,0,s0,s1);
-          v+=QB(x,y,0,1,s0,XB(x-1,y,0));
-          v+=QB(x,y,0,2,s0,XB(x+1,y,0));
-          v+=QB(x,y,1,1,s1,XB(x,y-1,1));
-          v+=QB(x,y,1,2,s1,XB(x,y+1,1));
-          if(v<vmin){vmin=v;XB(x,y,0)=s0;XB(x,y,1)=s1;}
-        }
-      }
-      v=val();r=(v<cv);if(r)cv=v;
-    }while(r);
-    nn++;
-    tt=cpu()-t0;
-    if(cv<bv||tt>=t1||tt>=ttr){
-      if(cv<bv)bv=cv;
-      if(pr){printf("%12lld %10d %8.2f\n",nn,bv,tt);fflush(stdout);}
-      t1=MAX(tt*1.2,tt+5);
-    }
-  }while(tt<ttr);
-  return bv;
+void initwork(){
+  int wid;
+  work=(double*)malloc((N+1)*sizeof(double));
+  work[1]=(16*((N-1)*16+N*16*5)+2*N+1)*N*3;
+  for(wid=2;wid<=N;wid++)work[wid]=N*wid*(1LL<<4*(wid+1))*16*3*(N-wid+1)*3;
 }
 
-int lineexhaust(int c,int d){
+int lineexhaust(int d,int c,int upd){
   // If d=0 exhaust column c, if d=1 exhaust row c
   // Comments and variable names are as if in the column case (d=0)
+  // upd=1 <-> write optimum values back into the global state
   
   int b,o,r,s,v,smin0,smin1,vmin0,vmin1;
   int v0[16],v1[16];// Map from boundary state to value
@@ -348,14 +330,17 @@ int lineexhaust(int c,int d){
     v=v0[s];
     if(v<vmin0){vmin0=v;smin0=s;}
   }
-  for(r=0;r<N;r++)for(o=0;o<2;o++)XBI(d,c,r,o)=h0[smin0][r][o];
-  XBI(d,c,N-1,1)=smin0;
+  if(upd){
+    for(r=0;r<N;r++)for(o=0;o<2;o++)XBI(d,c,r,o)=h0[smin0][r][o];
+    XBI(d,c,N-1,1)=smin0;
+  }
   return vmin0;
 }
 
 void planeexhaust(int o){// not currently used
   // Exhaust (*,*,o) "plane" (x=*, y=*, o fixed)
   // Comments and variable names are as if in the case o=0 (horizontally connected nodes)
+  // Writes optimum values back into the global state
   int b,c,r,s,v,smin,vmin;
   int v0[16],v1[16];// Map from boundary state to value
   int h0[16][N],h1[16][N];// History
@@ -380,22 +365,30 @@ void planeexhaust(int o){// not currently used
   }
 }
 
-int stripexhaust(int c0,int c1,int d){
+int stripexhaust(int d,int c0,int c1,int upd){
   // If d=0 exhaust columns c0..(c1-1), if d=1 exhaust rows c0..(c1-1)
   // Comments and variable names are as if in the column case (d=0)
+  // upd=1 <-> the optimum is written back into the global state
 
-  int c,r,v,bp,vmin;
-  long long int b,s,M;
+  int c,o,r,v,bp,wid,smin,vmin;
+  int64 b,s,M;
   short*v0,*v1;// Map from boundary state to value of interior
-  M=1LL<<4*(c1-c0+1);
-  v0=malloc(M*sizeof(short));
-  v1=malloc(M*sizeof(short));
-  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust\n",2.*M*sizeof(short)/(1<<30));return 1;}
+  unsigned char (*h0)[N][c1-c0][2]=0,(*h1)[N][c1-c0][2]=0;
+  wid=c1-c0;
+  M=1LL<<4*(wid+1);
+  v0=(short*)malloc(M*sizeof(short));
+  v1=(short*)malloc(M*sizeof(short));
+  if(upd){
+    h0=(unsigned char (*)[N][wid][2])malloc(M*N*wid*2);
+    h1=(unsigned char (*)[N][wid][2])malloc(M*N*wid*2);
+  }
+  if(!(v0&&v1&&(!upd||(h0&&h1)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust\n",
+                                          M*(2.*sizeof(short)+upd*wid*N*4)/(1<<30));return 1;}
   memset(v0,0,M*sizeof(short));
   // Encoding of boundary into b is that the (*,*,0) term corresponds to nibble 0
   // and the (c,*,1) terms correspond to nibble c-c0+1.
   // This inefficiently keeps more boundary than necessary for edge cases c=c1-1,r=0,r=N-1,
-  // so could be sped up at the cost of making it messy.
+  // so could be sped up at the cost of making it messier.
   for(r=0;r<N;r++){
     for(b=0;b<M;b++)v0[b]+=QBI(d,c0,r,0,0,b&15,b>>4&15)+QBI(d,c0,r,0,1,b&15,XBI(d,c0-1,r,0));
     for(c=c0;c<c1;c++){
@@ -405,35 +398,42 @@ int stripexhaust(int c0,int c1,int d){
       // New boundary <c,r+1,1  c+1,r,0  >=c,r,1
       // New edges (c,r,0) to (c+1,r,0) and (if not at the RH edge) (c+1,r,0) to (c+1,r,1)
       for(b=0;b<M;b++){// b=state of new boundary
-        vmin=1000000000;
+        vmin=1000000000;smin=-1;
         for(s=0;s<16;s++){// s=state of (c,r,0)
           v=v0[(b&~15)|s]+QBI(d,c,r,0,2,s,b&15)+(c<c1-1?QBI(d,c+1,r,0,0,b&15,(b>>(bp+4))&15):0);
-          if(v<vmin)vmin=v;
+          if(v<vmin){vmin=v;smin=s;}
         }
         v1[b]=vmin;
+        if(upd){memcpy(h1[b],h0[(b&~15)|smin],(wid*r+c-c0)*2);h1[b][r][c-c0][0]=smin;}
       }
       // Add c,r,1 to interior
       // Old boundary <c,r+1,1  c+1,r,0  >=c,r,1
       // New boundary <c+1,r+1,1  c+1,r,0  >=c+1,r,1
       // New edge (c,r,1) to (c,r+1,1)
       for(b=0;b<M;b++){// b=state of new boundary
-        vmin=1000000000;
+        vmin=1000000000;smin=-1;
         for(s=0;s<16;s++){// s=state of (c,r,1)
           v=v1[(b&~(15LL<<bp))|(s<<bp)]+QBI(d,c,r,1,2,s,(b>>bp)&15);
-          if(v<vmin)vmin=v;
+          if(v<vmin){vmin=v;smin=s;}
         }
         v0[b]=vmin;
+        if(upd){memcpy(h0[b],h1[(b&~(15LL<<bp))|(smin<<bp)],(wid*r+c-c0)*2+1);h0[b][r][c-c0][1]=smin;}
       }
     }
     for(b=0;b<M;b++)v0[b]=v0[(b&~15)|XBI(d,c1,r,0)];
+    if(upd)for(b=0;b<M;b++)memmove(h0[b],h0[(b&~15)|XBI(d,c1,r,0)],wid*(r+1)*2);
   }
-  for(b=0;b<M;b++)assert(v0[b]==v0[0]);
+  for(b=0;b<M;b++)assert(v0[b]==v0[0]);// Should be no dependence on empty boundary
   v=v0[0];
+  if(upd){
+    for(r=0;r<N;r++)for(c=c0;c<c1;c++)for(o=0;o<2;o++)XBI(d,c,r,o)=h0[0][r][c-c0][o];
+    free(h1);free(h0);
+  }
   free(v1);free(v0);
-  return v+stripval(0,c0,d)+stripval(c1,N,d);
+  return v+stripval(d,0,c0)+stripval(d,c1,N);
 }
 
-int fullexhaust(void){return stripexhaust(0,N,0);}
+int fullexhaust(int upd){return stripexhaust(0,0,N,upd);}
 
 void shuf(int*a,int n){
   int i,j,t;
@@ -442,42 +442,105 @@ void shuf(int*a,int n){
   }
 }
 
-int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (column/row) exhausts
-  int o,r,v,x,bv,cv,ns,new,last,Xbest[NBV];//,k,y,count[N][N][256];
-  long long int nn;
-  double t0,t1,tt;
-  bv=1000000000;nn=0;t0=cpu();t1=0;ns=0;
+int k44exhaust(int x,int y){
+  // Exhausts big vertex (x,y)
+  // Writes optimum value back into the global state
+  int v,s0,s1,v0,vmin,tv[16];
+  for(s1=0;s1<16;s1++)tv[s1]=QB(x,y,1,1,s1,XB(x,y-1,1))+QB(x,y,1,2,s1,XB(x,y+1,1));
+  vmin=1000000000;
+  for(s0=0;s0<16;s0++){
+    v0=QB(x,y,0,1,s0,XB(x-1,y,0))+QB(x,y,0,2,s0,XB(x+1,y,0));
+    for(s1=0;s1<16;s1++){
+      v=QB(x,y,0,0,s0,s1)+v0+tv[s1];
+      if(v<vmin){vmin=v;XB(x,y,0)=s0;XB(x,y,1)=s1;}
+    }
+  }
+  return vmin;
+}
+
+int stablek44exhaust(int cv){// Repeated k44 exhausts until no more improvement likely
+  int i,r,v,x,y,ord[N*N];
+  r=0;
+  while(1){
+    for(i=0;i<N*N;i++)ord[i]=i;
+    shuf(ord,N*N);
+    for(i=0;i<N*N;i++){
+      x=ord[i]%N;y=ord[i]/N;k44exhaust(x,y);
+      v=val();assert(v<=cv);
+      if(v<cv){cv=v;r=0;}else{r+=1;if(r==N*N)return cv;}
+    }
+  }
+}
+
+int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more improvement likely
+  int c,i,o,r,v,nc,ord[2*(N-wid+1)];
+  nc=N-wid+1;r=0;
+  while(1){
+    for(i=0;i<2*nc;i++)ord[i]=i;
+    shuf(ord,2*nc);
+    //shuf(ord,nc);shuf(ord+nc,nc);
+    for(i=0;i<2*nc;i++){
+      c=ord[i]%nc;o=ord[i]/nc;
+      if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
+      assert(v<=cv);
+      if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
+      // (It's actually possible that 2nc isn't enough to ensure there is no more improvement
+      // possible, because the exhaust()s can change the state to something of equal value.)
+    }
+  }
+}
+
+int opt1(double ttr,int pr,int tns,double *tts,int strat){
+  // Optimisation; writes back optimum found
+  int v,bv,lbv,cv,ns,new,last,Xbest[NBV],Xlbest[NBV];//,k,y,count[N][N][256];
+  int64 nn,stats[2*MAXVAL+1];
+  double ff,t0,t1,tt,w1;
+  bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;
   //for(x=0;x<N;x++)for(y=0;y<N;y++)for(k=0;k<256;k++)count[x][y][k]=1;
+  memset(stats,0,sizeof(stats));
+  w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
+  ff=1.0;
   do{
     //initstatebiased(count);
     init_state();
     cv=val();
-    r=0;
-    while(1){
-      int i,ord[2*N];
-      for(i=0;i<2*N;i++)ord[i]=i;
-      //shuf(ord,2*N);
-      shuf(ord,N);shuf(ord+N,N);
-      for(i=0;i<2*N;i++){
-        x=ord[i]%N;o=ord[i]/N;
-        lineexhaust(x,o);
-        v=val();assert(v<=cv);
-        if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*N)goto el0;}
-        // (It's actually possible that 2N isn't enough to ensure there is no more improvement
-        // possible, because lineexhaust() can change the state to something of equal value.)
+    switch(strat){
+    case 0:
+      cv=stablek44exhaust(cv);// Simple "local" strategy
+      break;
+    case 1:
+      cv=stablestripexhaust(cv,1);
+      break;
+    case 2:
+      cv=stablestripexhaust(cv,1);w1+=work[1];
+      if(cv<=lbv){lbv=cv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
+      if(ff*w1>=work[2]){
+        memcpy(XBa,Xlbest,NBV*sizeof(int));cv=lbv;
+        cv=stablestripexhaust(cv,2);
+        w1=0;lbv=1000000000;
       }
+      break;
     }
-  el0:
+    if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
     //for(x=0;x<N;x++)for(y=0;y<N;y++)count[x][y][XB(x,y,0)+(XB(x,y,1)<<4)]+=1;
     if(pr==2&&cv<=bv){printf("\n");prstate(stdout,1);printf("cv %d\n",cv);}
     nn++;
     tt=cpu()-t0;
     if((new=(cv<bv))){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
-    if(cv==bv)ns++;
+    if(cv==bv){
+      ns++;
+      // Must clear the record if find a presumed solution, since we measure
+      // time to first solution, not time per solution after getting going.
+      w1=0;lbv=1000000000;
+    }
     last=(tt>=ttr&&ns>=tns);
     if(new||tt>=t1||last){
-      t1=MAX(tt*1.2,tt+5);
-      if(pr==1){printf("%12lld %10d %10d %8.2f\n",nn,bv,ns,tt);fflush(stdout);}
+      t1=MAX(tt*1.1,tt+5);
+      if(pr==1){
+        printf("%12lld %10d %10d %8.2f\n",nn,bv,ns,tt);
+        if(0&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
+        fflush(stdout);
+      }
     }
   }while(!last);
   if(tts)*tts=tt/ns;
@@ -487,8 +550,8 @@ int opt1(double ttr,int pr,int tns,double *tts){// Optimisation using line (colu
 
 void initoptions(int ac,char**av){
   int opt;
-  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=0;mode=0;N=8;
+  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=10;statemap[0]=0;statemap[1]=1;
+  weightmode=0;mode=2;N=8;
   while((opt=getopt(ac,av,"m:n:N:o:O:s:t:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
@@ -531,6 +594,7 @@ int main(int ac,char**av){
   XBplus=(int*)calloc((N+2)*N*2*sizeof(int),1);
   XBa=XBplus+N*2;
   QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
+  initwork();
   initrand(seed);
   initgraph();
   if(inprobfile){
@@ -542,39 +606,46 @@ int main(int ac,char**av){
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
-  case 0:// Find single minimum value
-    opt1(ttr,1,1,0);
-    if(outstatefile)writestate(outstatefile);
+  case 0:// Find single minimum value, strategy 0
+    opt1(ttr,1,1,0,0);
     break;
-  case 1:;// Find average minimum value
+  case 1:// Find single minimum value, strategy 1
+    opt1(ttr,1,1,0,1);
+    break;
+  case 2:// Find single minimum value, strategy 2
+    opt1(ttr,1,1,0,2);
+    break;
+  case 3:;// Find rate of solution generation
+    double tts;
+    gtr=opt1(0.5,1,500,&tts,2);
+    printf("Time to solution %gs, assuming true minimum is %d\n",tts,gtr);
+    break;
+  case 4:;// Find average minimum value
     int v;
     double s0,s1,s2;
     s0=s1=s2=0;
     while(1){
       initweights();
-      v=opt1(ttr,0,1,0);
+      v=opt1(ttr,0,1,0,2);
       s0+=1;s1+=v;s2+=v*v;
       printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
     }
     break;
-  case 2:;// Find rate of solution generation
-    double tts;
-    gtr=opt1(0.5,1,500,&tts);
-    printf("Time to solution %gs, assuming true minimum is %d\n",tts,gtr);
+  case 5:// Full exhaust
+    printf("Full exhaust %d\n",fullexhaust(0));
     break;
-  case 3:// Full exhaust
-    v=fullexhaust();
-    printf("Value %d\n",v);
-    break;
-  case 4:;// check
-    opt1(ttr,1,1,0);
-    printf("Full %d\n",stripexhaust(0,N,0));
+  case 6:;// Checks
+    opt1(ttr,1,1,0,2);
+    printf("Full exhaust %d\n",fullexhaust(0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
-      v=stripexhaust(c0,c1,o);
+      v=stripexhaust(o,c0,c1,0);
       printf("Strip %d %d %d    %d\n",c0,c1,o,v);
+      if(c1-c0==1)v=lineexhaust(o,c0,0)+stripval(o,0,c0)+stripval(o,c0+1,N);
+      printf("Line  %d %d %d    %d\n",c0,c1,o,v);
     }
     break;
   }
+  if(outstatefile)writestate(outstatefile);
   return 0;
 }
