@@ -207,12 +207,13 @@ int readweights(char *f){
   FILE *fp;
   printf("Reading weight matrix from file \"%s\"\n",f);
   fp=fopen(f,"r");assert(fp);
-  assert(fgets(l,1000,fp));
+  while(fgets(l,1000,fp))if(l[0]!='#')break;
   n=sscanf(l,"%d %d %d",&nx,&ny,&gtr);assert(n>=2);if(n==2)gtr=1000000;// gtr=ground truth (if stored)
   assert(nx==N&&ny==N);
   // Ensure weights=0 for edges that go out of bounds
   for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=0;for(d=0;d<7;d++)Q[p][i][d]=0;}
   while(fgets(l,1000,fp)){
+    if(l[0]=='#')continue;
     assert(sscanf(l,"%d %d %d %d %d %d %d %d %d",
                   &x0,&y0,&o0,&i0,
                   &x1,&y1,&o1,&i1,
@@ -477,8 +478,8 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
   nc=N-wid+1;r=0;
   while(1){
     for(i=0;i<2*nc;i++)ord[i]=i;
-    shuf(ord,2*nc);
-    //shuf(ord,nc);shuf(ord+nc,nc);
+    //shuf(ord,2*nc);
+    shuf(ord,nc);shuf(ord+nc,nc);
     for(i=0;i<2*nc;i++){
       c=ord[i]%nc;o=ord[i]/nc;
       if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
@@ -615,7 +616,7 @@ int main(int ac,char**av){
   case 2:// Find single minimum value, strategy 2
     opt1(ttr,1,1,0,2);
     break;
-  case 3:;// Find rate of solution generation
+  case 3:;// Find rate of solution generation using strategy 2
     double tts;
     gtr=opt1(0.5,1,500,&tts,2);
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,gtr);
