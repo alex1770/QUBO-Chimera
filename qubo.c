@@ -65,13 +65,12 @@ int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
 #define XB(x,y,o) (XBa[enc(x,y,o)])
 #define XBI(inv,x,y,o) (XBa[encI(inv,x,y,o)])// Involution-capable addressing of XB
 
-// Globals corresponding to command line options
-int N,wn,seed,mode,weightmode,statemap[2];
-double ttr;
-char *inprobfile,*outprobfile,*outstatefile;
+int N;// Size of Chimera graph
+int statemap[2];// statemap[0], statemap[1] are the two possible values that the state variables take
 
 #define MAX(x,y) ((x)>(y)?(x):(y))
 #define MAXVAL 10000 // Assume for convenience that all values (energies) are <= this in absolute value
+                     // (Only used for stats)
 
 // Isolate random number generator in case we need to replace it with something better
 void initrand(int seed){srandom(seed);}
@@ -85,7 +84,7 @@ double*work; // work[wid]=estimate of relative running time of stablestripexhaus
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
-void initgraph(void){
+void initgraph(int wn){
   int d,i,j,o,p,t,u,x,y,z;
   for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++)adj[p][i][d][0]=adj[p][i][d][1]=-1;// Set "non-existent" flag
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){
@@ -150,7 +149,7 @@ int stripval(int d,int c0,int c1){
   return v;
 }
 
-void initweights(void){// Initialise a symmetric weight matrix with random +/-1s
+void initweights(int weightmode){// Initialise a symmetric weight matrix with random +/-1s
   int d,i,j,p,q;
   for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++){
     q=adj[p][i][d][0];j=adj[p][i][d][1];
@@ -202,13 +201,13 @@ void writeweights(char *f){
 }
 
 int readweights(char *f){
-  int d,i,n,p,w,v0,v1,x0,y0,o0,i0,e0,x1,y1,o1,i1,nx,ny,gtr;
+  int d,i,n,p,w,v0,v1,x0,y0,o0,i0,e0,x1,y1,o1,i1,nx,ny,wn,gtr;
   char l[1000];
   FILE *fp;
   printf("Reading weight matrix from file \"%s\"\n",f);
   fp=fopen(f,"r");assert(fp);
   while(fgets(l,1000,fp))if(l[0]!='#')break;
-  n=sscanf(l,"%d %d %d",&nx,&ny,&gtr);assert(n>=2);if(n==2)gtr=1000000;// gtr=ground truth (if stored)
+  n=sscanf(l,"%d %d %d",&nx,&ny,&gtr);assert(n>=2);if(n==2)gtr=1000000;// gtr=ground truth (not currently used)
   assert(nx==N&&ny==N);
   // Ensure weights=0 for edges that go out of bounds
   for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=0;for(d=0;d<7;d++)Q[p][i][d]=0;}
@@ -232,7 +231,7 @@ int readweights(char *f){
   fclose(fp);
   for(p=0,wn=0;p<NBV;p++)for(i=0;i<4;i++)wn+=okv[p][i];
   getbigweights();
-  return gtr;
+  return wn;
 }
 
 void prstate(FILE*fp,int style){
@@ -549,11 +548,15 @@ int opt1(double ttr,int pr,int tns,double *tts,int strat){
   return bv;
 }
 
-void initoptions(int ac,char**av){
-  int opt;
+
+int main(int ac,char**av){
+  int opt,wn,seed,mode,strat,weightmode;
+  double ttr;
+  char *inprobfile,*outprobfile,*outstatefile;
+
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=10;statemap[0]=0;statemap[1]=1;
-  weightmode=0;mode=2;N=8;
-  while((opt=getopt(ac,av,"m:n:N:o:O:s:t:w:x:"))!=-1){
+  weightmode=0;mode=0;N=8;strat=2;
+  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
@@ -561,6 +564,7 @@ void initoptions(int ac,char**av){
     case 'o': outprobfile=strdup(optarg);break;
     case 'O': outstatefile=strdup(optarg);break;
     case 's': seed=atoi(optarg);break;
+    case 'S': strat=atoi(optarg);break;
     case 't': ttr=atof(optarg);break;
     case 'w': weightmode=atoi(optarg);break;
     case 'x': statemap[0]=atoi(optarg);break;
@@ -572,6 +576,7 @@ void initoptions(int ac,char**av){
       fprintf(stderr,"       -o   output problem file\n");
       fprintf(stderr,"       -O   output state file\n");
       fprintf(stderr,"       -s   seed\n");
+      fprintf(stderr,"       -S   search strategy (0,1,2)\n");
       fprintf(stderr,"       -t   target run time for some modes\n");
       fprintf(stderr,"       -w   weight creation convention\n");
       fprintf(stderr,"       -x   lower state value\n");
@@ -583,12 +588,9 @@ void initoptions(int ac,char**av){
   printf("N=%d\n",N);
   printf("Mode: %d\n",mode);
   printf("Seed: %d\n",seed);
+  printf("Search strategy: %d\n",strat);
   printf("Target time to run: %gs\n",ttr);
-}
 
-int main(int ac,char**av){
-  int gtr;
-  initoptions(ac,av);
   Q=(int(*)[4][7])malloc(NBV*4*7*sizeof(int));
   adj=(int(*)[4][7][2])malloc(NBV*4*7*2*sizeof(int));
   okv=(int(*)[4])malloc(NBV*4*sizeof(int));
@@ -597,46 +599,40 @@ int main(int ac,char**av){
   QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
   initwork();
   initrand(seed);
-  initgraph();
+  initgraph(wn);
   if(inprobfile){
-    gtr=readweights(inprobfile);// This takes wn from file, overriding current setting
+    wn=readweights(inprobfile);// This overrides current setting of wn
   }else{
-    initweights();printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
+    initweights(weightmode);printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
   printf("%d working node%s out of %d\n",wn,wn==1?"":"s",NV);
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
-  case 0:// Find single minimum value, strategy 0
-    opt1(ttr,1,1,0,0);
+  case 0:// Find single minimum value
+    opt1(ttr,1,1,0,strat);
     break;
-  case 1:// Find single minimum value, strategy 1
-    opt1(ttr,1,1,0,1);
-    break;
-  case 2:// Find single minimum value, strategy 2
-    opt1(ttr,1,1,0,2);
-    break;
-  case 3:;// Find rate of solution generation using strategy 2
-    double tts;
-    gtr=opt1(0.5,1,500,&tts,2);
-    printf("Time to solution %gs, assuming true minimum is %d\n",tts,gtr);
-    break;
-  case 4:;// Find average minimum value
+  case 1:;// Find rate of solution generation using strategy 2
     int v;
+    double tts;
+    v=opt1(0.5,1,500,&tts,strat);
+    printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
+    break;
+  case 2:;// Find average minimum value
     double s0,s1,s2;
     s0=s1=s2=0;
     while(1){
-      initweights();
-      v=opt1(ttr,0,1,0,2);
+      initweights(weightmode);
+      v=opt1(ttr,0,1,0,strat);
       s0+=1;s1+=v;s2+=v*v;
       printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
     }
     break;
-  case 5:// Full exhaust
+  case 3:// Full exhaust
     printf("Full exhaust %d\n",fullexhaust(0));
     break;
-  case 6:;// Checks
-    opt1(ttr,1,1,0,2);
+  case 4:;// Checks
+    opt1(ttr,1,1,0,strat);
     printf("Full exhaust %d\n",fullexhaust(0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
