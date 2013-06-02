@@ -514,7 +514,7 @@ int opt1(double ttr,int pr,int tns,double *tts,int strat){
     case 2:
       cv=stablestripexhaust(cv,1);w1+=work[1];
       if(cv<=lbv){lbv=cv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
-      if(ff*w1>=work[2]){
+      if(N>1&&ff*w1>=work[2]){
         memcpy(XBa,Xlbest,NBV*sizeof(int));cv=lbv;
         cv=stablestripexhaust(cv,2);
         w1=0;lbv=1000000000;
@@ -638,8 +638,10 @@ int main(int ac,char**av){
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
       v=stripexhaust(o,c0,c1,0);
       printf("Strip %d %d %d    %d\n",c0,c1,o,v);
-      if(c1-c0==1)v=lineexhaust(o,c0,0)+stripval(o,0,c0)+stripval(o,c0+1,N);
-      printf("Line  %d %d %d    %d\n",c0,c1,o,v);
+      if(c1-c0==1){
+        v=lineexhaust(o,c0,0)+stripval(o,0,c0)+stripval(o,c0+1,N);
+        printf("Line  %d %d %d    %d\n",c0,c1,o,v);
+      }
     }
     break;
   }
