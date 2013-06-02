@@ -1,0 +1,20 @@
+To compile, type
+make
+
+To repeat FPTYTO test on problem 123, type
+./qubo -m1 testproblems/myformat/123
+The corresponding output file is at output/439.01.strat2/123
+
+To generate and test a similar random example, type
+./qubo -m1 -n439
+
+To repeat SPTYTO test on problem 123, type
+./qubo -m1 -S0 testproblems/myformat/123
+The corresponding output file is at output/439.01.strat0/123
+
+To repeat FPTYTO test on problem 123 with states -1,+1, type
+./qubo -m1 -x-1 testproblems/myformat/123
+The corresponding output file is at output/439.-1+1.strat2/123
+
+To solve a random C_6 instance with states -1,+1, type
+./qubo -N6 -x-1

@@ -612,7 +612,7 @@ int main(int ac,char**av){
   case 0:// Find single minimum value
     opt1(ttr,1,1,0,strat);
     break;
-  case 1:;// Find rate of solution generation using strategy 2
+  case 1:;// Find rate of solution generation
     int v;
     double tts;
     v=opt1(0.5,1,500,&tts,strat);
