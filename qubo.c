@@ -555,7 +555,7 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=10;statemap[0]=0;statemap[1]=1;
-  weightmode=0;mode=0;N=8;strat=2;
+  weightmode=3;mode=0;N=8;strat=2;
   while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
