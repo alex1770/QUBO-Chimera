@@ -17,7 +17,7 @@
 // 
 // Chimera graph, C_N:
 // Vertices are (x,y,o,i)  0<=x,y<N, 0<=o<2, 0<=i<4
-// Edge from (x,y,o,i) to (y',x',o',i') if
+// Edge from (x,y,o,i) to (x',y',o',i') if
 // (x,y)=(x',y'), o!=o', OR
 // |x-x'|=1, y=y', o=o'=0, i=i', OR
 // |y-y'|=1, x=x', o=o'=1, i=i'
