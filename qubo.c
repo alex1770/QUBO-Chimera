@@ -157,14 +157,17 @@ void initweights(int weightmode){// Initialise a symmetric weight matrix with ra
     if(!(q>=0&&okv[p][i]&&okv[q][j]))continue;
     // weightmode
     // 0           All of Q_ij independently +/-1
-    // 1           Diagonal not allowed
+    // 1           As 0, but diagonal not allowed
     // 2           Upper triangular
     // 3           All of Q_ij allowed, but constrained symmetric
+    // 4           Constrained symmetric, diagonal not allowed
     switch(weightmode){
     case 0:Q[p][i][d]=randbit()*2-1;break;
     case 1:if(d<6)Q[p][i][d]=randbit()*2-1;break;
     case 2:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=randbit()*2-1;break;
     case 3:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*(randbit()*2-1); else if(d==6)Q[p][i][d]=(randbit()*2-1);
+      break;
+    case 4:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*(randbit()*2-1);break;
     }
   }
   getbigweights();
