@@ -551,6 +551,87 @@ int opt1(double ttr,int pr,int tns,double *tts,int strat){
   return bv;
 }
 
+void getrestrictedsets(void){
+  int i,j,o,s,t,v,x,y,z,bb,s0,s1,s0b,s1b,tt,tt0,v0,x0,x1,y0,y1,max,vmin,tv[16],meet[16][16],ll0,ll[65536];
+  unsigned char (*ok0)[16][16],ok[N][N][2][16],nok[N][N][2];
+  double ns,maxs;
+  ok0=(unsigned char(*)[16][16])malloc(65536*16*16);assert(ok0);
+  memset(ok,1,sizeof(ok));
+  tt0=1000000000;
+  while(1){
+    tt=0;
+    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){for(s=0,t=0;s<16;s++)t+=ok[x][y][o][s];nok[x][y][o]=t;tt+=t;}
+    printf("Total %4d / %4d: ",tt,N*N*2*16);
+    maxs=0;
+    for(y=0;y<N-1;y++){
+      for(x=0;x<N;x++){
+        ns=1;
+        for(z=0;z<N;z++)ns*=nok[z][y+(z<x)][1];ns*=nok[x][y][0];
+        if(ns>maxs)maxs=ns;
+      }
+    }
+    printf("Worst-rows %12g: ",maxs);
+    maxs=0;
+    for(x=0;x<N-1;x++){
+      for(y=0;y<N;y++){
+        ns=1;
+        for(z=0;z<N;z++)ns*=nok[x+(z<y)][z][0];ns*=nok[x][y][1];
+        if(ns>maxs)maxs=ns;
+      }
+    }
+    printf("Worst-cols %12g\n",maxs);
+    if(tt>=tt0)break;
+    tt0=tt;
+    for(x=0;x<N;x++)for(y=0;y<N;y++){
+      bb=0;
+      for(x0=0;x0<16;x0++)if((x==0&&x0==0)||(x>0&&ok[x-1][y][0][x0])){
+        for(x1=0;x1<16;x1++)if((x==N-1&&x1==0)||(x<N-1&&ok[x+1][y][0][x1])){
+          for(y0=0;y0<16;y0++)if((y==0&&y0==0)||(y>0&&ok[x][y-1][0][y0])){
+            for(y1=0;y1<16;y1++)if((y==N-1&&y1==0)||(y<N-1&&ok[x][y+1][0][y1])){
+              for(s1=0;s1<16;s1++)tv[s1]=QB(x,y,1,1,s1,y0)+QB(x,y,1,2,s1,y1);
+              vmin=1000000000;
+              for(s0=0;s0<16;s0++){
+                v0=QB(x,y,0,1,s0,x0)+QB(x,y,0,2,s0,x1);
+                for(s1=0;s1<16;s1++){
+                  v=QB(x,y,0,0,s0,s1)+v0+tv[s1];
+                  if(v<vmin){memset(ok0[bb],0,16*16);vmin=v;}
+                  if(v==vmin)ok0[bb][s0][s1]=1;
+                }//s1
+              }//s0
+              bb++;
+            }//y1
+          }//y0
+        }//x1
+      }//x0
+      //printf("bb=%d\n",bb);
+      memset(ok[x][y],0,2*16);
+      for(i=0;i<bb-1;i++)ll[i]=i+1;ll0=0;ll[bb-1]=-1;
+      while(1){
+        memset(meet,0,sizeof(meet));
+        for(i=ll0;i>=0;i=ll[i])for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)meet[s0][s1]+=ok0[i][s0][s1];
+        //for(s0=0;s0<16;s0++){for(s1=0;s1<16;s1++)printf("%10d ",meet[s0][s1]);printf("\n");}
+        for(s0=0,max=0;s0<16;s0++)for(s1=0;s1<16;s1++)if(meet[s0][s1]>max){max=meet[s0][s1];s0b=s0;s1b=s1;}
+        // ^ Can use better method. Should exhaust cartesian product of projections first.
+        if(max==0)break;
+        ok[x][y][0][s0b]=ok[x][y][1][s1b]=1;
+        //printf("Adding s=%d\n",sb);
+        for(i=ll0;i>=0&&ok0[i][s0b][s1b];i=ll[i]);
+        if(i<0)break;
+        ll0=i;
+        while(i>=0){
+          for(j=ll[i];j>=0&&ok0[j][s0b][s1b];j=ll[j]);
+          ll[i]=j;i=j;
+        }
+      }// subset choosing loop
+      //printf("%2d %2d:",x,y);for(o=0;o<2;o++){printf("   ");for(s=0;s<16;s++)printf("%d ",ok[x][y][o][s]);}printf("\n");
+    }//x,y
+  }
+  free(ok0);
+  if(1)for(y=N-1;y>=0;y--){
+    for(x=0;x<N;x++)printf("%x%x ",nok[x][y][0]-1,nok[x][y][1]-1);
+    printf("\n");
+  }
+}
 
 int main(int ac,char**av){
   int opt,wn,seed,mode,strat,weightmode;
@@ -610,6 +691,7 @@ int main(int ac,char**av){
   }
   printf("%d working node%s out of %d\n",wn,wn==1?"":"s",NV);
   printf("States are %d,%d\n",statemap[0],statemap[1]);
+  printf("Weight-choosing mode: %d\n",weightmode);
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
   case 0:// Find single minimum value
@@ -646,6 +728,9 @@ int main(int ac,char**av){
         printf("Line  %d %d %d    %d\n",c0,c1,o,v);
       }
     }
+    break;
+  case 5:// Prove using subset method
+    getrestrictedsets();
     break;
   }
   if(outstatefile)writestate(outstatefile);
