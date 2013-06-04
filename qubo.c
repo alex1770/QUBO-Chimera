@@ -778,8 +778,8 @@ int main(int ac,char**av){
   XBplus=(int*)calloc((N+2)*N*2*sizeof(int),1);
   XBa=XBplus+N*2;
   QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
-  ok=(int(*)[16])malloc(NBV*16*sizeof(int));
-  nok=(int*)malloc(NBV*sizeof(int));
+  ok=(int(*)[16])malloc((NBV+1)*16*sizeof(int));
+  nok=(int*)malloc((NBV+1)*sizeof(int));
   initwork();
   initrand(seed);
   initgraph(wn);
