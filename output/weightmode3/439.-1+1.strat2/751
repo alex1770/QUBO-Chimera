@@ -1,0 +1,25 @@
+N=8
+Mode: 1
+Seed: 751
+Search strategy: 2
+Target time to run: 10s
+Initialising random weight matrix with 439 working nodes
+439 working nodes out of 512
+States are -1,1
+           1      -1345          1     0.00
+           2      -1357          1     0.00
+           6      -1361          1     0.00
+           7      -1369          1     0.00
+          10      -1381          1     0.00
+          59      -1389          1     0.02
+       10688      -1389         59     5.02
+       21305      -1389        116    10.02
+       31624      -1389        181    15.02
+       42343      -1389        236    20.07
+       53243      -1389        293    25.10
+       63047      -1389        340    30.10
+       73981      -1389        397    35.10
+       84277      -1389        446    40.10
+       94756      -1389        497    45.10
+       95334      -1389        500    45.41
+Time to solution 0.09082s, assuming true minimum is -1389
