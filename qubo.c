@@ -60,6 +60,9 @@ int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
                        // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
                        //                              to the big vert in direction d in state s1
                        // d=0 is intra-K_4,4, d=1 is Left/Down, d=2 is Right/Up
+int (*ok)[16]; // ok[NBV+1][16]   ok[enc(x,y,o)][s] = s^th allowable state in cell x,y,o (list)
+int *nok;      // nok[NBV+1]      nok[enc(x,y,o)] = number of allowable states in x,y,o
+               // The last entry is single state entry which is used when things go outside the grid
 #define QB(x,y,o,d,s0,s1) (QBa[enc(x,y,o)][d][s0][s1])
 #define QBI(inv,x,y,o,d,s0,s1) (QBa[encI(inv,x,y,o)][d][s0][s1])// Involution-capable addressing of QB
 #define XB(x,y,o) (XBa[enc(x,y,o)])
@@ -67,6 +70,7 @@ int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
 
 int N;// Size of Chimera graph
 int statemap[2];// statemap[0], statemap[1] are the two possible values that the state variables take
+int deb;// verbosity
 
 #define MAX(x,y) ((x)>(y)?(x):(y))
 #define MAXVAL 10000 // Assume for convenience that all values (energies) are <= this in absolute value
@@ -385,13 +389,14 @@ int stripexhaust(int d,int c0,int c1,int upd){
     h0=(unsigned char (*)[N][wid][2])malloc(M*N*wid*2);
     h1=(unsigned char (*)[N][wid][2])malloc(M*N*wid*2);
   }
-  if(!(v0&&v1&&(!upd||(h0&&h1)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust\n",
+  if(!(v0&&v1&&(!upd||(h0&&h1)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust()\n",
                                           M*(2.*sizeof(short)+upd*wid*N*4)/(1<<30));return 1;}
   memset(v0,0,M*sizeof(short));
   // Encoding of boundary into b is that the (*,*,0) term corresponds to nibble 0
   // and the (c,*,1) terms correspond to nibble c-c0+1.
   // This inefficiently keeps more boundary than necessary for edge cases c=c1-1,r=0,r=N-1,
   // so could be sped up at the cost of making it messier.
+  // Uses convention that boundary interactions are incorporated.
   for(r=0;r<N;r++){
     for(b=0;b<M;b++)v0[b]+=QBI(d,c0,r,0,0,b&15,b>>4&15)+QBI(d,c0,r,0,1,b&15,XBI(d,c0-1,r,0));
     for(c=c0;c<c1;c++){
@@ -541,7 +546,7 @@ int opt1(double ttr,int pr,int tns,double *tts,int strat){
       t1=MAX(tt*1.1,tt+5);
       if(pr==1){
         printf("%12lld %10d %10d %8.2f\n",nn,bv,ns,tt);
-        if(0&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
+        if(deb>=2&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
         fflush(stdout);
       }
     }
@@ -552,42 +557,23 @@ int opt1(double ttr,int pr,int tns,double *tts,int strat){
 }
 
 void getrestrictedsets(void){
-  int i,j,o,s,t,v,x,y,z,bb,s0,s1,s0b,s1b,tt,tt0,v0,x0,x1,y0,y1,max,vmin,tv[16],meet[16][16],ll0,ll[65536];
-  unsigned char (*ok0)[16][16],ok[N][N][2][16],nok[N][N][2];
-  double ns,maxs;
+  int i,j,o,s,v,x,y,bb,s0,s1,s0b,s1b,tt,tt0,v0,x0,x1,y0,y1,max,vmin,tv[16],meet[16][16],ll0,ll[65536];
+  unsigned char (*ok0)[16][16];
   ok0=(unsigned char(*)[16][16])malloc(65536*16*16);assert(ok0);
-  memset(ok,1,sizeof(ok));
+  for(v=0;v<NBV;v++)for(s=0;s<16;s++)ok[v][s]=1;
   tt0=1000000000;
   while(1){
     tt=0;
-    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){for(s=0,t=0;s<16;s++)t+=ok[x][y][o][s];nok[x][y][o]=t;tt+=t;}
-    printf("Total %4d / %4d: ",tt,N*N*2*16);
-    maxs=0;
-    for(y=0;y<N-1;y++){
-      for(x=0;x<N;x++){
-        ns=1;
-        for(z=0;z<N;z++)ns*=nok[z][y+(z<x)][1];ns*=nok[x][y][0];
-        if(ns>maxs)maxs=ns;
-      }
-    }
-    printf("Worst-rows %12g: ",maxs);
-    maxs=0;
-    for(x=0;x<N-1;x++){
-      for(y=0;y<N;y++){
-        ns=1;
-        for(z=0;z<N;z++)ns*=nok[x+(z<y)][z][0];ns*=nok[x][y][1];
-        if(ns>maxs)maxs=ns;
-      }
-    }
-    printf("Worst-cols %12g\n",maxs);
+    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){for(s=0;s<16;s++)tt+=ok[enc(x,y,o)][s];}
+    if(deb>=1)printf("Total %4d / %4d\n",tt,N*N*2*16);
     if(tt>=tt0)break;
     tt0=tt;
     for(x=0;x<N;x++)for(y=0;y<N;y++){
       bb=0;
-      for(x0=0;x0<16;x0++)if((x==0&&x0==0)||(x>0&&ok[x-1][y][0][x0])){
-        for(x1=0;x1<16;x1++)if((x==N-1&&x1==0)||(x<N-1&&ok[x+1][y][0][x1])){
-          for(y0=0;y0<16;y0++)if((y==0&&y0==0)||(y>0&&ok[x][y-1][0][y0])){
-            for(y1=0;y1<16;y1++)if((y==N-1&&y1==0)||(y<N-1&&ok[x][y+1][0][y1])){
+      for(x0=0;x0<16;x0++)if((x==0&&x0==0)||(x>0&&ok[enc(x-1,y,0)][x0])){
+        for(x1=0;x1<16;x1++)if((x==N-1&&x1==0)||(x<N-1&&ok[enc(x+1,y,0)][x1])){
+          for(y0=0;y0<16;y0++)if((y==0&&y0==0)||(y>0&&ok[enc(x,y-1,1)][y0])){
+            for(y1=0;y1<16;y1++)if((y==N-1&&y1==0)||(y<N-1&&ok[enc(x,y+1,1)][y1])){
               for(s1=0;s1<16;s1++)tv[s1]=QB(x,y,1,1,s1,y0)+QB(x,y,1,2,s1,y1);
               vmin=1000000000;
               for(s0=0;s0<16;s0++){
@@ -604,17 +590,17 @@ void getrestrictedsets(void){
         }//x1
       }//x0
       //printf("bb=%d\n",bb);
-      memset(ok[x][y],0,2*16);
+      for(o=0;o<2;o++)for(s=0;s<16;s++)ok[enc(x,y,o)][s]=0;
       for(i=0;i<bb-1;i++)ll[i]=i+1;ll0=0;ll[bb-1]=-1;
       while(1){
         memset(meet,0,sizeof(meet));
         for(i=ll0;i>=0;i=ll[i])for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)meet[s0][s1]+=ok0[i][s0][s1];
         //for(s0=0;s0<16;s0++){for(s1=0;s1<16;s1++)printf("%10d ",meet[s0][s1]);printf("\n");}
+        s0b=s1b=-1;// To shut compiler up
         for(s0=0,max=0;s0<16;s0++)for(s1=0;s1<16;s1++)if(meet[s0][s1]>max){max=meet[s0][s1];s0b=s0;s1b=s1;}
-        // ^ Can use better method. Should exhaust cartesian product of projections first.
+        // ^ Can use better method. Should include cartesian product of projections first.
         if(max==0)break;
-        ok[x][y][0][s0b]=ok[x][y][1][s1b]=1;
-        //printf("Adding s=%d\n",sb);
+        ok[enc(x,y,0)][s0b]=ok[enc(x,y,1)][s1b]=1;
         for(i=ll0;i>=0&&ok0[i][s0b][s1b];i=ll[i]);
         if(i<0)break;
         ll0=i;
@@ -623,14 +609,109 @@ void getrestrictedsets(void){
           ll[i]=j;i=j;
         }
       }// subset choosing loop
-      //printf("%2d %2d:",x,y);for(o=0;o<2;o++){printf("   ");for(s=0;s<16;s++)printf("%d ",ok[x][y][o][s]);}printf("\n");
+      //printf("%2d %2d:",x,y);for(o=0;o<2;o++){printf("   ");for(s=0;s<16;s++)printf("%d ",ok[enc(x,y,o)][s]);}printf("\n");
     }//x,y
   }
   free(ok0);
-  if(1)for(y=N-1;y>=0;y--){
-    for(x=0;x<N;x++)printf("%x%x ",nok[x][y][0]-1,nok[x][y][1]-1);
+  // Convert indicator map to list
+  for(v=0;v<NBV;v++){for(s=0,i=0;s<16;s++)if(ok[v][s])ok[v][i++]=s;nok[v]=i;}
+  if(deb>=2)for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){
+    printf("%d %d %d :",x,y,o);
+    for(i=0;i<nok[enc(x,y,o)];i++)printf(" %2d",ok[enc(x,y,o)][i]);
     printf("\n");
   }
+  if(deb>=1)for(y=N-1;y>=0;y--){
+    for(x=0;x<N;x++){
+      for(o=0;o<2;o++){
+        v=nok[enc(x,y,o)];
+        if(v<16)printf("%x",v); else printf("x");
+      }
+      printf(" ");
+    }
+    printf("\n");
+  }
+  ok[NBV][0]=0;nok[NBV]=1;// Special entry at the end to cater for off-grid cells
+}
+
+int fullexhaust2(){
+  // Uses restricted sets to cut down possibilities
+  int c,d,o,r,s,v,x,y,z,s0,newb,newv,adjv,vmin;
+  long long int b,ns,maxs,size,size1,mult[N+1],mod[N];
+  short*v0,*v1;
+  getrestrictedsets();
+  size=1LL<<60;d=-1;
+  for(o=0;o<2;o++){
+    maxs=0;
+    for(y=0;y<N;y++){
+      for(x=0;x<N;x++){
+        ns=1;
+        for(z=0;z<N;z++)ns*=(y+(z<x))<N?nok[encI(o,z,y+(z<x),1)]:1;
+        ns*=MAX(nok[encI(o,x,y,0)],x<N-1?nok[encI(o,x+1,y,0)]:1);
+        if(ns>maxs)maxs=ns;
+      }
+    }
+    if(deb>=1)printf("Direction %d: %12g\n",o,(double)maxs);
+    if(maxs<size){size=maxs;d=o;}
+  }
+  if(deb>=1)printf("Choosing direction %d\n",d);
+  v0=(short*)malloc(size*sizeof(short));
+  v1=(short*)malloc(size*sizeof(short));
+  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust2()\n",size*2.*sizeof(short)/(1<<30));return 1;}
+  memset(v0,0,size*sizeof(short));
+  
+  for(r=0;r<N;r++){
+    for(c=0;c<N;c++){
+      // Add c,r,0 to interior
+      // Old boundary (x,r+(x<c),1)  x=0,1,...,N-1,  (c,r,0)     in that order, low to high
+      // New boundary (x,r+(x<c),1)  x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
+      // Encoding b = sum_{x<N} index(x,r+(x<c),1)*mult[x]+index(c or c+1,r,0)*mult[N]
+      // Inverse: index(x,r+(x<c),1) = (b/mult[x])%mod[x]
+      // New edges (c,r,0) to (c,r,1) and (c,r,0) to (c+1,r,0)
+      newv=encI(d,c,r,0);// new vertex to be added to interior; also disappearing boundary vertex
+      newb=c<N-1?encI(d,c+1,r,0):NBV;// new boundary vertex; also adjacent to new interior vertex
+      adjv=encI(d,c,r,1);// other vertex adjacent to new interior vertex
+      for(x=0;x<N;x++)mod[x]=(r+(x<c))<N?nok[encI(d,x,r+(x<c),1)]:1;
+      for(x=0,mult[0]=1;x<N;x++)mult[x+1]=mult[x]*mod[x];
+      //size0=mult[N]*nok[newv];// size of old boundary (ncu)
+      size1=mult[N]*nok[newb];// size of new boundary
+      if(deb>=2)printf("%d %d 0 : %12lld\n",r,c,size1);
+      assert(size1<=size);
+      for(b=0;b<size1;b++){// b=state of new boundary
+        vmin=1000000000;
+        for(s0=0;s0<nok[newv];s0++){
+          s=ok[newv][s0];// s0,s=state of (c,r,0)
+          v=v0[b%mult[N]+(c>0?s0*mult[N]:0)]+
+            QBI(d,c,r,0,0,s,ok[adjv][(b/mult[c])%mod[c]])+
+            QBI(d,c,r,0,2,s,ok[newb][b/mult[N]]);
+          if(v<vmin)vmin=v;
+        }
+        v1[b]=vmin;
+      }
+      // Add c,r,1 to interior
+      // Old boundary (x,r+(x<c),1)    x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
+      // New boundary (x,r+(x<c+1),1)  x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
+      // So boundary loses (c,r,1) and gains (c,r+1,1)
+      // New edge (c,r,1) to (c,r+1,1)
+      newv=encI(d,c,r,1);// new vertex to be added to interior; also disappearing boundary vertex
+      newb=r<N-1?encI(d,c,r+1,1):NBV;// new boundary vertex; also adjacent to new interior vertex
+      size1=(size1/nok[newv])*nok[newb];
+      if(deb>=2)printf("%d %d 1 : %12lld\n",r,c,size1);
+      assert(size1<=size);
+      for(b=0;b<size1;b++){// b=state of new boundary
+        vmin=1000000000;
+        for(s0=0;s0<nok[newv];s0++){
+          s=ok[newv][s0];// s0,s=state of (c,r,1)
+          v=v1[b%mult[c]+(s0+(b/(mult[c]*nok[newb]))*nok[newv])*mult[c]]+
+            QBI(d,c,r,1,2,s,ok[newb][(b/mult[c])%nok[newb]]);
+          if(v<vmin)vmin=v;
+        }
+        v0[b]=vmin;
+      }
+    }
+  }
+  v=v0[0];
+  free(v1);free(v0);
+  return v;
 }
 
 int main(int ac,char**av){
@@ -639,8 +720,8 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=10;statemap[0]=0;statemap[1]=1;
-  weightmode=3;mode=0;N=8;strat=2;
-  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:w:x:"))!=-1){
+  weightmode=3;mode=0;N=8;strat=2;deb=1;
+  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:v:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
@@ -650,20 +731,36 @@ int main(int ac,char**av){
     case 's': seed=atoi(optarg);break;
     case 'S': strat=atoi(optarg);break;
     case 't': ttr=atof(optarg);break;
+    case 'v': deb=atoi(optarg);break;
     case 'w': weightmode=atoi(optarg);break;
     case 'x': statemap[0]=atoi(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
-      fprintf(stderr,"       -m   mode of operation\n");
+      fprintf(stderr,"       -m   mode of operation:\n");
+      fprintf(stderr,"            0   Try to find minimum value by heuristic search (default)\n");
+      fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search\n");
+      fprintf(stderr,"            2   Try to find expected minimum value by heuristic search\n");
+      fprintf(stderr,"            3   Full exhaust (proving), basic method\n");
+      fprintf(stderr,"            4   Consistency checks\n");
+      fprintf(stderr,"            5   Full exhaust (proving), better method\n");
       fprintf(stderr,"       -n   num working nodes\n");
       fprintf(stderr,"       -N   size of Chimera graph\n");
       fprintf(stderr,"       -o   output problem file\n");
       fprintf(stderr,"       -O   output state file\n");
       fprintf(stderr,"       -s   seed\n");
-      fprintf(stderr,"       -S   search strategy (0,1,2)\n");
+      fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
+      fprintf(stderr,"            0   Exhaust K44s repeatedly\n");
+      fprintf(stderr,"            1   Exhaust lines repeatedly\n");
+      fprintf(stderr,"            2   Exhaust lines and line-pairs repeatedly\n");
       fprintf(stderr,"       -t   target run time for some modes\n");
+      fprintf(stderr,"       -v   0,1,2,... verbosity level\n");
       fprintf(stderr,"       -w   weight creation convention\n");
-      fprintf(stderr,"       -x   lower state value\n");
+      fprintf(stderr,"            0   All of Q_ij independently +/-1\n");
+      fprintf(stderr,"            1   As 0, but diagonal not allowed\n");
+      fprintf(stderr,"            2   Upper triangular\n");
+      fprintf(stderr,"            3   All of Q_ij allowed, but constrained symmetric (default)\n");
+      fprintf(stderr,"            4   Constrained symmetric, diagonal not allowed\n");
+      fprintf(stderr,"       -x   set the lower state value\n");
       exit(1);
     }
   }
@@ -681,6 +778,8 @@ int main(int ac,char**av){
   XBplus=(int*)calloc((N+2)*N*2*sizeof(int),1);
   XBa=XBplus+N*2;
   QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
+  ok=(int(*)[16])malloc(NBV*16*sizeof(int));
+  nok=(int*)malloc(NBV*sizeof(int));
   initwork();
   initrand(seed);
   initgraph(wn);
@@ -730,8 +829,13 @@ int main(int ac,char**av){
     }
     break;
   case 5:// Prove using subset method
-    getrestrictedsets();
+    printf("Restricted set exhaust\n");
+    double t0=cpu();
+    v=fullexhaust2();
+    printf("Optimum %d found in %gs\n",v,cpu()-t0);
     break;
+  case 6:
+    readstate("state");printf("state = %d\n",val());break;
   }
   if(outstatefile)writestate(outstatefile);
   return 0;
