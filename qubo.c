@@ -162,10 +162,10 @@ void initweights(int weightmode){// Initialise a symmetric weight matrix with ra
   // 3           All of Q_ij allowed, but constrained symmetric
   // 4           Constrained symmetric, diagonal not allowed
   // 5           Start with J_ij (i<j) and h_i IID {-1,1} and transform back to Q (ignoring constant term)
-  int d,i,j,p,q;
+  int d,i,j,p,q,r;
+  for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++)Q[p][i][d]=0;
   for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++){
     q=adj[p][i][d][0];j=adj[p][i][d][1];
-    Q[p][i][d]=0;
     if(!(q>=0&&okv[p][i]&&okv[q][j]))continue;
     switch(weightmode){
     case 0:Q[p][i][d]=randsign();break;
@@ -173,14 +173,9 @@ void initweights(int weightmode){// Initialise a symmetric weight matrix with ra
     case 2:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=randsign();break;
     case 3:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*randsign(); else if(d==6)Q[p][i][d]=randsign(); break;
     case 4:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*randsign();break;
-    case 5:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=4*randsign(); else if(d==6)Q[p][i][d]=2*randsign(); break;
-    }
-  }
-  if(weightmode==5){
-    for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++){
-      q=adj[p][i][d][0];j=adj[p][i][d][1];
-      if(!(q>=0&&okv[p][i]&&okv[q][j]))continue;
-      if((d<4&&deco(p)==0)||d==5){Q[p][i][6]-=Q[p][i][d]/2;Q[q][j][6]-=Q[p][i][d]/2;}
+    case 5:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=4*r;Q[p][i][6]-=2*r;Q[q][j][6]-=2*r;}
+      else if(d==6)Q[p][i][d]+=2*randsign();
+      break;
     }
   }
   getbigweights();
@@ -208,10 +203,10 @@ void writeweights(char *f){
   fprintf(fp,"%d %d\n",N,N);
   for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++){
     q=adj[p][i][d][0];j=adj[p][i][d][1];
-    if(q>=0)fprintf(fp,"%d %d %d %d   %d %d %d %d   %8d\n",
-                    decx(p),decy(p),deco(p),i,
-                    decx(q),decy(q),deco(q),j,
-                    Q[p][i][d]);
+    if(q>=0&&Q[p][i][d]!=0)fprintf(fp,"%d %d %d %d   %d %d %d %d   %8d\n",
+                                   decx(p),decy(p),deco(p),i,
+                                   decx(q),decy(q),deco(q),j,
+                                   Q[p][i][d]);
   }
   fclose(fp);
 }
@@ -674,7 +669,8 @@ int fullexhaust2(){
       // Add c,r,0 to interior
       // Old boundary (x,r+(x<c),1)  x=0,1,...,N-1,  (c,r,0)     in that order, low to high
       // New boundary (x,r+(x<c),1)  x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
-      // Encoding b = sum_{x<N} index(x,r+(x<c),1)*mult[x]+index(c or c+1,r,0)*mult[N]
+      // Encoded in multibase mod[0],...,mod[N-1],nok[newb]
+      // I.e., b = sum_{x<N} index(x,r+(x<c),1)*mult[x]+index(c or c+1,r,0)*mult[N]
       // Inverse: index(x,r+(x<c),1) = (b/mult[x])%mod[x]
       // New edges (c,r,0) to (c,r,1) and (c,r,0) to (c+1,r,0)
       newv=encI(d,c,r,0);// new vertex to be added to interior; also disappearing boundary vertex
@@ -700,6 +696,7 @@ int fullexhaust2(){
       // Add c,r,1 to interior
       // Old boundary (x,r+(x<c),1)    x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
       // New boundary (x,r+(x<c+1),1)  x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
+      // Encoded in multibase mod[0],...,mod[c-1],nok[newb],mod[c+1],...,mod[N-1],nok[c+1,r,0]
       // So boundary loses (c,r,1) and gains (c,r+1,1)
       // New edge (c,r,1) to (c,r+1,1)
       newv=encI(d,c,r,1);// new vertex to be added to interior; also disappearing boundary vertex
