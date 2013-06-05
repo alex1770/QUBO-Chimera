@@ -79,6 +79,7 @@ int deb;// verbosity
 // Isolate random number generator in case we need to replace it with something better
 void initrand(int seed){srandom(seed);}
 int randbit(void){return (random()>>16)&1;}
+int randsign(void){return randbit()*2-1;}
 int randnib(void){return (random()>>16)&15;}
 int randint(int n){return random()%n;}
 
@@ -154,24 +155,32 @@ int stripval(int d,int c0,int c1){
 }
 
 void initweights(int weightmode){// Initialise a symmetric weight matrix with random +/-1s
+  // weightmode
+  // 0           All of Q_ij independently +/-1
+  // 1           As 0, but diagonal not allowed
+  // 2           Upper triangular
+  // 3           All of Q_ij allowed, but constrained symmetric
+  // 4           Constrained symmetric, diagonal not allowed
+  // 5           Start with J_ij (i<j) and h_i IID {-1,1} and transform back to Q (ignoring constant term)
   int d,i,j,p,q;
   for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++){
     q=adj[p][i][d][0];j=adj[p][i][d][1];
     Q[p][i][d]=0;
     if(!(q>=0&&okv[p][i]&&okv[q][j]))continue;
-    // weightmode
-    // 0           All of Q_ij independently +/-1
-    // 1           As 0, but diagonal not allowed
-    // 2           Upper triangular
-    // 3           All of Q_ij allowed, but constrained symmetric
-    // 4           Constrained symmetric, diagonal not allowed
     switch(weightmode){
-    case 0:Q[p][i][d]=randbit()*2-1;break;
-    case 1:if(d<6)Q[p][i][d]=randbit()*2-1;break;
-    case 2:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=randbit()*2-1;break;
-    case 3:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*(randbit()*2-1); else if(d==6)Q[p][i][d]=(randbit()*2-1);
-      break;
-    case 4:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*(randbit()*2-1);break;
+    case 0:Q[p][i][d]=randsign();break;
+    case 1:if(d<6)Q[p][i][d]=randsign();break;
+    case 2:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=randsign();break;
+    case 3:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*randsign(); else if(d==6)Q[p][i][d]=randsign(); break;
+    case 4:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=2*randsign();break;
+    case 5:if((d<4&&deco(p)==0)||d==5)Q[p][i][d]=4*randsign(); else if(d==6)Q[p][i][d]=2*randsign(); break;
+    }
+  }
+  if(weightmode==5){
+    for(p=0;p<NBV;p++)for(i=0;i<4;i++)for(d=0;d<7;d++){
+      q=adj[p][i][d][0];j=adj[p][i][d][1];
+      if(!(q>=0&&okv[p][i]&&okv[q][j]))continue;
+      if((d<4&&deco(p)==0)||d==5){Q[p][i][6]-=Q[p][i][d]/2;Q[q][j][6]-=Q[p][i][d]/2;}
     }
   }
   getbigweights();
@@ -654,6 +663,7 @@ int fullexhaust2(){
     if(maxs<size){size=maxs;d=o;}
   }
   if(deb>=1)printf("Choosing direction %d\n",d);
+  //printf("Size %lld\n",size);exit(0);
   v0=(short*)malloc(size*sizeof(short));
   v1=(short*)malloc(size*sizeof(short));
   if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust2()\n",size*2.*sizeof(short)/(1<<30));return 1;}
@@ -720,7 +730,7 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=10;statemap[0]=0;statemap[1]=1;
-  weightmode=3;mode=0;N=8;strat=2;deb=1;
+  weightmode=5;mode=0;N=8;strat=2;deb=1;
   while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:v:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
@@ -758,8 +768,10 @@ int main(int ac,char**av){
       fprintf(stderr,"            0   All of Q_ij independently +/-1\n");
       fprintf(stderr,"            1   As 0, but diagonal not allowed\n");
       fprintf(stderr,"            2   Upper triangular\n");
-      fprintf(stderr,"            3   All of Q_ij allowed, but constrained symmetric (default)\n");
+      fprintf(stderr,"            3   All of Q_ij allowed, but constrained symmetric\n");
       fprintf(stderr,"            4   Constrained symmetric, diagonal not allowed\n");
+      fprintf(stderr,"            5   Start with J_ij (i<j) and h_i IID {-1,1} and transform\n");
+      fprintf(stderr,"                back to Q (ignoring constant term) (default)\n");
       fprintf(stderr,"       -x   set the lower state value\n");
       exit(1);
     }
