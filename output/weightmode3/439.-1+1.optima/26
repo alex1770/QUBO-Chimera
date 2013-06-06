@@ -1,0 +1,28 @@
+N=8
+Mode: 5
+Seed: 26
+Search strategy: 2
+Target time to run: 10s
+Initialising random weight matrix with 439 working nodes
+439 working nodes out of 512
+States are -1,1
+Weight-choosing mode: 3
+Restricted set exhaust
+Total 2048 / 2048
+Total 1088 / 2048
+Total 1026 / 2048
+Total 1020 / 2048
+Total 1018 / 2048
+Total 1018 / 2048
+44 22 22 24 42 88 43 24 
+77 22 46 46 c4 c8 22 24 
+67 88 84 44 ee 8x 88 88 
+a4 4c ca e4 8x xx 84 ee 
+cc e8 4x 8a 8x x8 x8 4c 
+ca 88 xx 86 x4 8c x8 cc 
+a4 e8 xx e2 8e 66 8a 22 
+22 42 88 86 88 66 ca 22 
+Direction 0:  4.52985e+09
+Direction 1:  4.83184e+09
+Choosing direction 0
+Optimum -1427 found in 1821.17s
