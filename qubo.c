@@ -658,6 +658,7 @@ int fullexhaust2(){
     if(maxs<size){size=maxs;d=o;}
   }
   if(deb>=1)printf("Choosing direction %d\n",d);
+  fflush(stdout);
   //printf("Size %lld\n",size);exit(0);
   v0=(short*)malloc(size*sizeof(short));
   v1=(short*)malloc(size*sizeof(short));
