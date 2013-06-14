@@ -503,12 +503,13 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
   }
 }
 
-int opt1(double ttr,int pr,int tns,double *tts,int strat){
+int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   // Optimisation; writes back optimum found
-  int v,bv,lbv,cv,ns,new,last,Xbest[NBV],Xlbest[NBV];//,k,y,count[N][N][256];
+  int v,bv,lbv,cv,ns,nas,new,last,Xbest[NBV],Xlbest[NBV];//,k,y,count[N][N][256];
   int64 nn,stats[2*MAXVAL+1];
   double ff,t0,t1,tt,w1;
-  bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;
+  if(pr)printf("Min time to run: %gs\nMax time to run: %gs\nGroundtruth: %d\n",mint,maxt,gtr);
+  bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;nas=0;
   //for(x=0;x<N;x++)for(y=0;y<N;y++)for(k=0;k<256;k++)count[x][y][k]=1;
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
@@ -546,7 +547,9 @@ int opt1(double ttr,int pr,int tns,double *tts,int strat){
       // time to first solution, not time per solution after getting going.
       w1=0;lbv=1000000000;
     }
-    last=(tt>=ttr&&ns>=tns);
+    if(cv==gtr)nas++;
+    if(gtr==1000000000)last=(ns>=tns); else last=(nas>=tns);
+    last=(tt>=mint&&last)||tt>=maxt;
     if(new||tt>=t1||last){
       t1=MAX(tt*1.1,tt+5);
       if(pr==1){
@@ -724,14 +727,15 @@ int fullexhaust2(){
 }
 
 int main(int ac,char**av){
-  int opt,wn,seed,mode,strat,weightmode;
-  double ttr;
+  int opt,wn,seed,mode,strat,weightmode,gtr;
+  double mint,maxt;
   char *inprobfile,*outprobfile,*outstatefile;
 
-  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);ttr=10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=2;deb=1;
-  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:v:w:x:"))!=-1){
+  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
+  weightmode=5;mode=0;N=8;strat=2;deb=1;gtr=1000000000;
+  while((opt=getopt(ac,av,"g:m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
     switch(opt){
+    case 'g': gtr=atoi(optarg);break;
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
     case 'N': N=atoi(optarg);break;
@@ -739,12 +743,14 @@ int main(int ac,char**av){
     case 'O': outstatefile=strdup(optarg);break;
     case 's': seed=atoi(optarg);break;
     case 'S': strat=atoi(optarg);break;
-    case 't': ttr=atof(optarg);break;
+    case 't': mint=atof(optarg);break;
+    case 'T': maxt=atof(optarg);break;
     case 'v': deb=atoi(optarg);break;
     case 'w': weightmode=atoi(optarg);break;
     case 'x': statemap[0]=atoi(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
+      fprintf(stderr,"       -g   ground truth value (for -m1 mode)\n");
       fprintf(stderr,"       -m   mode of operation:\n");
       fprintf(stderr,"            0   Try to find minimum value by heuristic search (default)\n");
       fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search\n");
@@ -761,7 +767,8 @@ int main(int ac,char**av){
       fprintf(stderr,"            0   Exhaust K44s repeatedly\n");
       fprintf(stderr,"            1   Exhaust lines repeatedly\n");
       fprintf(stderr,"            2   Exhaust lines and line-pairs repeatedly\n");
-      fprintf(stderr,"       -t   target run time for some modes\n");
+      fprintf(stderr,"       -t   min run time for some modes\n");
+      fprintf(stderr,"       -T   max run time for some modes\n");
       fprintf(stderr,"       -v   0,1,2,... verbosity level\n");
       fprintf(stderr,"       -w   weight creation convention\n");
       fprintf(stderr,"            0   All of Q_ij independently +/-1\n");
@@ -781,7 +788,6 @@ int main(int ac,char**av){
   printf("Mode: %d\n",mode);
   printf("Seed: %d\n",seed);
   printf("Search strategy: %d\n",strat);
-  printf("Target time to run: %gs\n",ttr);
 
   Q=(int(*)[4][7])malloc(NBV*4*7*sizeof(int));
   adj=(int(*)[4][7][2])malloc(NBV*4*7*2*sizeof(int));
@@ -805,12 +811,12 @@ int main(int ac,char**av){
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
   case 0:// Find single minimum value
-    opt1(ttr,1,1,0,strat);
+    opt1(mint,maxt,1,1,0,strat,gtr);
     break;
   case 1:;// Find rate of solution generation
     int v;
     double tts;
-    v=opt1(0.5,1,500,&tts,strat);
+    v=opt1(gtr==1000000000?0.5:mint,maxt,1,gtr==1000000000?500:10,&tts,strat,gtr);
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
     break;
   case 2:;// Find average minimum value
@@ -818,7 +824,7 @@ int main(int ac,char**av){
     s0=s1=s2=0;
     while(1){
       initweights(weightmode);
-      v=opt1(ttr,0,1,0,strat);
+      v=opt1(mint,maxt,0,1,0,strat,gtr);
       s0+=1;s1+=v;s2+=v*v;
       printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
     }
@@ -827,7 +833,7 @@ int main(int ac,char**av){
     printf("Full exhaust %d\n",fullexhaust(0));
     break;
   case 4:;// Checks
-    opt1(ttr,1,1,0,strat);
+    opt1(mint,maxt,1,1,0,strat,gtr);
     printf("Full exhaust %d\n",fullexhaust(0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
