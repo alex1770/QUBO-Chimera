@@ -1,0 +1,19 @@
+N=8
+Mode: 1
+Seed: 30
+Search strategy: 2
+Target time to run: 10s
+Initialising random weight matrix with 502 working nodes
+502 working nodes out of 512
+States are 0,1
+Weight-choosing mode: 5
+           1       -940          1     0.00
+           3       -946          1     0.00
+          29       -948          1     0.01
+          72       -950          1     0.02
+       12624       -950        101     5.02
+       24542       -950        206    10.02
+       36447       -950        316    15.02
+       49527       -950        437    20.02
+       57699       -950        500    23.43
+Time to solution 0.04686s, assuming true minimum is -950
