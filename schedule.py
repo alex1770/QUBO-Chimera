@@ -1,12 +1,13 @@
 #!/usr/bin/python
 # Scheduler: distributes a job queue amongst 'n' processes
 # Replacement for stupid multiprocessing.Pool.stuff
-# Usage: schedule2.py [options] RUNSCRIPT JOBLIST
+# Usage: schedule.py [options] RUNSCRIPT JOBLIST
 # Each line in the file JOBLIST gets passed as an argument to the script RUNSCRIPT
 # If -p <params> is used then RUNSCRIPT also gets passed the constant argument <params>
 # If -s <startscript> is used then startscript runs first (getting the argument <params> if present)
 # There is no asynchronous mode at the moment: you have to wait for a process to complete
 # before seeing its output (though you'd normally redirect the output from the jobs anyway).
+# Todo: make it kill its child processes if killed (and stop if stopped, cont if cont'd)
 
 import optparse,multiprocessing,subprocess,datetime,sys,Queue,thread
 from optparse import OptionParser
@@ -43,7 +44,7 @@ if __name__ == '__main__':
   # #completed = s-a
   while s-a<n:
     while a<ncpus and s<n: 
-      print datetime.datetime.now(),"STARTING",jobs[s]
+      print datetime.datetime.now(),"STARTING",jobs[s];sys.stdout.flush()
       p=subprocess.Popen("%s %s%s"%(runscript,jobs[s],params),stdout=subprocess.PIPE,stderr=subprocess.PIPE,shell=True)
       thread.start_new_thread(waiter,(s,p))
       a+=1;s+=1
@@ -51,4 +52,5 @@ if __name__ == '__main__':
     sys.stdout.write(out)
     sys.stderr.write(err)
     print datetime.datetime.now(),"ENDING",jobs[i],"with return code",rc
+    sys.stdout.flush();sys.stderr.flush()
     a-=1
