@@ -298,6 +298,7 @@ void readstate(char *f){
 void initwork(){
   int wid;
   work=(double*)malloc((N+1)*sizeof(double));
+  // work[wid] counts approx number of QBI references in a stable exhaust of width wid
   work[1]=(16*((N-1)*16+N*16*5)+2*N+1)*N*3;
   for(wid=2;wid<=N;wid++)work[wid]=N*wid*(1LL<<4*(wid+1))*16*3*(N-wid+1)*3;
 }
