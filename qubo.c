@@ -245,38 +245,35 @@ int readweights(char *f){
   return wn;
 }
 
-void prstate(FILE*fp,int style){
+void prstate(FILE*fp,int style,int*X0){
   // style = 0: hex grid
   // style = 1: hex grid xored with previous, "gauge-fixed" in the +/-1 case
   // style = 2: list of vertices
-  static int *X0,first=1;
   int nb[16];
   int i,j,o,p,t,x,xor;
   x=xor=0;
-  if(first){X0=(int*)malloc(NBV*sizeof(int));first=0;}
   if(style==1){
     xor=-1;
     if(statemap[0]==-1){
       for(i=1,nb[0]=0;i<16;i++)nb[i]=nb[i>>1]+(i&1);
-      for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB(i,j,o)^X0[enc(i,j,o)]];
+      for(i=0,t=0;i<N;i++)for(j=0;j<N;j++)for(o=0;o<2;o++)t+=nb[XB(i,j,o)^(X0?X0[enc(i,j,o)]:0)];
       x=(t>=NV/2?15:0);
     }
   }
   if(style<2){
     for(j=N-1;j>=0;j--){
-      for(i=0;i<N;i++){fprintf(fp," ");for(o=0;o<2;o++)fprintf(fp,"%X",XB(i,j,o)^(X0[enc(i,j,o)]&xor)^x);}
+      for(i=0;i<N;i++){fprintf(fp," ");for(o=0;o<2;o++)fprintf(fp,"%X",XB(i,j,o)^((X0?X0[enc(i,j,o)]:0)&xor)^x);}
       fprintf(fp,"\n");
     }
   }else{
     for(p=0;p<NBV;p++)for(i=0;i<4;i++)fprintf(fp,"%d %d %d %d  %4d\n",decx(p),decy(p),deco(p),i,statemap[(XBa[p]>>i)&1]);
   }
-  memcpy(X0,XBa,NBV*sizeof(int));
 }
 
 void writestate(char *f){
   FILE *fp;
   fp=fopen(f,"w");assert(fp);
-  prstate(fp,2);
+  prstate(fp,2,0);
   fclose(fp);
 }
 
@@ -303,6 +300,13 @@ void initwork(){
   for(wid=2;wid<=N;wid++)work[wid]=N*wid*(1LL<<4*(wid+1))*16*3*(N-wid+1)*3;
 }
 
+void shuf(int*a,int n){
+  int i,j,t;
+  for(i=0;i<n-1;i++){
+    j=i+randint(n-i);t=a[i];a[i]=a[j];a[j]=t;
+  }
+}
+
 int lineexhaust(int d,int c,int upd){
   // If d=0 exhaust column c, if d=1 exhaust row c
   // Comments and variable names are as if in the column case (d=0)
@@ -311,37 +315,44 @@ int lineexhaust(int d,int c,int upd){
   int b,o,r,s,v,smin0,smin1,vmin0,vmin1;
   int v0[16],v1[16];// Map from boundary state to value
   int h0[16][N][2],h1[16][N][2];// History
+  int ps[16];
 
+  for(s=0;s<16;s++)ps[s]=s;
+  if(upd)shuf(ps,16);// Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
   for(r=0;r<N;r++){
     for(b=0;b<16;b++){// b = state of (c,r,1)
       if(r>0){
         vmin0=1000000000;smin0=-1;
         for(s=0;s<16;s++){// s = state of (c,r-1,1)
-          v=v0[s]+QBI(d,c,r-1,1,2,s,b);
+          v=((v0[s]+QBI(d,c,r-1,1,2,s,b))<<4)|ps[s];
           if(v<vmin0){vmin0=v;smin0=s;}
         }
         memcpy(h1[b],h0[smin0],(2*r-1)*sizeof(int));
         h1[b][r-1][1]=smin0;
       }else vmin0=0;
+      vmin0>>=4;
       vmin1=1000000000;smin1=-1;
       for(s=0;s<16;s++){// s = state of (c,r,0)
-        v=QBI(d,c,r,0,0,s,b)+
-          QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
-          QBI(d,c,r,0,2,s,XBI(d,c+1,r,0));
+        v=((QBI(d,c,r,0,0,s,b)+
+            QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
+            QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4)|ps[s];
         if(v<vmin1){vmin1=v;smin1=s;}
       }
+      vmin1>>=4;
       v1[b]=vmin0+vmin1;
       h1[b][r][0]=smin1;
     }//b
+    //printf("\n");
     memcpy(v0,v1,sizeof(v0));
     memcpy(h0,h1,sizeof(h0));
   }//r
 
   vmin0=1000000000;smin0=-1;
   for(s=0;s<16;s++){// s = state of (c,N-1,1)
-    v=v0[s];
+    v=(v0[s]<<4)|ps[s];
     if(v<vmin0){vmin0=v;smin0=s;}
   }
+  vmin0>>=4;
   if(upd){
     for(r=0;r<N;r++)for(o=0;o<2;o++)XBI(d,c,r,o)=h0[smin0][r][o];
     XBI(d,c,N-1,1)=smin0;
@@ -448,13 +459,6 @@ int stripexhaust(int d,int c0,int c1,int upd){
 
 int fullexhaust(int upd){return stripexhaust(0,0,N,upd);}
 
-void shuf(int*a,int n){
-  int i,j,t;
-  for(i=0;i<n-1;i++){
-    j=i+randint(n-i);t=a[i];a[i]=a[j];a[j]=t;
-  }
-}
-
 int k44exhaust(int x,int y){
   // Exhausts big vertex (x,y)
   // Writes optimum value back into the global state
@@ -537,11 +541,12 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
     //for(x=0;x<N;x++)for(y=0;y<N;y++)count[x][y][XB(x,y,0)+(XB(x,y,1)<<4)]+=1;
-    if(pr==2&&cv<=bv){printf("\n");prstate(stdout,1);printf("cv %d\n",cv);}
+    if((pr==2&&cv<=bv)||pr==3){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
     nn++;
     tt=cpu()-t0;
     if((new=(cv<bv))){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv){
+      //memcpy(Xbest,XBa,NBV*sizeof(int));
       ns++;
       // Must clear the record if find a presumed solution, since we measure
       // time to first solution, not time per solution after getting going.
@@ -811,7 +816,7 @@ int main(int ac,char**av){
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
   case 0:// Find single minimum value
-    opt1(mint,maxt,1,1,0,strat,gtr);
+    opt1(mint,maxt,deb,1,0,strat,gtr);
     break;
   case 1:;// Find rate of solution generation
     int v;
