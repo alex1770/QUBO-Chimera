@@ -185,16 +185,6 @@ void init_state(void){// Initialise state randomly
   int x,y,o;
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
 }
-void initstatebiased(int count[N][N][256]){
-  int k,r,s,x,y;
-  for(x=0;x<N;x++)for(y=0;y<N;y++){
-    for(k=0,s=0;k<256;k++)s+=count[x][y][k];
-    r=randint(s);
-    for(k=0;k<256;k++){r-=count[x][y][k];if(r<0)break;}
-    assert(k<256);
-    XB(x,y,0)=k&15;XB(x,y,1)=k>>4;
-  }
-}
 
 void writeweights(char *f){
   int d,i,j,p,q;
@@ -509,17 +499,15 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
 
 int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   // Optimisation; writes back optimum found
-  int v,bv,lbv,cv,ns,nas,new,last,Xbest[NBV],Xlbest[NBV];//,k,y,count[N][N][256];
+  int v,bv,lbv,cv,ns,nas,new,last,Xbest[NBV],Xlbest[NBV];
   int64 nn,stats[2*MAXVAL+1];
   double ff,t0,t1,tt,w1;
   if(pr)printf("Min time to run: %gs\nMax time to run: %gs\nGroundtruth: %d\n",mint,maxt,gtr);
   bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;nas=0;
-  //for(x=0;x<N;x++)for(y=0;y<N;y++)for(k=0;k<256;k++)count[x][y][k]=1;
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
   ff=1.0;
   do{
-    //initstatebiased(count);
     init_state();
     cv=val();
     switch(strat){
@@ -540,7 +528,6 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
       break;
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
-    //for(x=0;x<N;x++)for(y=0;y<N;y++)count[x][y][XB(x,y,0)+(XB(x,y,1)<<4)]+=1;
     if((pr==2&&cv<=bv)||pr==3){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
     nn++;
     tt=cpu()-t0;
@@ -737,7 +724,7 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=2;deb=1;gtr=1000000000;
+  weightmode=5;mode=0;N=8;strat=1;deb=1;gtr=1000000000;
   while((opt=getopt(ac,av,"g:m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
     switch(opt){
     case 'g': gtr=atoi(optarg);break;
@@ -770,7 +757,7 @@ int main(int ac,char**av){
       fprintf(stderr,"       -s   seed\n");
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
       fprintf(stderr,"            0   Exhaust K44s repeatedly\n");
-      fprintf(stderr,"            1   Exhaust lines repeatedly\n");
+      fprintf(stderr,"            1   Exhaust lines repeatedly (default)\n");
       fprintf(stderr,"            2   Exhaust lines and line-pairs repeatedly\n");
       fprintf(stderr,"       -t   min run time for some modes\n");
       fprintf(stderr,"       -T   max run time for some modes\n");
