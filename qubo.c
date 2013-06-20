@@ -506,7 +506,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;nas=0;
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
-  ff=1.0;
+  ff=N*N/300;
   do{
     init_state();
     cv=val();
