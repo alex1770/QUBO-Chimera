@@ -2,21 +2,15 @@ N=8
 Mode: 1
 Seed: 379
 Search strategy: 2
-Target time to run: 10s
 Initialising random weight matrix with 439 working nodes
 439 working nodes out of 512
 States are 0,1
 Weight-choosing mode: 5
+Min time to run: 0.5s
+Max time to run: 1e+10s
+Groundtruth: 1000000000
            1       -782          1     0.00
-           2       -784          1     0.00
-           5       -786          1     0.00
-           8       -790          1     0.00
-          18       -794          1     0.00
-       12342       -794         91     5.00
-       24270       -794        172    10.00
-       35973       -794        251    15.00
-       48437       -794        339    20.00
-       60026       -794        424    25.03
-       71883       -794        496    30.03
-       72437       -794        500    30.29
-Time to solution 0.06058s, assuming true minimum is -794
+           2       -788          1     0.00
+           5       -794          1     0.00
+        5433       -794        500     2.28
+Time to solution 0.00456s, assuming true minimum is -794
