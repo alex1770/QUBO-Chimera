@@ -32,6 +32,7 @@
 #define NBV (2*N*N)       // Num "big" vertices (semi-K4,4s)
 #define NBE (N*(3*N-2))   // Num "big" edges (not used)
 #define enc(x,y,o) ((o)+((N*(x)+(y))<<1))
+#define encp(x,y,o) ((x)>=0&&(x)<N&&(y)>=0&&(y)<N?enc(x,y,o):NBV) // bounds-protected version
 #define decx(p) (((p)>>1)/N)
 #define decy(p) (((p)>>1)%N)
 #define deco(p) ((p)&1)
@@ -39,6 +40,8 @@
 #define encI(inv,x,y,o) (((inv)^(o))+((N*(x)+(y)+(inv)*(N-1)*((y)-(x)))<<1))
 //#define encI(inv,x,y,o) ((inv)?enc(y,x,1-(o)):enc(x,y,o))
 //#define encI(inv,x,y,o) (enc(x,y,o)+(inv)*(enc(y,x,1-(o))-enc(x,y,o)))
+#define enc2(x,y) (N*(x)+(y))
+#define enc2p(x,y) ((x)>=0&&(x)<N&&(y)>=0&&(y)<N?enc2(x,y):N*N) // bounds-protected version
 
 int (*Q)[4][7]; // Q[NBV][4][7]
                 // Weights: Q[r][i][d] = weight of i^th vertex of r^th big vertex in direction d
@@ -63,6 +66,8 @@ int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
 int (*ok)[16]; // ok[NBV+1][16]   ok[enc(x,y,o)][s] = s^th allowable state in cell x,y,o (list)
 int *nok;      // nok[NBV+1]      nok[enc(x,y,o)] = number of allowable states in x,y,o
                // The last entry is single state entry which is used when things go outside the grid
+int (*ok2)[256];// ok2[N*N+1][256]  ok2[enc2(x,y)][s] = s^th allowable state in K44 x,y (list)
+int *nok2;      // nok2[N*N+1]      nok2[enc2(x,y)] = number of allowable states in K44 x,y
 #define QB(x,y,o,d,s0,s1) (QBa[enc(x,y,o)][d][s0][s1])
 #define QBI(inv,x,y,o,d,s0,s1) (QBa[encI(inv,x,y,o)][d][s0][s1])// Involution-capable addressing of QB
 #define XB(x,y,o) (XBa[enc(x,y,o)])
@@ -310,7 +315,10 @@ int lineexhaust(int d,int c,int upd){
   for(s=0;s<16;s++)ps[s]=s;
   if(upd)shuf(ps,16);// Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
   for(r=0;r<N;r++){
-    for(b=0;b<16;b++){// b = state of (c,r,1)
+    // At this point: interior = (c,<r-1,*) and (c,r-1,0)
+    //                boundary = (c,r-1,1)
+    // Simultaneously adding (c,r-1,1) and (c,r,0) into the interior
+    for(b=0;b<16;b++){// b = state of (c,r,1), the new boundary
       if(r>0){
         vmin0=1000000000;smin0=-1;
         for(s=0;s<16;s++){// s = state of (c,r-1,1)
@@ -332,7 +340,6 @@ int lineexhaust(int d,int c,int upd){
       v1[b]=vmin0+vmin1;
       h1[b][r][0]=smin1;
     }//b
-    //printf("\n");
     memcpy(v0,v1,sizeof(v0));
     memcpy(h0,h1,sizeof(h0));
   }//r
@@ -491,8 +498,8 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
       if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
       assert(v<=cv);
       if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
-      // (It's actually possible that 2nc isn't enough to ensure there is no more improvement
-      // possible, because the exhaust()s can change the state to something of equal value.)
+      // (2nc isn't actually enough to ensure there is no more improvement possible,
+      // because the exhaust()s can change the state to something of equal value.)
     }
   }
 }
@@ -506,7 +513,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;nas=0;
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
-  ff=1.0;
+  ff=N*N/300.;
   do{
     init_state();
     cv=val();
@@ -520,15 +527,18 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
     case 2:
       cv=stablestripexhaust(cv,1);w1+=work[1];
       if(cv<=lbv){lbv=cv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
+      //printf("%8d  %12g %12g\n",bv,w1,work[2]);
       if(N>1&&ff*w1>=work[2]){
+        if(pr>=2){printf("Width 2 exhaust");fflush(stdout);}
         memcpy(XBa,Xlbest,NBV*sizeof(int));cv=lbv;
         cv=stablestripexhaust(cv,2);
+        if(pr>=2)printf("\n");
         w1=0;lbv=1000000000;
       }
       break;
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
-    if((pr==2&&cv<=bv)||pr==3){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
+    if((pr>=3&&cv<=bv)||pr==4){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
     nn++;
     tt=cpu()-t0;
     if((new=(cv<bv))){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
@@ -544,9 +554,9 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
     last=(tt>=mint&&last)||tt>=maxt;
     if(new||tt>=t1||last){
       t1=MAX(tt*1.1,tt+5);
-      if(pr==1){
+      if(pr>=1){
         printf("%12lld %10d %10d %8.2f\n",nn,bv,ns,tt);
-        if(deb>=2&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
+        if(pr>=2&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
         fflush(stdout);
       }
     }
@@ -554,6 +564,22 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   if(tts)*tts=tt/ns;
   memcpy(XBa,Xbest,NBV*sizeof(int));
   return bv;
+}
+
+int cmpint(const void*p,const void*q){return *(int*)p-*(int*)q;}
+
+int okinv(int c,int r,int o,int s){// aborts if s isn't on the OK list
+  int i;
+  if(c<0||c>=N||r<0||r>=N){assert(s==0);return 0;}
+  for(i=0;i<nok[enc(c,r,o)];i++)if(ok[enc(c,r,o)][i]==s)return i;
+  assert(0);
+}
+
+int ok2inv(int c,int r,int s){// returns -1 if s isn't on the OK2 list
+  int i;
+  if(c<0||c>=N||r<0||r>=N)return s==0?0:-1;
+  for(i=0;i<nok2[enc2(c,r)];i++)if(ok2[enc2(c,r)][i]==s)return i;
+  return -1;
 }
 
 void getrestrictedsets(void){
@@ -577,8 +603,10 @@ void getrestrictedsets(void){
               for(s1=0;s1<16;s1++)tv[s1]=QB(x,y,1,1,s1,y0)+QB(x,y,1,2,s1,y1);
               vmin=1000000000;
               for(s0=0;s0<16;s0++){
+                //if(ok[enc(x,y,0)][s0]==0)continue;//possible
                 v0=QB(x,y,0,1,s0,x0)+QB(x,y,0,2,s0,x1);
                 for(s1=0;s1<16;s1++){
+                  //if(ok[enc(x,y,1)][s1]==0)continue;//possible
                   v=QB(x,y,0,0,s0,s1)+v0+tv[s1];
                   if(v<vmin){memset(ok0[bb],0,16*16);vmin=v;}
                   if(v==vmin)ok0[bb][s0][s1]=1;
@@ -592,6 +620,7 @@ void getrestrictedsets(void){
       //printf("bb=%d\n",bb);
       for(o=0;o<2;o++)for(s=0;s<16;s++)ok[enc(x,y,o)][s]=0;
       for(i=0;i<bb-1;i++)ll[i]=i+1;ll0=0;ll[bb-1]=-1;
+      nok2[enc2(x,y)]=0;
       while(1){
         memset(meet,0,sizeof(meet));
         for(i=ll0;i>=0;i=ll[i])for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)meet[s0][s1]+=ok0[i][s0][s1];
@@ -601,6 +630,7 @@ void getrestrictedsets(void){
         // ^ Can use better method. Should include cartesian product of projections first.
         if(max==0)break;
         ok[enc(x,y,0)][s0b]=ok[enc(x,y,1)][s1b]=1;
+        ok2[enc2(x,y)][nok2[enc2(x,y)]++]=s0b+(s1b<<4);
         for(i=ll0;i>=0&&ok0[i][s0b][s1b];i=ll[i]);
         if(i<0)break;
         ll0=i;
@@ -608,7 +638,7 @@ void getrestrictedsets(void){
           for(j=ll[i];j>=0&&ok0[j][s0b][s1b];j=ll[j]);
           ll[i]=j;i=j;
         }
-      }// subset choosing loop
+      }// subset-choosing loop
       //printf("%2d %2d:",x,y);for(o=0;o<2;o++){printf("   ");for(s=0;s<16;s++)printf("%d ",ok[enc(x,y,o)][s]);}printf("\n");
     }//x,y
   }
@@ -620,99 +650,144 @@ void getrestrictedsets(void){
     for(i=0;i<nok[enc(x,y,o)];i++)printf(" %2d",ok[enc(x,y,o)][i]);
     printf("\n");
   }
+  // Sort ok2[] to facilitate exhaust2()
+  for(x=0;x<N;x++)for(y=0;y<N;y++)qsort(ok2[enc2(x,y)],nok2[enc2(x,y)],sizeof(int),cmpint);
+  ok[NBV][0]=0;nok[NBV]=1;   // Special entries at the end to cater for off-grid cells
+  ok2[N*N][0]=0;nok2[N*N]=1; //
   if(deb>=1)for(y=N-1;y>=0;y--){
     for(x=0;x<N;x++){
       for(o=0;o<2;o++){
         v=nok[enc(x,y,o)];
-        if(v<16)printf("%x",v); else printf("x");
+        if(v<16)printf("%x",v); else printf("g");
       }
       printf(" ");
     }
     printf("\n");
   }
-  ok[NBV][0]=0;nok[NBV]=1;// Special entry at the end to cater for off-grid cells
+  for(y=N-1;y>=0;y--){
+    for(x=0;x<N;x++)printf("%3d ",nok2[enc2(x,y)]);
+    printf("\n");
+  }
 }
 
 int fullexhaust2(){
   // Uses restricted sets to cut down possibilities
-  int c,d,o,r,s,v,x,y,z,s0,newb,newv,adjv,vmin;
-  long long int b,ns,maxs,size,size1,mult[N+1],mod[N];
-  short*v0,*v1;
+  int c,d,o,p,r,v,x,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1,vmin;
+  long long int b,ns,maxs,size,sizer;
+  short*v0,*v1,pre[65536][4];
   getrestrictedsets();
   size=1LL<<60;d=-1;
-  for(o=0;o<2;o++){
+  {// Pending use of automorphisms
     maxs=0;
-    for(y=0;y<N;y++){
-      for(x=0;x<N;x++){
+    for(r=0;r<N;r++){
+      for(c=0;c<N;c++){
         ns=1;
-        for(z=0;z<N;z++)ns*=(y+(z<x))<N?nok[encI(o,z,y+(z<x),1)]:1;
-        ns*=MAX(nok[encI(o,x,y,0)],x<N-1?nok[encI(o,x+1,y,0)]:1);
+        for(x=0;x<c;x++)ns*=nok[encp(x,r+1,1)];
+        ns*=MAX(nok2[enc2(c,r)]*nok[encp(c+1,r,1)],nok[enc(c,r,1)]*nok2[enc2p(c+1,r)]);
+        for(x=c+2;x<N;x++)ns*=nok[enc(x,r,1)];
         if(ns>maxs)maxs=ns;
       }
     }
     if(deb>=1)printf("Direction %d: %12g\n",o,(double)maxs);
     if(maxs<size){size=maxs;d=o;}
   }
+
+  d=0;
   if(deb>=1)printf("Choosing direction %d\n",d);
   fflush(stdout);
-  //printf("Size %lld\n",size);exit(0);
+  printf("Size %lld\n",size);exit(0);
   v0=(short*)malloc(size*sizeof(short));
   v1=(short*)malloc(size*sizeof(short));
   if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust2()\n",size*2.*sizeof(short)/(1<<30));return 1;}
   memset(v0,0,size*sizeof(short));
-  
   for(r=0;r<N;r++){
     for(c=0;c<N;c++){
       // Add c,r,0 to interior
-      // Old boundary (x,r+(x<c),1)  x=0,1,...,N-1,  (c,r,0)     in that order, low to high
-      // New boundary (x,r+(x<c),1)  x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
-      // Encoded in multibase mod[0],...,mod[N-1],nok[newb]
-      // I.e., b = sum_{x<N} index(x,r+(x<c),1)*mult[x]+index(c or c+1,r,0)*mult[N]
-      // Inverse: index(x,r+(x<c),1) = (b/mult[x])%mod[x]
-      // New edges (c,r,0) to (c,r,1) and (c,r,0) to (c+1,r,0)
-      newv=encI(d,c,r,0);// new vertex to be added to interior; also disappearing boundary vertex
-      newb=c<N-1?encI(d,c+1,r,0):NBV;// new boundary vertex; also adjacent to new interior vertex
-      adjv=encI(d,c,r,1);// other vertex adjacent to new interior vertex
-      for(x=0;x<N;x++)mod[x]=(r+(x<c))<N?nok[encI(d,x,r+(x<c),1)]:1;
-      for(x=0,mult[0]=1;x<N;x++)mult[x+1]=mult[x]*mod[x];
-      //size0=mult[N]*nok[newv];// size of old boundary (ncu)
-      size1=mult[N]*nok[newb];// size of new boundary
-      if(deb>=2)printf("%d %d 0 : %12lld\n",r,c,size1);
-      assert(size1<=size);
-      for(b=0;b<size1;b++){// b=state of new boundary
-        vmin=1000000000;
-        for(s0=0;s0<nok[newv];s0++){
-          s=ok[newv][s0];// s0,s=state of (c,r,0)
-          v=v0[b%mult[N]+(c>0?s0*mult[N]:0)]+
-            QBI(d,c,r,0,0,s,ok[adjv][(b/mult[c])%mod[c]])+
-            QBI(d,c,r,0,2,s,ok[newb][b/mult[N]]);
-          if(v<vmin)vmin=v;
+      // In multibase low-high order:
+      // Old boundary (c,r)*   \OR               (1 full)  if c>0, OR
+      //              (c,r,1)  /                 (1)       if c=0
+      //              (x,r,1)    x=c+1,...,N-1,  (N-1-c)
+      //              (x,r+1,1)  x=0,1,...,c-1   (c)
+      // New boundary (c,r,1)                    (1)
+      //              (c+1,r)*                   (1 full)  \ if c<N-1
+      //              (x,r,1)     x=c+2,...,N-1, (N-2-c)   /
+      //              (x,r+1,1)   x=0,...,c-1    (c)
+      sizer=1;
+      for(x=c+2;x<N;x++)sizer*=nok[enc(x,r,1)];
+      for(x=0;x<c;x++)sizer*=nok[encp(x,r+1,1)];
+      np=0;
+      for(s1i=0;s1i<nok2[enc2p(c+1,r)];s1i++){
+        s1=ok2[enc2p(c+1,r)][s1i];
+        s1i1=okinv(c+1,r,1,s1>>4);
+        ps0=1000;
+        for(s0i=0;s0i<nok2[enc2(c,r)];s0i++){
+          s0=ok2[enc2(c,r)][s0i];
+          s0i1=okinv(c,r,1,s0>>4);
+          if(c==0)pre[np][0]=s0i1+nok[enc(c,r,1)]*s1i1; else pre[np][0]=s0i+nok2[enc2(c,r)]*s1i1;
+          pre[np][1]=QB(c,r,0,0,s0&15,s0>>4)+QB(c,r,0,2,s0&15,s1&15);
+          if(s0i>0)pre[np-1][2]=((s0>>4)>(ps0>>4));
+          pre[np][3]=s0i1+s1i*nok[enc(c,r,1)];
+          ps0=s0;
+          np++;
+          //v=v0[s0i,s1i1,b]+QB(c,r,0,0,s0&15,s0>>4)+QB(c,r,0,2,s0&15,s1>>4);
+          //if(v<vmin)vmin=v;
+          //if(s0i0==nok[enc(c,r,0)]-1){v1[s0i1,s1i,b]=vmin;vmin=32767;}
         }
-        v1[b]=vmin;
+        pre[np-1][2]=1;
+      }
+      mul0=(c==0?nok[enc(c,r,1)]:nok2[enc2(c,r)])*nok[encp(c+1,r,1)];
+      mul1=nok[enc(c,r,1)]*nok2[enc2p(c+1,r)];
+      if(deb>=2)printf("%d %d 0 : %12lld -> %12lld\n",r,c,sizer*mul0,sizer*mul1);
+      assert(sizer*MAX(mul0,mul1)<=size);
+      for(b=0;b<sizer;b++){// b=state of rest of new boundary (>=c+2,r,1), (<c,r+1,1)
+        vmin=32767;
+        for(p=0;p<np;p++){
+          v=v0[pre[p][0]+mul0*b]+pre[p][1];
+          if(v<vmin)vmin=v;
+          if(pre[p][2]){v1[pre[p][3]+mul1*b]=vmin;vmin=32767;}
+        }
       }
       // Add c,r,1 to interior
-      // Old boundary (x,r+(x<c),1)    x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
-      // New boundary (x,r+(x<c+1),1)  x=0,1,...,N-1,  (c+1,r,0)   in that order, low to high
-      // Encoded in multibase mod[0],...,mod[c-1],nok[newb],mod[c+1],...,mod[N-1],nok[c+1,r,0]
-      // So boundary loses (c,r,1) and gains (c,r+1,1)
+      // In multibase low-high order:
+      // Old boundary (c,r,1)                    (1)
+      //              (c+1,r)*                   (1 full)   \ if c<N-1
+      //              (x,r,1)     x=c+2,...,N-1, (N-2-c)    /
+      //              (x,r+1,1)   x=0,...,c-1    (c)
+      // New boundary (c+1,r)*                   (1 full)   \ if c<N-1
+      //              (x,r,1)    x=c+2,...,N-1,  (N-2-c)    /
+      //              (x,r+1,1)  x=0,1,...,c     (c+1)
+      // Boundary loses (c,r,1) and gains (c,r+1,1)
       // New edge (c,r,1) to (c,r+1,1)
-      newv=encI(d,c,r,1);// new vertex to be added to interior; also disappearing boundary vertex
-      newb=r<N-1?encI(d,c,r+1,1):NBV;// new boundary vertex; also adjacent to new interior vertex
-      size1=(size1/nok[newv])*nok[newb];
-      if(deb>=2)printf("%d %d 1 : %12lld\n",r,c,size1);
-      assert(size1<=size);
-      for(b=0;b<size1;b++){// b=state of new boundary
-        vmin=1000000000;
-        for(s0=0;s0<nok[newv];s0++){
-          s=ok[newv][s0];// s0,s=state of (c,r,1)
-          v=v1[b%mult[c]+(s0+(b/(mult[c]*nok[newb]))*nok[newv])*mult[c]]+
-            QBI(d,c,r,1,2,s,ok[newb][(b/mult[c])%nok[newb]]);
-          if(v<vmin)vmin=v;
+      sizer=nok2[enc2p(c+1,r)];
+      for(x=c+2;x<N;x++)sizer*=nok[enc(x,r,1)];
+      for(x=0;x<c;x++)sizer*=nok[encp(x,r+1,1)];
+      mul0=nok[enc(c,r,1)];
+      mul1=nok[encp(c,r+1,1)];
+      if(deb>=2)printf("%d %d 1 : %12lld -> %12lld\n",r,c,sizer*mul0,sizer*mul1);
+      assert(sizer*MAX(mul0,mul1)<=size);
+      np=0;
+      for(s1i1=0;s1i1<nok[encp(c,r+1,1)];s1i1++){
+        for(s0i1=0;s0i1<nok[enc(c,r,1)];s0i1++){
+          pre[np][0]=s0i1;
+          pre[np][1]=QB(c,r,1,2,ok[enc(c,r,1)][s0i1],ok[encp(c,r+1,1)][s1i1]);
+          pre[np][2]=(s0i1==nok[enc(c,r,1)]-1);
+          pre[np][3]=s1i1;
+          np++;
+          //v=v1[s0i1+nok[enc(c,r,1)]*b]+QB(c,r,1,2,s01,s11);
+          //if(v<vmin)vmin=v;
+          //if(s0i1==nok[enc(c,r,1)]-1){v0[b+sizer*s1i1]=vmin;vmin=32767;}
         }
-        v0[b]=vmin;
       }
-    }
-  }
+      for(b=0;b<sizer;b++){
+        vmin=32767;
+        for(p=0;p<np;p++){
+          v=v1[pre[p][0]+mul0*b]+pre[p][1];
+          if(v<vmin)vmin=v;
+          if(pre[p][2]){v0[b+sizer*pre[p][3]]=vmin;vmin=32767;}
+        }
+      }
+    }//c
+  }//r
   v=v0[0];
   free(v1);free(v0);
   return v;
@@ -724,7 +799,7 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=1;deb=1;gtr=1000000000;
+  weightmode=5;mode=0;N=8;strat=2;deb=1;gtr=1000000000;
   while((opt=getopt(ac,av,"g:m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
     switch(opt){
     case 'g': gtr=atoi(optarg);break;
@@ -789,6 +864,8 @@ int main(int ac,char**av){
   QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
   ok=(int(*)[16])malloc((NBV+1)*16*sizeof(int));
   nok=(int*)malloc((NBV+1)*sizeof(int));
+  ok2=(int(*)[256])malloc((N*N+1)*256*sizeof(int));
+  nok2=(int*)malloc((N*N+1)*sizeof(int));
   initwork();
   initrand(seed);
   initgraph(wn);
