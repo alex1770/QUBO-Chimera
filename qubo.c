@@ -654,48 +654,94 @@ void getrestrictedsets(void){
   for(x=0;x<N;x++)for(y=0;y<N;y++)qsort(ok2[enc2(x,y)],nok2[enc2(x,y)],sizeof(int),cmpint);
   ok[NBV][0]=0;nok[NBV]=1;   // Special entries at the end to cater for off-grid cells
   ok2[N*N][0]=0;nok2[N*N]=1; //
-  if(deb>=1)for(y=N-1;y>=0;y--){
-    for(x=0;x<N;x++){
-      for(o=0;o<2;o++){
-        v=nok[enc(x,y,o)];
-        if(v<16)printf("%x",v); else printf("g");
+  if(deb>=1){
+    for(y=N-1;y>=0;y--){
+      for(x=0;x<N;x++){
+        for(o=0;o<2;o++){
+          v=nok[enc(x,y,o)];
+          if(v<16)printf("%x",v); else printf("g");
+        }
+        printf(" ");
       }
-      printf(" ");
+      printf("\n");
     }
-    printf("\n");
+    for(y=N-1;y>=0;y--){
+      for(x=0;x<N;x++)printf("%3d ",nok2[enc2(x,y)]);
+      printf("\n");
+    }
   }
-  for(y=N-1;y>=0;y--){
-    for(x=0;x<N;x++)printf("%3d ",nok2[enc2(x,y)]);
-    printf("\n");
-  }
+}
+
+void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok20)[256],int*nok20){
+  int d,i,o,t,v,x,y,o1,x1,y1,dx,dy,d1,v1,s0,s1;
+  for(x=0;x<N;x++)for(y=0;y<N;y++){
+    x1=x;y1=y;
+    if(a&1){x1=y;y1=x;}
+    if(a&2)x1=N-1-x1;
+    if(a&4)y1=N-1-y1;
+    for(o=0;o<2;o++){
+      v=enc(x,y,o);
+      o1=o^(a&1);
+      v1=enc(x1,y1,o1);
+      XBa[v]=XBa0[v1];
+      for(d=0;d<3;d++){
+        d1=d;
+        if(d){
+          if(o==0){dx=2*d-3;dy=0;}else{dx=0;dy=2*d-3;}
+          if(a&1){t=dx;dx=dy;dy=t;}
+          if(a&2){dx=-dx;}
+          if(a&4){dy=-dy;}
+          if(o1==0){assert(dy==0);d1=(dx+3)/2;}else{assert(dx==0);d1=(dy+3)/2;}
+        }
+        for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)QBa[v][d][s0][s1]=QBa0[v1][d1][s0][s1];
+      }
+      nok[v]=nok0[v1];
+      for(i=0;i<nok[v];i++)ok[v][i]=ok0[v1][i];
+    }//o
+    v=enc2(x,y);v1=enc2(x1,y1);
+    nok2[v]=nok20[v1];
+    for(i=0;i<nok2[v];i++)if(a&1){t=ok20[v1][i];ok2[v][i]=(t>>4)|((t&15)<<4);} else ok2[v][i]=ok20[v1][i];
+    qsort(ok2[v],nok2[v],sizeof(int),cmpint);
+  }//x,y
 }
 
 int fullexhaust2(){
   // Uses restricted sets to cut down possibilities
-  int c,d,o,p,r,v,x,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1,vmin;
+  // and full automorphism group to choose best orientation
+  int a,c,p,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1,vmin;
   long long int b,ns,maxs,size,sizer;
+  double tns,ctns,cost,mincost;
   short*v0,*v1,pre[65536][4];
+  int XBa0[NBV],QBa0[NBV][3][16][16];
+  int ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
   getrestrictedsets();
-  size=1LL<<60;d=-1;
-  {// Pending use of automorphisms
-    maxs=0;
+  memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
+  memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
+  memcpy(ok20,ok2,sizeof(ok20));memcpy(nok20,nok2,sizeof(nok20));
+  mincost=1e100;A=-1;size=1LL<<60;
+  if(deb>=1)printf("                  Memory/GiB   Time(a.u.)  Memory*Time\n");
+  for(a=0;a<8;a++){// Loop over automorphisms of C_N to choose best representation to exhaust
+    applyam(a,XBa0,QBa0,ok0,nok0,ok20,nok20);
+    maxs=0;tns=0;
     for(r=0;r<N;r++){
       for(c=0;c<N;c++){
         ns=1;
         for(x=0;x<c;x++)ns*=nok[encp(x,r+1,1)];
         ns*=MAX(nok2[enc2(c,r)]*nok[encp(c+1,r,1)],nok[enc(c,r,1)]*nok2[enc2p(c+1,r)]);
         for(x=c+2;x<N;x++)ns*=nok[enc(x,r,1)];
+        tns+=ns;
         if(ns>maxs)maxs=ns;
       }
     }
-    if(deb>=1)printf("Direction %d: %12g\n",o,(double)maxs);
-    if(maxs<size){size=maxs;d=o;}
+    cost=tns*maxs;// Using cost = time * memory
+    if(deb>=1){double z=(double)maxs*2.*sizeof(short)/(1<<30);printf("Automorphism %d: %12g %12g %12g\n",a,z,tns,z*tns);}
+    if(cost<mincost){mincost=cost;size=maxs;ctns=tns;A=a;}
   }
-
-  d=0;
-  if(deb>=1)printf("Choosing direction %d\n",d);
-  fflush(stdout);
-  printf("Size %lld\n",size);exit(0);
+  applyam(A,XBa0,QBa0,ok0,nok0,ok20,nok20);
+  if(deb>=1)printf("Choosing automorphism %d\n",A);
+  printf("Size %.1fGiB\n",size*2.*sizeof(short)/(1<<30));
+  printf("Time units %g\n",ctns);
+  fflush(stdout);//exit(0);
   v0=(short*)malloc(size*sizeof(short));
   v1=(short*)malloc(size*sizeof(short));
   if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust2()\n",size*2.*sizeof(short)/(1<<30));return 1;}
@@ -731,7 +777,7 @@ int fullexhaust2(){
           np++;
           //v=v0[s0i,s1i1,b]+QB(c,r,0,0,s0&15,s0>>4)+QB(c,r,0,2,s0&15,s1>>4);
           //if(v<vmin)vmin=v;
-          //if(s0i0==nok[enc(c,r,0)]-1){v1[s0i1,s1i,b]=vmin;vmin=32767;}
+          //if(s0i0==<last one>){v1[s0i1,s1i,b]=vmin;vmin=32767;}
         }
         pre[np-1][2]=1;
       }
@@ -790,6 +836,7 @@ int fullexhaust2(){
   }//r
   v=v0[0];
   free(v1);free(v0);
+  applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
   return v;
 }
 
