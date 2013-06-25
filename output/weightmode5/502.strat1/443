@@ -1,0 +1,22 @@
+N=8
+Mode: 1
+Seed: 443
+Search strategy: 1
+Initialising random weight matrix with 502 working nodes
+502 working nodes out of 512
+States are 0,1
+Weight-choosing mode: 5
+Min time to run: 0.5s
+Max time to run: 1e+10s
+Groundtruth: 1000000000
+           1       -976          1     0.00
+           2       -990          1     0.00
+          18       -992          1     0.00
+          89       -994          1     0.04
+       12085       -994         79     5.04
+       24059       -994        175    10.04
+       36043       -994        259    15.04
+       48046       -994        356    20.04
+       60031       -994        442    25.04
+       68969       -994        500    28.77
+Time to solution 0.05754s, assuming true minimum is -994
