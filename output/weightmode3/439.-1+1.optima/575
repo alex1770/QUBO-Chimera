@@ -2,7 +2,6 @@ N=8
 Mode: 5
 Seed: 575
 Search strategy: 2
-Target time to run: 10s
 Initialising random weight matrix with 439 working nodes
 439 working nodes out of 512
 States are -1,1
@@ -13,15 +12,32 @@ Total 1084 / 2048
 Total 1052 / 2048
 Total 1051 / 2048
 Total 1051 / 2048
-88 8c x8 66 44 66 22 22 
-46 8e ex 88 88 84 e8 88 
-24 22 88 22 66 x8 e8 8c 
-22 e8 xe 48 66 ex e8 6a 
-88 ee xx xx x2 xx ee 22 
-24 22 6e e4 a4 xx 8x 88 
-42 42 4c 46 ex ex 48 44 
+88 8c g8 66 44 66 22 22 
+46 8e eg 88 88 84 e8 88 
+24 22 88 22 66 g8 e8 8c 
+22 e8 ge 48 66 eg e8 6a 
+88 ee gg gg g2 gg ee 22 
+24 22 6e e4 a4 gg 8g 88 
+42 42 4c 46 eg eg 48 44 
 42 64 cc 88 ce 88 22 43 
-Direction 0:   3.7581e+09
-Direction 1:   4.9325e+09
-Choosing direction 0
-Optimum -1397 found in 1606.08s
+  8  12  22   6   4   6   2   2 
+  6  16  24  16  20   8  20   8 
+  4   2  16   2   8  24  26  18 
+  2  24  32  12   6  28  26  14 
+  8  20  32  32  22  32  20   2 
+  4   2  14  14  10  24  34   8 
+  4   4  14   8  26  28   8   6 
+  4   6  16   8  20   8   2   4 
+                  Memory/GiB   Time(a.u.)  Memory*Time
+Automorphism 0:       2.1875  2.67273e+09  5.84661e+09
+Automorphism 1:      2.29688  4.57475e+09  1.05076e+10
+Automorphism 2:      3.00781  3.16886e+09  9.53135e+09
+Automorphism 3:      3.44531  6.78028e+09  2.33602e+10
+Automorphism 4:      1.43555   2.0508e+09  2.94402e+09
+Automorphism 5:      3.19922  5.65482e+09   1.8091e+10
+Automorphism 6:       4.8125  4.34061e+09  2.08892e+10
+Automorphism 7:      1.53125  3.85562e+09  5.90391e+09
+Choosing automorphism 4
+Size 1.4GiB
+Time units 2.0508e+09
+Optimum -1397 found in 26.78s

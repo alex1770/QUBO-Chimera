@@ -2,7 +2,6 @@ N=8
 Mode: 5
 Seed: 966
 Search strategy: 2
-Target time to run: 10s
 Initialising random weight matrix with 439 working nodes
 439 working nodes out of 512
 States are 0,1
@@ -22,7 +21,24 @@ Total  819 / 2048
 44 37 69 74 44 56 76 34 
 22 22 7a 65 a7 c7 88 55 
 32 33 32 77 c7 a6 44 21 
-Direction 0:  1.62994e+08
-Direction 1:  5.04261e+08
-Choosing direction 0
-Optimum -834 found in 133.83s
+  3   5   9   4   4   4   8   4 
+  7  10  15   6   8  20  18   7 
+ 11   8  15  14  27  22  30  12 
+  6  11  38  13   9  12  12   4 
+  7  12  29   7  15  16  19   5 
+  4  10  11   8   5   8   8   4 
+  2   2  12   9  14  16   9   5 
+  3   3   3   7  12  10   6   2 
+                  Memory/GiB   Time(a.u.)  Memory*Time
+Automorphism 0:     0.236133  4.38258e+08  1.03487e+08
+Automorphism 1:     0.330164  7.22971e+08  2.38699e+08
+Automorphism 2:     0.448652  6.32372e+08  2.83715e+08
+Automorphism 3:     0.470889  9.80499e+08  4.61706e+08
+Automorphism 4:     0.478169  6.89857e+08  3.29868e+08
+Automorphism 5:     0.363493   9.3554e+08  3.40062e+08
+Automorphism 6:       0.1265  3.93005e+08   4.9715e+07
+Automorphism 7:     0.187852  6.33883e+08  1.19076e+08
+Choosing automorphism 6
+Size 0.1GiB
+Time units 3.93005e+08
+Optimum -834 found in 4.48s
