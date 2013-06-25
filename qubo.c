@@ -673,6 +673,7 @@ void getrestrictedsets(void){
 }
 
 void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok20)[256],int*nok20){
+  // Apply automorphism a=0,1,...,7
   int d,i,o,t,v,x,y,o1,x1,y1,dx,dy,d1,v1,s0,s1;
   for(x=0;x<N;x++)for(y=0;y<N;y++){
     x1=x;y1=y;
@@ -874,7 +875,7 @@ int main(int ac,char**av){
       fprintf(stderr,"            5   Full exhaust (proving), better method\n");
       fprintf(stderr,"       -n   num working nodes\n");
       fprintf(stderr,"       -N   size of Chimera graph\n");
-      fprintf(stderr,"       -o   output problem file\n");
+      fprintf(stderr,"       -o   output problem (weight) file\n");
       fprintf(stderr,"       -O   output state file\n");
       fprintf(stderr,"       -s   seed\n");
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
