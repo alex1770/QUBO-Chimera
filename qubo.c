@@ -894,6 +894,8 @@ int main(int ac,char**av){
       fprintf(stderr,"            5   Start with J_ij (i<j) and h_i IID {-1,1} and transform\n");
       fprintf(stderr,"                back to Q (ignoring constant term) (default)\n");
       fprintf(stderr,"       -x   set the lower state value\n");
+      fprintf(stderr,"            Default 0 corresponds to QUBO state values in {0,1}\n");
+      fprintf(stderr,"            Other common option is -1, corresponding to Ising model state values in {-1,1}\n");
       exit(1);
     }
   }
