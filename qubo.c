@@ -112,6 +112,65 @@ void initgraph(int wn){
   for(p=0;p<NBV;p++)for(i=0;i<4;i++){okv[p][i]=(randint(u)<t);t-=okv[p][i];u--;}
 }
 
+void getbigweights1(void){// Get derived weights on "big graph" QB[] from Q[]
+  // Optimised version of getbigweights()
+  // This (messier) version is just here to show that the setup time can be more-or-less negligible.
+  // Could be faster if we optimised for the case that statemap={0,1} or {-1,1}, but it's fast enough for now.
+  int i,j,o,p,q,v,x,y,po,s0,s1,x0,x1,x00,x0d,dd,dd2;
+  memset(QBa,0,NBV*3*16*16*sizeof(int));
+  x0=statemap[0];x1=statemap[1];
+  x00=x0*x0;x0d=x0*(x1-x0);dd=(x1-x0)*(x1-x0);dd2=x1*x1-x0*x0;
+  for(x=0;x<N;x++)for(y=0;y<N;y++){
+    int (*QBal)[16],vv[16][16];
+    p=enc(x,y,0);po=enc(x,y,1);
+    for(i=0,v=0;i<4;i++)for(j=0;j<4;j++){vv[i][j]=Q[p][i][j]+Q[po][j][i];v+=vv[i][j];}
+    for(i=0;i<4;i++)v+=Q[p][i][6]+Q[po][i][6];
+    v*=x00;
+    QBal=QBa[p][0];
+    QBal[0][0]=v;
+    for(i=0;i<4;i++){
+      QBal[1<<i][0]=v+(vv[i][0]+vv[i][1]+vv[i][2]+vv[i][3])*x0d+Q[p][i][6]*dd2;
+      QBal[0][1<<i]=v+(vv[0][i]+vv[1][i]+vv[2][i]+vv[3][i])*x0d+Q[po][i][6]*dd2;
+    }
+    for(i=1;i<4;i++)for(s0=(1<<i)+1;s0<(1<<(i+1));s0++){
+      QBal[0][s0]=QBal[0][1<<i]+QBal[0][s0-(1<<i)]-v;
+      QBal[s0][0]=QBal[1<<i][0]+QBal[s0-(1<<i)][0]-v;
+    }
+    for(i=0;i<4;i++)for(j=0;j<4;j++)QBal[1<<i][1<<j]=QBal[1<<i][0]+QBal[0][1<<j]-v+dd*vv[i][j];
+    for(i=0;i<4;i++)for(s0=(1<<i);s0<(1<<(i+1));s0++){
+      for(j=0;j<4;j++){
+        QBal[s0][1<<j]=QBal[1<<i][1<<j]+QBal[s0-(1<<i)][1<<j]-QBal[0][1<<j];
+        for(s1=(1<<j)+1;s1<(1<<(j+1));s1++){
+          QBal[s0][s1]=QBal[s0][1<<j]+QBal[s0][s1-(1<<j)]-QBal[s0][0];
+        }
+      }
+    }
+    for(o=0;o<2;o++)if((o?y:x)<N-1){
+      int aa[16],oo[16];
+      p=enc(x,y,o);
+      q=enc(x+1-o,y+o,o);
+      for(i=0,v=0;i<4;i++)v+=Q[p][i][5]+Q[q][i][4];
+      v*=x00;
+      aa[0]=0;oo[0]=v;
+      for(i=0;i<4;i++){
+        aa[1<<i]=(Q[p][i][5]+Q[q][i][4])*x1*(x1-x0);
+        oo[1<<i]=v+(Q[p][i][5]+Q[q][i][4])*x0*(x1-x0);
+        for(s0=(1<<i)+1;s0<(1<<(i+1));s0++){
+          aa[s0]=aa[1<<i]+aa[s0-(1<<i)];
+          oo[s0]=oo[1<<i]+oo[s0-(1<<i)]-v;
+        }
+      }
+      for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)QBa[p][2][s0][s1]=aa[s0&s1]+oo[s0|s1];
+    }
+  }// x,y
+  for(x=0;x<N;x++)for(y=0;y<N;y++){
+    if(x<N-1)memcpy(QBa[enc(x+1,y,0)][1],QBa[enc(x,y,0)][2],256*sizeof(int));
+    if(y<N-1)memcpy(QBa[enc(x,y+1,1)][1],QBa[enc(x,y,1)][2],256*sizeof(int));
+    p=enc(x,y,1);q=enc(x,y,0);
+    for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)QBa[p][0][s0][s1]=QBa[q][0][s1][s0];
+  }
+}
+
 void getbigweights(void){// Get derived weights on "big graph" QB[] from Q[]
   // Intended so that the energy is calculated by summing over each big-edge exactly once,
   // not forwards and backwards.  See val() below.
@@ -119,6 +178,8 @@ void getbigweights(void){// Get derived weights on "big graph" QB[] from Q[]
   // (1/2)(Q+Q^T) as would happen if you later intended to sum over both big-edge directions.
   // The self-loops are incorporated (once) into the intra-K_4,4 terms, QB(*,*,*,0,*,*).
   int d,i,j,k,o,p,q,x,y,po,s0,s1,x0,x1;
+  getbigweights1();return;// Call equivalent optimised version and return.
+  // Simple version below retained because it makes it clearer what is going on.
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++){
     for(k=0;k<3;k++)QB(x,y,o,k,s0,s1)=0;
     p=enc(x,y,o);po=enc(x,y,1-o);
