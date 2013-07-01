@@ -5,6 +5,9 @@
 #include <math.h>
 #include <getopt.h>
 #include <assert.h>
+#ifdef PARALLEL
+#include <omp.h>
+#endif
 
 // QUBO solver
 // Solves QUBO problem:
@@ -770,7 +773,7 @@ void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok
 int fullexhaust2(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
-  int a,c,p,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1,vmin;
+  int a,c,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1;
   long long int b,ns,maxs,size,sizer;
   double tns,ctns,cost,mincost;
   short*v0,*v1;
@@ -846,7 +849,9 @@ int fullexhaust2(){
       mul1=nok[enc(c,r,1)]*nok2[enc2p(c+1,r)];
       if(deb>=2)printf("%d %d 0 : %12lld -> %12lld\n",r,c,sizer*mul0,sizer*mul1);
       assert(sizer*MAX(mul0,mul1)<=size);
+#pragma omp parallel for
       for(b=0;b<sizer;b++){// b=state of rest of new boundary (>=c+2,r,1), (<c,r+1,1)
+        int p,v,vmin;
         vmin=32767;
         for(p=0;p<np;p++){
           v=v0[pre[p][0]+mul0*b]+pre[p][1];
@@ -885,7 +890,9 @@ int fullexhaust2(){
           //if(s0i1==nok[enc(c,r,1)]-1){v0[b+sizer*s1i1]=vmin;vmin=32767;}
         }
       }
+#pragma omp parallel for
       for(b=0;b<sizer;b++){
+        int p,v,vmin;
         vmin=32767;
         for(p=0;p<np;p++){
           v=v1[pre[p][0]+mul0*b]+pre[p][1];
