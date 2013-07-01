@@ -773,9 +773,8 @@ int fullexhaust2(){
   int a,c,p,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1,vmin;
   long long int b,ns,maxs,size,sizer;
   double tns,ctns,cost,mincost;
-  short*v0,*v1,pre[65536][4];
-  int XBa0[NBV],QBa0[NBV][3][16][16];
-  int ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
+  short*v0,*v1;
+  int XBa0[NBV],QBa0[NBV][3][16][16],pre[65536][4],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
   getrestrictedsets();
   memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
   memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
