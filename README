@@ -1,20 +1,41 @@
 To compile, type
 make
+(or make par to cause proving mode -m5 to be multithreaded)
 
-To repeat FPTYTO test on problem 123, type
-./qubo -m1 testproblems/myformat/123
-The corresponding output file is at output/439.01.strat2/123
-
+To repeat S1 timing run on instance 123 of Set 1, type
+./qubo -m1 -S1 testproblems/weightmode5/439/myformat/123 
+The corresponding output file is at output/weightmode5/439.strat1/123
+Summary files are at testproblems/weightmode5/439/summary*
 To generate and test a similar random example, type
-./qubo -m1 -n439
+./qubo -m1 -S1 -n439
 
-To repeat SPTYTO test on problem 123, type
-./qubo -m1 -S0 testproblems/myformat/123
-The corresponding output file is at output/439.01.strat0/123
+To repeat S1 timing run on instance 123 of Set 2, type
+./qubo -m1 -S1 testproblems/weightmode5/502/myformat/123 
+The corresponding output file is at output/weightmode5/502.strat1/123
+Summary files are at testproblems/weightmode5/502/summary*
+To generate and test a similar random example, type
+./qubo -m1 -S1 -n502
 
-To repeat FPTYTO test on problem 123 with states -1,+1, type
-./qubo -m1 -x-1 testproblems/myformat/123
-The corresponding output file is at output/439.-1+1.strat2/123
+To repeat S1 timing run on instance 123 of Set 3, type
+./qubo -m1 -S1 -x-1 testproblems/noextfield-Ising/439/myformat/123
+to do it in Ising Model mode, where the state variables can be in {-1,1}, OR
+./qubo -m1 -S1 testproblems/noextfield/439/myformat/123
+to do it in QUBO mode, where the state variables can be in {0,1}.
+Note that the two modes are equivalent, but the minimum values will be different.
+For historical reasons, this run was originally conducted in Ising Model mode, and
+the output files at output/weightmode3/439.-1+1.strat1/ have Ising Model values.
+Ising model summary files are at testproblems/noextfield-Ising/439/summary*
+and QUBO summary files are at testproblems/noextfield/439/summary*
+To generate and test a similar random example, type
+./qubo -m1 -S1 -w3 -x-1 -n439
 
-To solve a random C_6 instance with states -1,+1, type
-./qubo -N6 -x-1
+To get a list of available options, type
+./qubo -?
+
+The format of the instance-description file (such as testproblems/weightmode5/502/myformat/123) 
+starts with a line giving the size of the Chimera graph. (Two numbers are given to specify an m x n
+rectangle, but currently only a square, m=n, is accepted.)
+The subsequent lines are of the form
+<Chimera vertex> <Chimera vertex> weight
+where <Chimera vertex> is specified by four numbers using the format described in the
+comments at the start of qubo.c.
