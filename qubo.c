@@ -79,6 +79,7 @@ int *nok2;      // nok2[N*N+1]      nok2[enc2(x,y)] = number of allowable states
 int N;// Size of Chimera graph
 int statemap[2];// statemap[0], statemap[1] are the two possible values that the state variables take
 int deb;// verbosity
+int seed;// alter
 
 #define MAX(x,y) ((x)>(y)?(x):(y))
 #define MAXVAL 10000 // Assume for convenience that all values (energies) are <= this in absolute value
@@ -223,7 +224,7 @@ int stripval(int d,int c0,int c1){
   return v;
 }
 
-void initweights(int weightmode){// Initialise a symmetric weight matrix with random +/-1s
+void initweights(int weightmode){// Randomly initialise a symmetric weight matrix
   // weightmode
   // 0           All of Q_ij independently +/-1
   // 1           As 0, but diagonal not allowed
@@ -245,14 +246,15 @@ void initweights(int weightmode){// Initialise a symmetric weight matrix with ra
     case 5:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=4*r;Q[p][i][6]-=2*r;Q[q][j][6]-=2*r;}
       else if(d==6)Q[p][i][d]+=2*randsign();
       break;
+    case 6:if((d<4&&deco(p)==0)||d==5){r=randsign()*(10+(seed%32)*(d>=4));Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      break;
+    case 7:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      break;
+    case 8:if((d<4&&deco(p)==0)||d==5){r=randint(201)-100;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      break;
     }
   }
   getbigweights();
-}
-
-void init_state(void){// Initialise state randomly
-  int x,y,o;
-  for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
 }
 
 void writeweights(char *f){
@@ -421,6 +423,60 @@ int lineexhaust(int d,int c,int upd){
   return vmin0;
 }
 
+void ringexhaust(int c,int r){
+  // Exhaust ring (c,r), (c,r+1), (c+1,r+1), (c+1,r), writing optimum values back
+  int b,i,j,s,v,b0,smin,vmin0,vmin1;
+  int v0[16],v1[16];// Map from boundary state to value
+  int h0[16][8],h1[16][8],h2[8];// History
+  const int vv[8][3]={{0,0,0},{0,0,1},{0,1,1},{0,1,0}, {1,1,0},{1,1,1},{1,0,1},{1,0,0}};// vertex list
+  const int dd[8]={0,1,0,1,0,2,0,2};// direction from vertex i+1 to vertex i
+  const int ev[8][4]={{-1,0,0,1},{0,-1,1,1},{0,2,1,2},{-1,1,0,1},
+                      {2,1,0,2},{1,2,1,2},{1,-1,1,1},{2,0,0,2}};// external vertex & direction
+  int ps[16];
+
+  //          |         |
+  //          *2        *5
+  //         /|        /|
+  //        / |       / |
+  //     --*--|------*--|-
+  //       3  |      4  |
+  //          |         |
+  //   (c,r,1)*1        *6
+  //         /|        /|
+  // (c,r,0)/         /  
+  //     --*---------*---
+  //       0(b0)     7
+  
+  assert(c<N-1&&r<N-1);
+  for(s=0;s<16;s++)ps[s]=s;
+  shuf(ps,16);// Break ties somewhat randomly
+  vmin1=1000000000;
+  for(b0=0;b0<16;b0++){// b0 = state of v0=(c,r,0) the start boundary
+    for(b=0;b<16;b++)v0[b]=10000000*(b!=b0);
+    for(i=0;i<8;i++){
+      int *qbil,*qbel,(*h0l)[8],(*h1l)[8],*v0l,*v1l;
+      j=(i+1)&7;
+      qbel=&QB(c+vv[j][0],r+vv[j][1],vv[j][2],ev[j][3],0,XB(c+ev[j][0],r+ev[j][1],ev[j][2]));
+      if(i&1){h0l=h1;h1l=h0;v0l=v1;v1l=v0;} else {h0l=h0;h1l=h1;v0l=v0;v1l=v1;}
+      // Here v0l[b]=best value of v0,...,v(i-1) given v0=b0, vi=b; external ints included in v1,...,vi
+      for(b=0;b<16;b++){// b = state of vertex j=i+1, the new boundary
+        qbil=&QB(c+vv[j][0],r+vv[j][1],vv[j][2],dd[i],b,0);
+        vmin0=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s = state of vertex i
+          v=((v0l[s]+qbil[s])<<4)|ps[s];
+          if(v<vmin0){vmin0=v;smin=s;}
+        }
+        v1l[b]=(vmin0>>4)+qbel[b<<4];
+        memcpy(h1l[b],h0l[smin],i*sizeof(int));h1l[b][i]=smin;
+      }
+    }//i
+    v=(v0[b0]<<4)|ps[b0];
+    if(v<vmin1){vmin1=v;memcpy(h2,h0[b0],8*sizeof(int));}
+  }//b0
+  
+  for(i=0;i<8;i++)XB(c+vv[i][0],r+vv[i][1],vv[i][2])=h2[i];
+}
+
 void planeexhaust(int o){// not currently used
   // Exhaust (*,*,o) "plane" (x=*, y=*, o fixed)
   // Comments and variable names are as if in the case o=0 (horizontally connected nodes)
@@ -562,26 +618,120 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
       if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
       assert(v<=cv);
       if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
-      // (2nc isn't actually enough to ensure there is no more improvement possible,
-      // because the exhaust()s can change the state to something of equal value.)
+      // (2nc isn't actually enough to ensure there is no more improvement possible)
+    }
+  }
+}
+
+int stableringexhaust(int cv){// Repeated ring exhausts until no more improvement likely
+  int i,r,x,y,v,nc,ord[(N-1)*(N-1)];
+  nc=N-1;r=0;
+  while(1){
+    for(i=0;i<nc*nc;i++)ord[i]=i;
+    //shuf(ord,nc*nc);
+    for(i=0;i<nc*nc;i++){
+      x=ord[i]%nc;y=ord[i]/nc;
+      ringexhaust(x,y);v=val();
+      assert(v<=cv);
+      if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc*nc)return cv;}
+      // (nc^2 isn't actually enough to ensure there is no more improvement possible)
+    }
+  }
+}
+
+void init_state(void){// Initialise state randomly
+  int x,y,o;
+  for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
+}
+
+void pertstate(int sq){
+  int o,x,y,x0,y0,it;
+  for(it=0;it<1;it++){
+    x0=randint(N-sq+1);y0=randint(N-sq+1);
+    for(x=x0;x<x0+sq;x++)for(y=y0;y<y0+sq;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
+    if(1){
+      if(x0>0)lineexhaust(0,x0-1,1);
+      if(x0<N-sq)lineexhaust(0,x0+sq,1);
+      if(y0>0)lineexhaust(1,y0-1,1);
+      if(y0<N-sq)lineexhaust(1,y0+sq,1);
+    }else{
+      //for(x=x0;x<x0+sq;x++)lineexhaust(0,x,1);
+      //for(y=y0;y<y0+sq;y++)lineexhaust(1,y,1);
     }
   }
 }
 
 int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
-  // Optimisation; writes back optimum found
-  int v,bv,lbv,cv,ns,nas,new,last,Xbest[NBV],Xlbest[NBV];
+  //
+  // Heuristic optimisation, writing back best value found. Can be used to find TTS, the
+  // expected time to find an optimum solution, using the strategy labelled by 'strat'.
+  // 'strat' is assumed to be a fixed strategy running forever which does not know what
+  // the optimum value is. I.e., it is not allowed to make decisions as to how to search
+  // based on outside knowledge of the optimum value. The aim is to get an accurate
+  // estimate of the expected time for 'strat' to find its first optimum state.
+  // 
+  // opt1() returns a pair (presumed optimum, estimate of TTS), the "presumed optimum"
+  // being the smallest value found in its searching. If the presumed optimum is wrong
+  // (not actually the optimum) then the estimate of TTS is allowed to be anything. If the
+  // presumed optimum is correct then the estimate of TTS must be unbiased. So for the
+  // purposes of reasoning whether or not opt1 is behaving correctly, we only care about
+  // the case when the presumed optimum is the actual optimum. Of course, we also want to
+  // make it very likely that the presumed optimum is the actual optimum, but we don't
+  // seek to quantify what constitutes very likely here.
+  // 
+  // There are simple strategies (strat=0,1) which are Markovian in nature, in that they
+  // keep starting from a random configuration (of spins), and have no other state, so
+  // they generate independent samples of TTS in their normal operation.
+  //
+  // Other strategies (which are the subject of the rest of this comment) may have "state"
+  // or may not restart from a random configuration, for example they might use previously
+  // found configurations to help make a new one.  In these cases, you need to stop the
+  // strategy with it hits an optimum and then restart it cleanly, clearing all state.
+  // Only that way can you be sure that you are averaging independent runs when taking the
+  // average TTS.
+  //
+  // Of course, since the strategy doesn't actually know the optimum value (unless it has
+  // been supplied it via gtr), and is not allowed to use it to change its behaviour, it
+  // has to restart itself every time it hits a "presumed optimum", i.e., a (equal-)lowest
+  // value found so far. This presumed optimum can be carried over from previous runs, so
+  // long as it is not changing any decision that the strategy makes in any independent
+  // run. I.e., you have to imagine the run carrying on forever, but the presumed optimum
+  // just dictates when to take the time reading (at the point the run finds an equally
+  // good value).
+  //
+  // If the presumed optimum is bettered, so making a new presumed optimum, then all
+  // previous statistics have to be discarded, including the current run which found the
+  // new presumed optimum. This is because the new presumed optimum was not found under
+  // "infinity run" conditions: the early stopping at the old presumed optimum might have
+  // biased it. Thus you actually need to find n+1 optima to generate n samples.
+  //
+  // S0: Randomise configuration; stablek44exhaust; repeat
+  // S1: Randomise configuration; stablelineexhaust; repeat
+  // S2: Randomise configuration; stablelineexhaust; if #lineexhausts since last reset
+  //     point > (some constant) then do a stable-width2-exhaust from the best
+  //     post-lineexhaust config since the last reset point. If just did a width2-exhaust,
+  //     then do a reset, i.e., clear state. This reset is a choice: not necessary for
+  //     unbiasedness, but may help not getting stuck.
+
+  int v,bv,lbv,cv,ns,sr,nas,new,last,Xbest[NBV],Xlbest[NBV];
   int64 nn,stats[2*MAXVAL+1];
-  double ff,t0,t1,tt,w1;
+  double ff,t0,t1,t2,tt,w1,now;
   if(pr)printf("Min time to run: %gs\nMax time to run: %gs\nGroundtruth: %d\n",mint,maxt,gtr);
-  bv=lbv=1000000000;nn=0;t0=cpu();t1=0;ns=0;nas=0;
+  bv=lbv=1000000000;nn=0;
+  t0=cpu();// Initial time
+  t1=0;// Elapsed time threshold for printing update
+  // "presumed solution" means "minimum value found so far"
+  ns=0;// Number of presumed solutions
+  nas=0;// Number of actual solutions (of value gtr)
+  t2=t0;// t2 = Time of last clean start
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
   ff=N*N/300.;
+  sr=(strat<2);// Simple-restarting strategy
   do{
-    init_state();
+    if(strat<10)init_state(); else pertstate(2);
     cv=val();
-    switch(strat){
+    switch(strat%10){
     case 0:
       cv=stablek44exhaust(cv);// Simple "local" strategy
       break;
@@ -591,41 +741,43 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
     case 2:
       cv=stablestripexhaust(cv,1);w1+=work[1];
       if(cv<=lbv){lbv=cv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
-      //printf("%8d  %12g %12g\n",bv,w1,work[2]);
       if(N>1&&ff*w1>=work[2]){
         if(pr>=2){printf("Width 2 exhaust");fflush(stdout);}
-        memcpy(XBa,Xlbest,NBV*sizeof(int));cv=lbv;
-        cv=stablestripexhaust(cv,2);
+        memcpy(XBa,Xlbest,NBV*sizeof(int));
+        cv=stablestripexhaust(lbv,2);
         if(pr>=2)printf("\n");
-        w1=0;lbv=1000000000;
+        w1=0;lbv=1000000000;// This has the effect of clearing the state, since with lbv=infinity, Xlbest will be overwritten before it is read
       }
+      break;
+    case 3:
+      cv=stableringexhaust(cv);
       break;
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
     if((pr>=3&&cv<=bv)||pr==4){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
     nn++;
-    tt=cpu()-t0;
-    if((new=(cv<bv))){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
+    now=cpu();
+    new=(cv<bv);
+    if(new){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv){
-      //memcpy(Xbest,XBa,NBV*sizeof(int));
-      ns++;
-      // Must clear the record if find a presumed solution, since we measure
-      // time to first solution, not time per solution after getting going.
+      if(sr||!new)ns++; else t2=now;
+      init_state();
       w1=0;lbv=1000000000;
     }
-    if(cv==gtr)nas++;
+    if(cv==gtr){nas++;init_state();}
     if(gtr==1000000000)last=(ns>=tns); else last=(nas>=tns);
+    tt=now-t0;
     last=(tt>=mint&&last)||tt>=maxt;
     if(new||tt>=t1||last){
       t1=MAX(tt*1.1,tt+5);
       if(pr>=1){
-        printf("%12lld %10d %10d %8.2f\n",nn,bv,ns,tt);
+        printf("%12lld %10d %10d %8.2f %8.2f\n",nn,bv,ns,now-t2,tt);
         if(pr>=2&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
         fflush(stdout);
       }
     }
   }while(!last);
-  if(tts)*tts=tt/ns;
+  if(tts)*tts=(now-t2)/ns;
   memcpy(XBa,Xbest,NBV*sizeof(int));
   return bv;
 }
@@ -774,7 +926,7 @@ int fullexhaust2(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
   int a,c,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1;
-  long long int b,ns,maxs,size,sizer;
+  int64 b,ns,maxs,size,sizer;
   double tns,ctns,cost,mincost;
   short*v0,*v1;
   int XBa0[NBV],QBa0[NBV][3][16][16],pre[65536][4],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
@@ -909,7 +1061,7 @@ int fullexhaust2(){
 }
 
 int main(int ac,char**av){
-  int opt,wn,seed,mode,strat,weightmode,gtr;
+  int opt,wn,mode,strat,weightmode,gtr;
   double mint,maxt;
   char *inprobfile,*outprobfile,*outstatefile;
 
@@ -1006,13 +1158,13 @@ int main(int ac,char**av){
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
     break;
   case 2:;// Find average minimum value
-    double s0,s1,s2;
+    double s0,s1,s2,va;
     s0=s1=s2=0;
     while(1){
       initweights(weightmode);
-      v=opt1(mint,maxt,0,1,0,strat,gtr);
-      s0+=1;s1+=v;s2+=v*v;
-      printf("%12g %12g %12g\n",s0,s1/s0,sqrt((s2-s1*s1/s0)/(s0-1)));
+      v=opt1(0,maxt,0,500,0,strat,gtr);
+      s0+=1;s1+=v;s2+=v*v;va=(s2-s1*s1/s0)/(s0-1);
+      printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
     }
     break;
   case 3:// Full exhaust
@@ -1039,6 +1191,16 @@ int main(int ac,char**av){
     break;
   case 6:
     readstate("state");printf("state = %d\n",val());break;
+  case 7:;
+    int c,i,r;
+    //opt1(mint,maxt,deb,1,0,strat,gtr);
+    //v=val();
+    for(i=0;i<50;i++){
+      for(c=0;c<N-1;c++)for(r=0;r<N-1;r++){ringexhaust(c,r);}
+      printf("Ringexhaust %d\n",val());
+    }
+    writestate("ringstate");
+    break;
   }
   if(outstatefile)writestate(outstatefile);
   return 0;
