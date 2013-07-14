@@ -79,7 +79,7 @@ int *nok2;      // nok2[N*N+1]      nok2[enc2(x,y)] = number of allowable states
 int N;// Size of Chimera graph
 int statemap[2];// statemap[0], statemap[1] are the two possible values that the state variables take
 int deb;// verbosity
-int seed;// alter
+int seed;
 
 #define MAX(x,y) ((x)>(y)?(x):(y))
 #define MAXVAL 10000 // Assume for convenience that all values (energies) are <= this in absolute value
@@ -307,8 +307,8 @@ int readweights(char *f){
 }
 
 void prstate(FILE*fp,int style,int*X0){
-  // style = 0: hex grid
-  // style = 1: hex grid xored with previous, "gauge-fixed" in the +/-1 case
+  // style = 0: hex grid xored with X0 (if supplied)
+  // style = 1: hex grid xored with X0 (if supplied), "gauge-fixed"
   // style = 2: list of vertices
   int nb[16];
   int i,j,o,p,t,x,xor;
@@ -353,7 +353,7 @@ void readstate(char *f){
   fclose(fp);
 }
 
-void initwork(){
+void initwork(){//alter
   int wid;
   work=(double*)malloc((N+1)*sizeof(double));
   // work[wid] counts approx number of QBI references in a stable exhaust of width wid
@@ -421,6 +421,93 @@ int lineexhaust(int d,int c,int upd){
     XBI(d,c,N-1,1)=smin0;
   }
   return vmin0;
+}
+
+int pairexhaust(int d,int c,int upd){
+  // If d=0 exhaust columns c,c+1; if d=1 exhaust rows c,c+1
+  // Comments and variable names are as if in the column case (d=0)
+  // upd=1 <-> write optimum values back into the global state
+  
+  int r,s,v,b0,b1,smin,vmin;
+  int v0[16][16],v1[16];// Map from boundary state to value
+  int hc[N][2][16][16], // Comb history: hc[r][x][b0][b1] = opt value of (c+x,r,0) given (c,r,1)=b0, (c+1,r,x)=b1
+    hs[N][2][16][16];  // Strut history: hs[r][x][b0][b1] = opt value of (c+x,r,1) given (c,r+1,1)=b0, (c+1,r+x,1)=b1
+  int ps0[16],ps1[16];
+
+  assert(c<N-1);
+  for(s=0;s<16;s++)ps0[s]=ps1[s]=s;
+  if(upd){shuf(ps0,16);shuf(ps1,16);}// Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
+  memset(v0,0,sizeof(v0));
+  for(r=0;r<N;r++){
+    // Comb exhaust
+    // At this point: v0 maps (*,r,1) (* meaning c or c+1) to value of (*,r,1), (*,<r,*)
+    for(b0=0;b0<16;b0++){// state of (c,r,1)
+      for(b1=0;b1<16;b1++){// state of (c+1,r,0)
+        vmin=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s = state of (c,r,0)
+          v=((QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+QBI(d,c,r,0,0,s,b0)+QBI(d,c,r,0,2,s,b1))<<4)|ps0[s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        v1[b1]=vmin>>4;
+        hc[r][0][b0][b1]=smin;
+      }
+      for(b1=0;b1<16;b1++){// state of (c+1,r,1)
+        vmin=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s = state of (c+1,r,0)
+          v=((v1[s]+QBI(d,c+1,r,0,0,s,b1)+QBI(d,c+1,r,0,2,s,XBI(d,c+2,r,0)))<<4)|ps1[s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        v0[b0][b1]+=vmin>>4;
+        hc[r][1][b0][b1]=smin;
+      }
+    }
+    // Strut exhaust
+    // Now v0 maps (*,r,1) to value of (*,<=r,*)
+    for(b1=0;b1<16;b1++){// state of (c+1,r,1)
+      for(b0=0;b0<16;b0++){// state of (c,r+1,1)
+        if(r==N-1&&b0>0)continue;
+        vmin=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s = state of (c,r,1)
+          v=((v0[s][b1]+QBI(d,c,r,1,2,s,b0))<<4)|ps0[s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        v1[b0]=vmin>>4;
+        hs[r][0][b0][b1]=smin;
+      }
+      for(b0=0;b0<16;b0++)v0[b0][b1]=v1[b0];
+    }
+    // Now v0 maps (c,r+1,1),(c+1,r,1) to value of (c,r+1,1),(*,<=r,*)
+    for(b0=0;b0<16;b0++){// state of (c,r+1,1)
+      if(r==N-1&&b0>0)continue;
+      for(b1=0;b1<16;b1++){// state of (c+1,r+1,1)
+        if(r==N-1&&b1>0)continue;
+        vmin=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s = state of (c+1,r,1)
+          v=((v0[b0][s]+QBI(d,c+1,r,1,2,s,b1))<<4)|ps1[s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        v1[b1]=vmin>>4;
+        hs[r][1][b0][b1]=smin;
+      }
+      for(b1=0;b1<16;b1++)v0[b0][b1]=v1[b1];
+    }
+    // Now v0 maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
+  }//r
+  if(upd){
+    b0=b1=0;
+    for(r=N-1;r>=0;r--){
+      // Now b0,b1 = opt value of (c,r+1,1), (c+1,r+1,1)
+      b1=hs[r][1][b0][b1];
+      b0=hs[r][0][b0][b1];
+      // Now b0,b1 = opt value of (c,r,1), (c+1,r,1)
+      XBI(d,c,r,1)=b0;
+      XBI(d,c+1,r,1)=b1;
+      s=hc[r][1][b0][b1];
+      XBI(d,c,r,0)=hc[r][0][b0][s];
+      XBI(d,c+1,r,0)=s;
+    }
+  }
+  return v0[0][0]+stripval(d,0,c)+stripval(d,c+2,N);
 }
 
 void ringexhaust(int c,int r){
@@ -574,8 +661,6 @@ int stripexhaust(int d,int c0,int c1,int upd){
   return v+stripval(d,0,c0)+stripval(d,c1,N);
 }
 
-int fullexhaust(int upd){return stripexhaust(0,0,N,upd);}
-
 int k44exhaust(int x,int y){
   // Exhausts big vertex (x,y)
   // Writes optimum value back into the global state
@@ -615,7 +700,8 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
     shuf(ord,nc);shuf(ord+nc,nc);
     for(i=0;i<2*nc;i++){
       c=ord[i]%nc;o=ord[i]/nc;
-      if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
+      if(wid==1){lineexhaust(o,c,1);v=val();} else
+        if(wid==2){pairexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
       assert(v<=cv);
       if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
       // (2nc isn't actually enough to ensure there is no more improvement possible)
@@ -726,7 +812,8 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   t2=t0;// t2 = Time of last clean start
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
-  ff=N*N/300.;
+  ff=N*N/300.*100;//alter
+  printf("w1/w2 = %g\n",work[2]/(ff*work[1]));//alter
   sr=(strat<2);// Simple-restarting strategy
   do{
     if(strat<10)init_state(); else pertstate(2);
@@ -922,7 +1009,7 @@ void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok
   }//x,y
 }
 
-int fullexhaust2(){
+int fullexhaust(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
   int a,c,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1;
@@ -960,7 +1047,7 @@ int fullexhaust2(){
   fflush(stdout);//exit(0);
   v0=(short*)malloc(size*sizeof(short));
   v1=(short*)malloc(size*sizeof(short));
-  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust2()\n",size*2.*sizeof(short)/(1<<30));return 1;}
+  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust()\n",size*2.*sizeof(short)/(1<<30));return 1;}
   memset(v0,0,size*sizeof(short));
   for(r=0;r<N;r++){
     for(c=0;c<N;c++){
@@ -1167,12 +1254,12 @@ int main(int ac,char**av){
       printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
     }
     break;
-  case 3:// Full exhaust
-    printf("Full exhaust %d\n",fullexhaust(0));
+  case 3:// Simple full exhaust
+    printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
     break;
   case 4:;// Checks
     opt1(mint,maxt,1,1,0,strat,gtr);
-    printf("Full exhaust %d\n",fullexhaust(0));
+    printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
       v=stripexhaust(o,c0,c1,0);
@@ -1186,7 +1273,7 @@ int main(int ac,char**av){
   case 5:// Prove using subset method
     printf("Restricted set exhaust\n");
     double t0=cpu();
-    v=fullexhaust2();
+    v=fullexhaust();
     printf("Optimum %d found in %gs\n",v,cpu()-t0);
     break;
   case 6:
@@ -1200,6 +1287,29 @@ int main(int ac,char**av){
       printf("Ringexhaust %d\n",val());
     }
     writestate("ringstate");
+    break;
+  case 8:
+    {
+      int n,o,wid,v0,v1;
+      double t0;
+      opt1(mint,maxt,1,1,0,strat,gtr);
+      printf("val=%d\n",val());
+      wid=1;
+      for(o=0;o<2;o++)for(c0=0;c0<N-wid+1;c0++){
+        c1=c0+wid;
+        for(n=0,t0=cpu();n<1000;n++)v0=stripexhaust(o,c0,c1,1);printf("%gs\n",(cpu()-t0)/n);
+        if(wid==1){
+          for(n=0,t0=cpu();n<100000;n++)v1=lineexhaust(o,c0,1);
+          v1=val();
+        }else{
+          assert(wid==2);
+          for(n=0,t0=cpu();n<10000;n++)v1=pairexhaust(o,c0,1);
+        }
+        printf("%gs\n",(cpu()-t0)/n);
+        printf("%d %2d %2d   %6d %6d\n",o,c0,c1,v0,v1);
+        //assert(v0==v1);
+      }
+    }
     break;
   }
   if(outstatefile)writestate(outstatefile);
