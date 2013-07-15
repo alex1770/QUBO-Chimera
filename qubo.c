@@ -353,12 +353,11 @@ void readstate(char *f){
   fclose(fp);
 }
 
-void initwork(){//alter
+void initwork(){
   int wid;
   work=(double*)malloc((N+1)*sizeof(double));
   // work[wid] counts approx number of QBI references in a stable exhaust of width wid
-  work[1]=(16*((N-1)*16+N*16*5)+2*N+1)*N*3;
-  for(wid=2;wid<=N;wid++)work[wid]=N*wid*(1LL<<4*(wid+1))*16*3*(N-wid+1)*3;
+  for(wid=1;wid<=N;wid++)work[wid]=N*(1LL<<4*(wid+1))*(wid+32/15.)*(N-wid+1)*3;
 }
 
 void shuf(int*a,int n){
@@ -373,9 +372,10 @@ int lineexhaust(int d,int c,int upd){
   // Comments and variable names are as if in the column case (d=0)
   // upd=1 <-> write optimum values back into the global state
   
-  int b,o,r,s,v,smin0,smin1,vmin0,vmin1;
+  int b,r,s,v,smin0,smin1,vmin0,vmin1;
   int v0[16],v1[16];// Map from boundary state to value
-  int h0[16][N][2],h1[16][N][2];// History
+  int hc[N][16],// hc[r][b] = opt value of (c,r,0) given (c,r,1)=b
+    hs[N][16];//   hs[r][b] = opt value of (c,r-1,1) given (c,r,1)=b
   int ps[16];
 
   for(s=0;s<16;s++)ps[s]=s;
@@ -391,8 +391,7 @@ int lineexhaust(int d,int c,int upd){
           v=((v0[s]+QBI(d,c,r-1,1,2,s,b))<<4)|ps[s];
           if(v<vmin0){vmin0=v;smin0=s;}
         }
-        memcpy(h1[b],h0[smin0],(2*r-1)*sizeof(int));
-        h1[b][r-1][1]=smin0;
+        hs[r][b]=smin0;
       }else vmin0=0;
       vmin0>>=4;
       vmin1=1000000000;smin1=-1;
@@ -404,10 +403,9 @@ int lineexhaust(int d,int c,int upd){
       }
       vmin1>>=4;
       v1[b]=vmin0+vmin1;
-      h1[b][r][0]=smin1;
+      hc[r][b]=smin1;
     }//b
     memcpy(v0,v1,sizeof(v0));
-    memcpy(h0,h1,sizeof(h0));
   }//r
 
   vmin0=1000000000;smin0=-1;
@@ -417,8 +415,13 @@ int lineexhaust(int d,int c,int upd){
   }
   vmin0>>=4;
   if(upd){
-    for(r=0;r<N;r++)for(o=0;o<2;o++)XBI(d,c,r,o)=h0[smin0][r][o];
-    XBI(d,c,N-1,1)=smin0;
+    b=smin0;
+    for(r=N-1;r>=0;r--){
+      // Now b = opt value of (c,r,1)
+      XBI(d,c,r,1)=b;
+      XBI(d,c,r,0)=hc[r][b];
+      b=hs[r][b];
+    }
   }
   return vmin0;
 }
@@ -597,68 +600,132 @@ int stripexhaust(int d,int c0,int c1,int upd){
   // Comments and variable names are as if in the column case (d=0)
   // upd=1 <-> the optimum is written back into the global state
 
-  int c,o,r,v,bp,wid,smin,vmin;
-  int64 b,s,M;
-  short*v0,*v1;// Map from boundary state to value of interior
-  unsigned char (*h0)[N][c1-c0][2]=0,(*h1)[N][c1-c0][2]=0;
+  int c,r,s,t,v,x,bc,sh,wid,smin,vmin;
+  int64 b,M,bl,br;
+  short*vv,v1[16];// Map from boundary state to value of interior
   wid=c1-c0;
-  M=1LL<<4*(wid+1);
-  v0=(short*)malloc(M*sizeof(short));
-  v1=(short*)malloc(M*sizeof(short));
+  M=1LL<<4*wid;
+  int ps[wid][16],vc[wid][16],h1[16];
+  unsigned char (*hc)[wid][M]=0,// Comb history: hc[r][x][b] = opt value of (c0+x,r,0) given (c0+y,r,I(y<=x))=b   (y=0,...,wid-1)
+    (*hs)[wid][M]=0;           // Strut history: hs[r][x][b] = opt value of (c0+x,r,1) given (c0+y,r+I(y<=x),1)=b   (y=0,...,wid-1)
+  vv=(short*)malloc(M*sizeof(short));
   if(upd){
-    h0=(unsigned char (*)[N][wid][2])malloc(M*N*wid*2);
-    h1=(unsigned char (*)[N][wid][2])malloc(M*N*wid*2);
+    hc=(unsigned char (*)[wid][M])malloc(N*wid*M);
+    hs=(unsigned char (*)[wid][M])malloc(N*wid*M);
   }
-  if(!(v0&&v1&&(!upd||(h0&&h1)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust()\n",
-                                          M*(2.*sizeof(short)+upd*wid*N*4)/(1<<30));return 1;}
-  memset(v0,0,M*sizeof(short));
-  // Encoding of boundary into b is that the (*,*,0) term corresponds to nibble 0
-  // and the (c,*,1) terms correspond to nibble c-c0+1.
-  // This inefficiently keeps more boundary than necessary for edge cases c=c1-1,r=0,r=N-1,
-  // so could be sped up at the cost of making it messier.
-  // Uses convention that boundary interactions are incorporated.
+  if(!(vv&&(!upd||(hc&&hs)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust()\n",
+                                      M*(sizeof(short)+(!!upd)*2.*N*wid)/(1<<30));return 1;}
+  // Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
+  for(x=0;x<wid;x++){for(s=0;s<16;s++)ps[x][s]=s;if(upd)shuf(ps[x],16);}
+  memset(vv,0,M*sizeof(short));
+  // Encoding of boundary into b is that the (c0+y,?,?) term corresponds to nibble wid-1-y (backwards for memory continuity)
   for(r=0;r<N;r++){
-    for(b=0;b<M;b++)v0[b]+=QBI(d,c0,r,0,0,b&15,b>>4&15)+QBI(d,c0,r,0,1,b&15,XBI(d,c0-1,r,0));
-    for(c=c0;c<c1;c++){
-      bp=4*(c-c0+1);
-      // Add c,r,0 to interior
-      // Old boundary <c,r+1,1  c,r,0  >=c,r,1
-      // New boundary <c,r+1,1  c+1,r,0  >=c,r,1
-      // New edges (c,r,0) to (c+1,r,0) and (if not at the RH edge) (c+1,r,0) to (c+1,r,1)
-      for(b=0;b<M;b++){// b=state of new boundary
+    // Comb exhaust
+    // At this point: vv maps (*,r,1) to value of (*,r,1), (*,<r,*)
+    //      
+    //        *b0       *b1       *b2
+    //       /         /         /
+    //      /         /         /
+    //     *---------*---------*
+    //     s0        s1        s2
+    //
+    // b0{
+    //   s1{ vc1[s1]=min_{s0} Q(s-1ext,s0)+Q(s0,b0)+Q(s0,s1) }
+    //   b1{
+    //     s2{ vc2[s2]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s2) }
+    //     b2{
+    //       vv[b0][b1][b2]+=min_{s2} vc2[s2]+Q(s2,b2)+Q(s2,s3ext)
+    //     }
+    //   }
+    // }
+
+    for(s=0;s<16;s++)vc[0][s]=QBI(d,c0,r,0,1,s,XBI(d,c0-1,r,0));
+    x=0;b=0;
+    while(x>=0){
+      // At this point x has (at least) (wid-1-x)*4 zeros at the end of its binary expansion
+      if(x==wid-1){
+        t=XBI(d,c1,r,0);
         vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s=state of (c,r,0)
-          v=v0[(b&~15)|s]+QBI(d,c,r,0,2,s,b&15)+(c<c1-1?QBI(d,c+1,r,0,0,b&15,(b>>(bp+4))&15):0);
+        for(s=0;s<16;s++){// s=s[x]
+          v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b&15)+QBI(d,c0+x,r,0,2,s,t))<<4|ps[x][s];
           if(v<vmin){vmin=v;smin=s;}
         }
-        v1[b]=vmin;
-        if(upd){memcpy(h1[b],h0[(b&~15)|smin],(wid*r+c-c0)*2);h1[b][r][c-c0][0]=smin;}
-      }
-      // Add c,r,1 to interior
-      // Old boundary <c,r+1,1  c+1,r,0  >=c,r,1
-      // New boundary <c+1,r+1,1  c+1,r,0  >=c+1,r,1
-      // New edge (c,r,1) to (c,r+1,1)
-      for(b=0;b<M;b++){// b=state of new boundary
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s=state of (c,r,1)
-          v=v1[(b&~(15LL<<bp))|(s<<bp)]+QBI(d,c,r,1,2,s,(b>>bp)&15);
-          if(v<vmin){vmin=v;smin=s;}
+        vv[b]+=vmin>>4;
+        if(upd)hc[r][x][b]=smin;
+        b++;
+        while((b>>(wid-1-x)*4&15)==0)x--;
+      }else{
+        for(t=0;t<16;t++){// t=s[x+1]
+          vmin=1000000000;smin=-1;
+          for(s=0;s<16;s++){// s=s[x]
+            v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b>>(wid-1-x)*4&15)+QBI(d,c0+x,r,0,2,s,t))<<4|ps[x][s];
+            if(v<vmin){vmin=v;smin=s;}
+          }
+          vc[x+1][t]=vmin>>4;
+          if(upd)hc[r][x][b+t]=smin;
         }
-        v0[b]=vmin;
-        if(upd){memcpy(h0[b],h1[(b&~(15LL<<bp))|(smin<<bp)],(wid*r+c-c0)*2+1);h0[b][r][c-c0][1]=smin;}
+        x++;
       }
     }
-    for(b=0;b<M;b++)v0[b]=v0[(b&~15)|XBI(d,c1,r,0)];
-    if(upd)for(b=0;b<M;b++)memmove(h0[b],h0[(b&~15)|XBI(d,c1,r,0)],wid*(r+1)*2);
-  }
-  for(b=0;b<M;b++)assert(v0[b]==v0[0]);// Should be no dependence on empty boundary
-  v=v0[0];
+
+    // Strut exhaust
+    // At this point vv maps (*,r,1) to value of (*,<=r,*)
+    //
+    //     *b0       *b1       *         *
+    //     |         |         |         |
+    //     |         |         |         |
+    //     |         |         |         |
+    //     |         |         |         |
+    //     *         *s1       *b2       *b3
+    
+    for(x=0;x<wid;x++){
+      sh=4*(wid-1-x);
+      c=c0+x;
+      for(bl=0;bl<M;bl+=1LL<<4*(wid-x)){
+        if(r==N-1&&bl>0)continue;
+        for(br=0;br<1LL<<sh;br++){
+          b=bl+br;
+          for(bc=0;bc<16;bc++){
+            vmin=1000000000;smin=-1;
+            for(s=0;s<16;s++){// s = state of (c,r,1)
+              v=((vv[b+((int64)s<<sh)]+QBI(d,c,r,1,2,s,bc))<<4)|ps[x][s];
+              if(v<vmin){vmin=v;smin=s;}
+            }
+            v1[bc]=vmin>>4;
+            h1[bc]=smin;
+          }
+          for(bc=0;bc<16;bc++){
+            int64 b1=b+((int64)bc<<sh);
+            vv[b1]=v1[bc];
+            if(upd)hs[r][x][b1]=h1[bc];
+          }
+        }
+      }
+    }
+    // Now vv maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
+  }//r
   if(upd){
-    for(r=0;r<N;r++)for(c=c0;c<c1;c++)for(o=0;o<2;o++)XBI(d,c,r,o)=h0[0][r][c-c0][o];
-    free(h1);free(h0);
+    b=0;
+    for(r=N-1;r>=0;r--){
+      // Now b = opt value of (*,r+1,1)
+      for(x=wid-1;x>=0;x--){
+        sh=(wid-1-x)*4;
+        s=hs[r][x][b];XBI(d,c0+x,r,1)=s;
+        b=(b&~(15LL<<sh))|(int64)s<<sh;
+      }
+      // Now b = opt value of (*,r,1)
+      s=0;
+      for(x=wid-1;x>=0;x--){
+        sh=(wid-1-x)*4;
+        s=hc[r][x][(b&(-(1LL<<sh)))+s];
+        XBI(d,c0+x,r,0)=s;
+      }      
+    }
+    free(hs);free(hc);
   }
-  free(v1);free(v0);
-  return v+stripval(d,0,c0)+stripval(d,c1,N);
+  v=vv[0]+stripval(d,0,c0)+stripval(d,c1,N);
+  free(vv);
+  return v;
 }
 
 int k44exhaust(int x,int y){
@@ -700,8 +767,7 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
     shuf(ord,nc);shuf(ord+nc,nc);
     for(i=0;i<2*nc;i++){
       c=ord[i]%nc;o=ord[i]/nc;
-      if(wid==1){lineexhaust(o,c,1);v=val();} else
-        if(wid==2){pairexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
+      if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
       assert(v<=cv);
       if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
       // (2nc isn't actually enough to ensure there is no more improvement possible)
@@ -812,8 +878,8 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   t2=t0;// t2 = Time of last clean start
   memset(stats,0,sizeof(stats));
   w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
-  ff=N*N/300.*100;//alter
-  printf("w1/w2 = %g\n",work[2]/(ff*work[1]));//alter
+  ff=N*N/40.;
+  if(strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
   sr=(strat<2);// Simple-restarting strategy
   do{
     if(strat<10)init_state(); else pertstate(2);
@@ -1290,24 +1356,26 @@ int main(int ac,char**av){
     break;
   case 8:
     {
-      int n,o,wid,v0,v1;
+      int n,o,wid,v0,v1,upd;
       double t0;
       opt1(mint,maxt,1,1,0,strat,gtr);
       printf("val=%d\n",val());
+      upd=1;
       wid=1;
       for(o=0;o<2;o++)for(c0=0;c0<N-wid+1;c0++){
         c1=c0+wid;
-        for(n=0,t0=cpu();n<1000;n++)v0=stripexhaust(o,c0,c1,1);printf("%gs\n",(cpu()-t0)/n);
+        for(n=0,t0=cpu();n<1000000>>(wid*4);n++)v0=stripexhaust(o,c0,c1,upd);printf("%gs\n",(cpu()-t0)/n);
+        if(upd)assert(v0==val());
         if(wid==1){
-          for(n=0,t0=cpu();n<100000;n++)v1=lineexhaust(o,c0,1);
+          for(n=0,t0=cpu();n<100000;n++)v1=lineexhaust(o,c0,upd);
           v1=val();
         }else{
           assert(wid==2);
-          for(n=0,t0=cpu();n<10000;n++)v1=pairexhaust(o,c0,1);
+          for(n=0,t0=cpu();n<10000;n++)v1=pairexhaust(o,c0,upd);
         }
         printf("%gs\n",(cpu()-t0)/n);
         printf("%d %2d %2d   %6d %6d\n",o,c0,c1,v0,v1);
-        //assert(v0==v1);
+        assert(v0==v1);
       }
     }
     break;
