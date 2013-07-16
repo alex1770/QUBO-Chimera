@@ -367,238 +367,11 @@ void shuf(int*a,int n){
   }
 }
 
-int lineexhaust(int d,int c,int upd){
-  // If d=0 exhaust column c, if d=1 exhaust row c
-  // Comments and variable names are as if in the column case (d=0)
-  // upd=1 <-> write optimum values back into the global state
-  
-  int b,r,s,v,smin0,smin1,vmin0,vmin1;
-  int v0[16],v1[16];// Map from boundary state to value
-  int hc[N][16],// hc[r][b] = opt value of (c,r,0) given (c,r,1)=b
-    hs[N][16];//   hs[r][b] = opt value of (c,r-1,1) given (c,r,1)=b
-  int ps[16];
-
-  for(s=0;s<16;s++)ps[s]=s;
-  if(upd)shuf(ps,16);// Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
-  for(r=0;r<N;r++){
-    // At this point: interior = (c,<r-1,*) and (c,r-1,0)
-    //                boundary = (c,r-1,1)
-    // Simultaneously adding (c,r-1,1) and (c,r,0) into the interior
-    for(b=0;b<16;b++){// b = state of (c,r,1), the new boundary
-      if(r>0){
-        vmin0=1000000000;smin0=-1;
-        for(s=0;s<16;s++){// s = state of (c,r-1,1)
-          v=((v0[s]+QBI(d,c,r-1,1,2,s,b))<<4)|ps[s];
-          if(v<vmin0){vmin0=v;smin0=s;}
-        }
-        hs[r][b]=smin0;
-      }else vmin0=0;
-      vmin0>>=4;
-      vmin1=1000000000;smin1=-1;
-      for(s=0;s<16;s++){// s = state of (c,r,0)
-        v=((QBI(d,c,r,0,0,s,b)+
-            QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
-            QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4)|ps[s];
-        if(v<vmin1){vmin1=v;smin1=s;}
-      }
-      vmin1>>=4;
-      v1[b]=vmin0+vmin1;
-      hc[r][b]=smin1;
-    }//b
-    memcpy(v0,v1,sizeof(v0));
-  }//r
-
-  vmin0=1000000000;smin0=-1;
-  for(s=0;s<16;s++){// s = state of (c,N-1,1)
-    v=(v0[s]<<4)|ps[s];
-    if(v<vmin0){vmin0=v;smin0=s;}
-  }
-  vmin0>>=4;
-  if(upd){
-    b=smin0;
-    for(r=N-1;r>=0;r--){
-      // Now b = opt value of (c,r,1)
-      XBI(d,c,r,1)=b;
-      XBI(d,c,r,0)=hc[r][b];
-      b=hs[r][b];
-    }
-  }
-  return vmin0;
-}
-
-int pairexhaust(int d,int c,int upd){
-  // If d=0 exhaust columns c,c+1; if d=1 exhaust rows c,c+1
-  // Comments and variable names are as if in the column case (d=0)
-  // upd=1 <-> write optimum values back into the global state
-  
-  int r,s,v,b0,b1,smin,vmin;
-  int v0[16][16],v1[16];// Map from boundary state to value
-  int hc[N][2][16][16], // Comb history: hc[r][x][b0][b1] = opt value of (c+x,r,0) given (c,r,1)=b0, (c+1,r,x)=b1
-    hs[N][2][16][16];  // Strut history: hs[r][x][b0][b1] = opt value of (c+x,r,1) given (c,r+1,1)=b0, (c+1,r+x,1)=b1
-  int ps0[16],ps1[16];
-
-  assert(c<N-1);
-  for(s=0;s<16;s++)ps0[s]=ps1[s]=s;
-  if(upd){shuf(ps0,16);shuf(ps1,16);}// Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
-  memset(v0,0,sizeof(v0));
-  for(r=0;r<N;r++){
-    // Comb exhaust
-    // At this point: v0 maps (*,r,1) (* meaning c or c+1) to value of (*,r,1), (*,<r,*)
-    for(b0=0;b0<16;b0++){// state of (c,r,1)
-      for(b1=0;b1<16;b1++){// state of (c+1,r,0)
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s = state of (c,r,0)
-          v=((QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+QBI(d,c,r,0,0,s,b0)+QBI(d,c,r,0,2,s,b1))<<4)|ps0[s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        v1[b1]=vmin>>4;
-        hc[r][0][b0][b1]=smin;
-      }
-      for(b1=0;b1<16;b1++){// state of (c+1,r,1)
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s = state of (c+1,r,0)
-          v=((v1[s]+QBI(d,c+1,r,0,0,s,b1)+QBI(d,c+1,r,0,2,s,XBI(d,c+2,r,0)))<<4)|ps1[s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        v0[b0][b1]+=vmin>>4;
-        hc[r][1][b0][b1]=smin;
-      }
-    }
-    // Strut exhaust
-    // Now v0 maps (*,r,1) to value of (*,<=r,*)
-    for(b1=0;b1<16;b1++){// state of (c+1,r,1)
-      for(b0=0;b0<16;b0++){// state of (c,r+1,1)
-        if(r==N-1&&b0>0)continue;
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s = state of (c,r,1)
-          v=((v0[s][b1]+QBI(d,c,r,1,2,s,b0))<<4)|ps0[s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        v1[b0]=vmin>>4;
-        hs[r][0][b0][b1]=smin;
-      }
-      for(b0=0;b0<16;b0++)v0[b0][b1]=v1[b0];
-    }
-    // Now v0 maps (c,r+1,1),(c+1,r,1) to value of (c,r+1,1),(*,<=r,*)
-    for(b0=0;b0<16;b0++){// state of (c,r+1,1)
-      if(r==N-1&&b0>0)continue;
-      for(b1=0;b1<16;b1++){// state of (c+1,r+1,1)
-        if(r==N-1&&b1>0)continue;
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s = state of (c+1,r,1)
-          v=((v0[b0][s]+QBI(d,c+1,r,1,2,s,b1))<<4)|ps1[s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        v1[b1]=vmin>>4;
-        hs[r][1][b0][b1]=smin;
-      }
-      for(b1=0;b1<16;b1++)v0[b0][b1]=v1[b1];
-    }
-    // Now v0 maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
-  }//r
-  if(upd){
-    b0=b1=0;
-    for(r=N-1;r>=0;r--){
-      // Now b0,b1 = opt value of (c,r+1,1), (c+1,r+1,1)
-      b1=hs[r][1][b0][b1];
-      b0=hs[r][0][b0][b1];
-      // Now b0,b1 = opt value of (c,r,1), (c+1,r,1)
-      XBI(d,c,r,1)=b0;
-      XBI(d,c+1,r,1)=b1;
-      s=hc[r][1][b0][b1];
-      XBI(d,c,r,0)=hc[r][0][b0][s];
-      XBI(d,c+1,r,0)=s;
-    }
-  }
-  return v0[0][0]+stripval(d,0,c)+stripval(d,c+2,N);
-}
-
-void ringexhaust(int c,int r){
-  // Exhaust ring (c,r), (c,r+1), (c+1,r+1), (c+1,r), writing optimum values back
-  int b,i,j,s,v,b0,smin,vmin0,vmin1;
-  int v0[16],v1[16];// Map from boundary state to value
-  int h0[16][8],h1[16][8],h2[8];// History
-  const int vv[8][3]={{0,0,0},{0,0,1},{0,1,1},{0,1,0}, {1,1,0},{1,1,1},{1,0,1},{1,0,0}};// vertex list
-  const int dd[8]={0,1,0,1,0,2,0,2};// direction from vertex i+1 to vertex i
-  const int ev[8][4]={{-1,0,0,1},{0,-1,1,1},{0,2,1,2},{-1,1,0,1},
-                      {2,1,0,2},{1,2,1,2},{1,-1,1,1},{2,0,0,2}};// external vertex & direction
-  int ps[16];
-
-  //          |         |
-  //          *2        *5
-  //         /|        /|
-  //        / |       / |
-  //     --*--|------*--|-
-  //       3  |      4  |
-  //          |         |
-  //   (c,r,1)*1        *6
-  //         /|        /|
-  // (c,r,0)/         /  
-  //     --*---------*---
-  //       0(b0)     7
-  
-  assert(c<N-1&&r<N-1);
-  for(s=0;s<16;s++)ps[s]=s;
-  shuf(ps,16);// Break ties somewhat randomly
-  vmin1=1000000000;
-  for(b0=0;b0<16;b0++){// b0 = state of v0=(c,r,0) the start boundary
-    for(b=0;b<16;b++)v0[b]=10000000*(b!=b0);
-    for(i=0;i<8;i++){
-      int *qbil,*qbel,(*h0l)[8],(*h1l)[8],*v0l,*v1l;
-      j=(i+1)&7;
-      qbel=&QB(c+vv[j][0],r+vv[j][1],vv[j][2],ev[j][3],0,XB(c+ev[j][0],r+ev[j][1],ev[j][2]));
-      if(i&1){h0l=h1;h1l=h0;v0l=v1;v1l=v0;} else {h0l=h0;h1l=h1;v0l=v0;v1l=v1;}
-      // Here v0l[b]=best value of v0,...,v(i-1) given v0=b0, vi=b; external ints included in v1,...,vi
-      for(b=0;b<16;b++){// b = state of vertex j=i+1, the new boundary
-        qbil=&QB(c+vv[j][0],r+vv[j][1],vv[j][2],dd[i],b,0);
-        vmin0=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s = state of vertex i
-          v=((v0l[s]+qbil[s])<<4)|ps[s];
-          if(v<vmin0){vmin0=v;smin=s;}
-        }
-        v1l[b]=(vmin0>>4)+qbel[b<<4];
-        memcpy(h1l[b],h0l[smin],i*sizeof(int));h1l[b][i]=smin;
-      }
-    }//i
-    v=(v0[b0]<<4)|ps[b0];
-    if(v<vmin1){vmin1=v;memcpy(h2,h0[b0],8*sizeof(int));}
-  }//b0
-  
-  for(i=0;i<8;i++)XB(c+vv[i][0],r+vv[i][1],vv[i][2])=h2[i];
-}
-
-void planeexhaust(int o){// not currently used
-  // Exhaust (*,*,o) "plane" (x=*, y=*, o fixed)
-  // Comments and variable names are as if in the case o=0 (horizontally connected nodes)
-  // Writes optimum values back into the global state
-  int b,c,r,s,v,smin,vmin;
-  int v0[16],v1[16];// Map from boundary state to value
-  int h0[16][N],h1[16][N];// History
-  for(r=0;r<N;r++){
-    for(b=0;b<16;b++)v0[b]=0;
-    for(c=0;c<N;c++){
-      // Following is convenient but inefficient: should optimise bitwise
-      for(b=0;b<16;b++){// b = state of (c+1,r,0)
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s = state of (c,r,0)
-          v=v0[s]+QBI(o,c,r,0,2,s,b)+QBI(o,c,r,0,0,s,XBI(o,c,r,1));
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        memcpy(h1[b],h0[smin],c*sizeof(int));
-        h1[b][c]=smin;
-        v1[b]=vmin;
-      }//b
-      memcpy(v0,v1,sizeof(v0));
-      memcpy(h0,h1,sizeof(h0));
-    }//c
-    for(c=0;c<N;c++)XBI(o,c,r,0)=h0[0][c];
-  }
-}
-
 int stripexhaust(int d,int c0,int c1,int upd){
   // If d=0 exhaust columns c0..(c1-1), if d=1 exhaust rows c0..(c1-1)
   // Comments and variable names are as if in the column case (d=0)
   // upd=1 <-> the optimum is written back into the global state
+  // Returns value of strip only
 
   int c,r,s,t,v,x,bc,sh,wid,smin,vmin;
   int64 b,M,bl,br;
@@ -723,10 +496,12 @@ int stripexhaust(int d,int c0,int c1,int upd){
     }
     free(hs);free(hc);
   }
-  v=vv[0]+stripval(d,0,c0)+stripval(d,c1,N);
+  v=vv[0];
   free(vv);
-  return v;
+  return v;//+stripval(d,0,c0)+stripval(d,c1,N);
 }
+
+int lineexhaust(int d,int c,int upd){return stripexhaust(d,c,c+1,upd);}
 
 int k44exhaust(int x,int y){
   // Exhausts big vertex (x,y)
@@ -767,26 +542,10 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
     shuf(ord,nc);shuf(ord+nc,nc);
     for(i=0;i<2*nc;i++){
       c=ord[i]%nc;o=ord[i]/nc;
-      if(wid==1){lineexhaust(o,c,1);v=val();} else v=stripexhaust(o,c,c+wid,1);
-      assert(v<=cv);
+      stripexhaust(o,c,c+wid,1);
+      v=val();assert(v<=cv);
       if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
       // (2nc isn't actually enough to ensure there is no more improvement possible)
-    }
-  }
-}
-
-int stableringexhaust(int cv){// Repeated ring exhausts until no more improvement likely
-  int i,r,x,y,v,nc,ord[(N-1)*(N-1)];
-  nc=N-1;r=0;
-  while(1){
-    for(i=0;i<nc*nc;i++)ord[i]=i;
-    //shuf(ord,nc*nc);
-    for(i=0;i<nc*nc;i++){
-      x=ord[i]%nc;y=ord[i]/nc;
-      ringexhaust(x,y);v=val();
-      assert(v<=cv);
-      if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc*nc)return cv;}
-      // (nc^2 isn't actually enough to ensure there is no more improvement possible)
     }
   }
 }
@@ -901,9 +660,6 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
         if(pr>=2)printf("\n");
         w1=0;lbv=1000000000;// This has the effect of clearing the state, since with lbv=infinity, Xlbest will be overwritten before it is read
       }
-      break;
-    case 3:
-      cv=stableringexhaust(cv);
       break;
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
@@ -1328,12 +1084,8 @@ int main(int ac,char**av){
     printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
-      v=stripexhaust(o,c0,c1,0);
-      printf("Strip %d %d %d    %d\n",c0,c1,o,v);
-      if(c1-c0==1){
-        v=lineexhaust(o,c0,0)+stripval(o,0,c0)+stripval(o,c0+1,N);
-        printf("Line  %d %d %d    %d\n",c0,c1,o,v);
-      }
+      v=stripexhaust(o,c0,c1,0)+stripval(o,0,c0)+stripval(o,c1,N);
+      printf("Strip %2d %2d %2d   %6d\n",o,c0,c1,v);
     }
     break;
   case 5:// Prove using subset method
@@ -1344,19 +1096,9 @@ int main(int ac,char**av){
     break;
   case 6:
     readstate("state");printf("state = %d\n",val());break;
-  case 7:;
-    int c,i,r;
-    //opt1(mint,maxt,deb,1,0,strat,gtr);
-    //v=val();
-    for(i=0;i<50;i++){
-      for(c=0;c<N-1;c++)for(r=0;r<N-1;r++){ringexhaust(c,r);}
-      printf("Ringexhaust %d\n",val());
-    }
-    writestate("ringstate");
-    break;
   case 8:
     {
-      int n,o,wid,v0,v1,upd;
+      int n,o,wid,v0,upd;
       double t0;
       opt1(mint,maxt,1,1,0,strat,gtr);
       printf("val=%d\n",val());
@@ -1364,18 +1106,11 @@ int main(int ac,char**av){
       wid=1;
       for(o=0;o<2;o++)for(c0=0;c0<N-wid+1;c0++){
         c1=c0+wid;
-        for(n=0,t0=cpu();n<1000000>>(wid*4);n++)v0=stripexhaust(o,c0,c1,upd);printf("%gs\n",(cpu()-t0)/n);
+        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust(o,c0,c1,upd);
+        v0+=stripval(o,0,c0)+stripval(o,c1,N);
         if(upd)assert(v0==val());
-        if(wid==1){
-          for(n=0,t0=cpu();n<100000;n++)v1=lineexhaust(o,c0,upd);
-          v1=val();
-        }else{
-          assert(wid==2);
-          for(n=0,t0=cpu();n<10000;n++)v1=pairexhaust(o,c0,upd);
-        }
-        printf("%gs\n",(cpu()-t0)/n);
-        printf("%d %2d %2d   %6d %6d\n",o,c0,c1,v0,v1);
-        assert(v0==v1);
+        printf("Strip %d %2d %2d   %6d   %gs\n",o,c0,c1,v0,(cpu()-t0)/n);
+        fflush(stdout);
       }
     }
     break;
