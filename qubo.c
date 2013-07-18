@@ -391,7 +391,7 @@ int stripexhaust(int d,int c0,int c1,int upd){
   // Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
   for(x=0;x<wid;x++){for(s=0;s<16;s++)ps[x][s]=s;if(upd)shuf(ps[x],16);}
   memset(vv,0,M*sizeof(short));
-  // Encoding of boundary into b is that the (c0+y,?,?) term corresponds to nibble wid-1-y (backwards for memory continuity)
+  // Encoding of boundary into b is that the (c0+y,?,?) term corresponds to nibble wid-1-y (i.e., backwards)
   for(r=0;r<N;r++){
     // Comb exhaust
     // At this point: vv maps (*,r,1) to value of (*,r,1), (*,<r,*)
@@ -415,11 +415,11 @@ int stripexhaust(int d,int c0,int c1,int upd){
     for(s=0;s<16;s++)vc[0][s]=QBI(d,c0,r,0,1,s,XBI(d,c0-1,r,0));
     x=0;b=0;
     while(x>=0){
-      // At this point x has (at least) (wid-1-x)*4 zeros at the end of its binary expansion
+      // At this point b has (at least) (wid-1-x)*4 zeros at the end of its binary expansion
       if(x==wid-1){
         t=XBI(d,c1,r,0);
         vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s=s[x]
+        for(s=0;s<16;s++){// s=s_x
           v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b&15)+QBI(d,c0+x,r,0,2,s,t))<<4|ps[x][s];
           if(v<vmin){vmin=v;smin=s;}
         }
@@ -428,9 +428,9 @@ int stripexhaust(int d,int c0,int c1,int upd){
         b++;
         while((b>>(wid-1-x)*4&15)==0)x--;
       }else{
-        for(t=0;t<16;t++){// t=s[x+1]
+        for(t=0;t<16;t++){// t=s_{x+1}
           vmin=1000000000;smin=-1;
-          for(s=0;s<16;s++){// s=s[x]
+          for(s=0;s<16;s++){// s=s_x
             v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b>>(wid-1-x)*4&15)+QBI(d,c0+x,r,0,2,s,t))<<4|ps[x][s];
             if(v<vmin){vmin=v;smin=s;}
           }
@@ -452,13 +452,15 @@ int stripexhaust(int d,int c0,int c1,int upd){
     //     *         *s1       *b2       *b3
     
     for(x=0;x<wid;x++){
-      sh=4*(wid-1-x);
       c=c0+x;
-      for(bl=0;bl<M;bl+=1LL<<4*(wid-x)){
+      // At this point vv maps (<c,r+1,1),(>=c,r,1) to value below
+      sh=4*(wid-1-x);
+      for(bl=0;bl<M;bl+=1LL<<4*(wid-x)){// bl = state of (c0,r+1,1),...,(c-1,r+1,1)
         if(r==N-1&&bl>0)continue;
-        for(br=0;br<1LL<<sh;br++){
+        for(br=0;br<1LL<<sh;br++){// br = state of (c+1,r,1),...,(c1-1,r,1)
           b=bl+br;
-          for(bc=0;bc<16;bc++){
+          for(bc=0;bc<16;bc++){// bc = state of (c,r+1,1)
+            //if(r==N-1&&bc>0)continue;
             vmin=1000000000;smin=-1;
             for(s=0;s<16;s++){// s = state of (c,r,1)
               v=((vv[b+((int64)s<<sh)]+QBI(d,c,r,1,2,s,bc))<<4)|ps[x][s];
@@ -490,6 +492,144 @@ int stripexhaust(int d,int c0,int c1,int upd){
       s=0;
       for(x=wid-1;x>=0;x--){
         sh=(wid-1-x)*4;
+        s=hc[r][x][(b&(-(1LL<<sh)))+s];
+        XBI(d,c0+x,r,0)=s;
+      }      
+    }
+    free(hs);free(hc);
+  }
+  v=vv[0];
+  free(vv);
+  return v;//+stripval(d,0,c0)+stripval(d,c1,N);
+}
+
+int stripexhaust2(int d,int c0,int c1,int upd){
+  // If d=0 exhaust columns c0..(c1-1), if d=1 exhaust rows c0..(c1-1)
+  // Comments and variable names are as if in the column case (d=0)
+  // upd=1 <-> the optimum is written back into the global state
+  // Returns value of strip only
+
+  int c,r,s,t,v,x,bc,sh,wid,smin,vmin;
+  int64 b,M,bl,br;
+  short*vv,v1[16];// Map from boundary state to value of interior
+  wid=c1-c0;
+  M=1LL<<4*wid;
+  int ps[wid][16],vc[wid][16],h1[16];
+  unsigned char (*hc)[wid][M]=0,// Comb history: hc[r][x][b] = opt value of (c0+x,r,0) given (c0+y,r,I(y<=x))=b   (y=0,...,wid-1)
+    (*hs)[wid][M]=0;           // Strut history: hs[r][x][b] = opt value of (c0+x,r,1) given (c0+y,r+I(y<=x),1)=b   (y=0,...,wid-1)
+  vv=(short*)malloc(M*sizeof(short));
+  if(upd){
+    hc=(unsigned char (*)[wid][M])malloc(N*wid*M);
+    hs=(unsigned char (*)[wid][M])malloc(N*wid*M);
+  }
+  if(!(vv&&(!upd||(hc&&hs)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust()\n",
+                                      M*(sizeof(short)+(!!upd)*2.*N*wid)/(1<<30));return 1;}
+  // Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
+  for(x=0;x<wid;x++){for(s=0;s<16;s++)ps[x][s]=s;if(upd)shuf(ps[x],16);}
+  memset(vv,0,M*sizeof(short));
+  // Encoding of boundary into b is that the (c0+y,?,?) term corresponds to nibble y
+  for(r=0;r<N;r++){
+    // Comb exhaust
+    // At this point: vv maps (*,r,1) to value of (*,r,1), (*,<r,*)
+    //      
+    //        *b0       *b1       *b2
+    //       /         /         /
+    //      /         /         /
+    //     *---------*---------*
+    //     s0        s1        s2
+    //
+    // b2{
+    //   s1{ vc1[s1]=min_{s2} Q(s3ext,s2)+Q(s2,b2)+Q(s2,s1) }
+    //   b1{
+    //     s0{ vc0[s0]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s0) }
+    //     b0{
+    //       vv[b2][b1][b0]+=min_{s0} vc0[s0]+Q(s0,b0)+Q(s0,s-1ext)
+    //     }
+    //   }
+    // }
+
+    for(s=0;s<16;s++)vc[wid-1][s]=QBI(d,c1-1,r,0,2,s,XBI(d,c1,r,0));
+    x=wid-1;b=0;
+    while(x<wid){
+      // At this point b has (at least) x*4 zeros at the end of its binary expansion
+      if(x==0){
+        t=XBI(d,c0-1,r,0);
+        vmin=1000000000;smin=-1;
+        for(s=0;s<16;s++){// s=s_x
+          v=(vc[0][s]+QBI(d,c0,r,0,0,s,b&15)+QBI(d,c0,r,0,1,s,t))<<4|ps[x][s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        vv[b]+=vmin>>4;
+        if(upd)hc[r][x][b]=smin;
+        b++;
+        while((b>>x*4&15)==0)x++;
+      }else{
+        for(t=0;t<16;t++){// t=s_{x-1}
+          vmin=1000000000;smin=-1;
+          for(s=0;s<16;s++){// s=s_x
+            v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b>>x*4&15)+QBI(d,c0+x,r,0,1,s,t))<<4|ps[x][s];
+            if(v<vmin){vmin=v;smin=s;}
+          }
+          vc[x-1][t]=vmin>>4;
+          if(upd)hc[r][x][b+t]=smin;
+        }
+        x--;
+      }
+    }
+    // At this point vv maps (*,r,1) to value of (*,<=r,*)
+
+    // Strut exhaust
+    //
+    //     *         *b1       *b2       *b3
+    //     |         |         |         |
+    //     |         ^         |         |
+    //     |         |         |         |
+    //     |         |         |         |
+    //     *b0       *s1       *         *  
+    //
+    // (c=1 picture)
+    
+    for(x=wid-1;x>=0;x--){
+      c=c0+x;
+      // At this point vv maps (<=c,r,1), (>c,r+1,1) to value below these vertices
+      sh=x*4;
+      for(br=0;br<M;br+=1LL<<(sh+4)){// br = state of (>c,r+1,1)
+        if(r==N-1&&br>0)continue;
+        for(bl=0;bl<1LL<<sh;bl++){// bl = state of (<c,r,1)
+          b=bl+br;
+          for(bc=0;bc<16;bc++){
+            //if(r==N-1&&bc>0)continue;// This optimisation appears to slow it down
+            vmin=1000000000;smin=-1;
+            for(s=0;s<16;s++){// s = state of (c,r,1)
+              v=((vv[b+((int64)s<<sh)]+QBI(d,c,r,1,2,s,bc))<<4)|ps[x][s];
+              if(v<vmin){vmin=v;smin=s;}
+            }
+            v1[bc]=vmin>>4;
+            h1[bc]=smin;
+          }
+          for(bc=0;bc<16;bc++){
+            int64 b1=b+((int64)bc<<sh);
+            vv[b1]=v1[bc];
+            if(upd)hs[r][x][b1]=h1[bc];
+          }
+        }
+      }
+    }
+    // Now vv maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
+  }//r
+  if(upd){
+    b=0;
+    for(r=N-1;r>=0;r--){
+      // Now b = opt value of (*,r+1,1)
+      for(x=0;x<wid;x++){
+        sh=x*4;
+        s=hs[r][x][b];XBI(d,c0+x,r,1)=s;
+        b=(b&~(15LL<<sh))|(int64)s<<sh;
+      }
+      // Now b = opt value of (*,r,1)
+      s=0;
+      for(x=0;x<wid;x++){
+        sh=x*4;
         s=hc[r][x][(b&(-(1LL<<sh)))+s];
         XBI(d,c0+x,r,0)=s;
       }      
@@ -969,6 +1109,147 @@ int fullexhaust(){
   return v;
 }
 
+int fullexhaust2(){
+  /*
+  // Uses restricted sets to cut down possibilities
+  // and full automorphism group to choose best orientation
+  int a,c,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1;
+  int64 b,ns,maxs,size,sizer;
+  double tns,ctns,cost,mincost;
+  short*v0,*v1;
+  int XBa0[NBV],QBa0[NBV][3][16][16],pre[65536][4],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
+  getrestrictedsets();
+  memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
+  memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
+  memcpy(ok20,ok2,sizeof(ok20));memcpy(nok20,nok2,sizeof(nok20));
+  mincost=1e100;A=-1;size=1LL<<60;
+  if(deb>=1)printf("                  Memory/GiB   Time(a.u.)  Memory*Time\n");
+  for(a=0;a<8;a++){// Loop over automorphisms of C_N to choose best representation to exhaust
+    applyam(a,XBa0,QBa0,ok0,nok0,ok20,nok20);
+    maxs=0;tns=0;
+    for(r=0;r<N;r++){
+      for(c=0;c<N;c++){
+        ns=1;
+        for(x=0;x<c;x++)ns*=nok[encp(x,r+1,1)];
+        for(x=c;x<N;x++)ns*=nok[enc(x,r,1)];
+        tns+=ns;
+        if(ns>maxs)maxs=ns;
+      }
+    }
+    cost=tns*maxs;// Using cost = time * memory
+    if(deb>=1){double z=(double)maxs*2.*sizeof(short)/(1<<30);printf("Automorphism %d: %12g %12g %12g\n",a,z,tns,z*tns);}
+    if(cost<mincost){mincost=cost;size=maxs;ctns=tns;A=a;}
+  }
+  applyam(A,XBa0,QBa0,ok0,nok0,ok20,nok20);
+  if(deb>=1)printf("Choosing automorphism %d\n",A);
+  printf("Size %.1fGiB\n",size*2.*sizeof(short)/(1<<30));
+  printf("Time units %g\n",ctns);
+  fflush(stdout);//exit(0);
+  v0=(short*)malloc(size*sizeof(short));
+  v1=(short*)malloc(size*sizeof(short));
+  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust()\n",size*2.*sizeof(short)/(1<<30));return 1;}
+
+  memset(v0,0,size*sizeof(short));
+
+  int c,r,s,t,v,x,bc,sh,wid,vmin;
+  int64 b,M,bl,br;
+  short*vv,tv[16];// Map from boundary state to value of interior
+  M=1LL<<4*N;
+  int vc[N][16];
+  // Encoding of boundary into b is that the (y,?,?) term corresponds to nibble N-1-y (backwards)
+  for(r=0;r<N;r++){
+    // Comb exhaust
+    // At this point: vv maps (*,r,1) to value of (*,r,1), (*,<r,*)
+    //      
+    //        *b0       *b1       *b2
+    //       /         /         /
+    //      /         /         /
+    //     *---------*---------*
+    //     s0        s1        s2
+    //
+    // b0{
+    //   s1{ vc1[s1]=min_{s0} Q(s-1ext,s0)+Q(s0,b0)+Q(s0,s1) }
+    //   b1{
+    //     s2{ vc2[s2]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s2) }
+    //     b2{
+    //       vv[b0][b1][b2]+=min_{s2} vc2[s2]+Q(s2,b2)+Q(s2,s3ext)
+    //     }
+    //   }
+    // }
+
+    for(s=0;s<16;s++)vc[0][s]=0;
+    x=0;b=0;
+    while(x>=0){
+      // At this point x has (at least) (N-1-x)*4 zeros at the end of its binary expansion
+      if(x==N-1){
+        vmin=1000000000;
+        for(s=0;s<16;s++){// s=s[x]
+          v=vc[x][s]+QBI(d,x,r,0,0,s,b&15);
+          if(v<vmin)vmin=v;
+        }
+        vv[b]+=vmin;
+        b++;
+        while((b>>(N-1-x)*4&15)==0)x--;
+      }else{
+        for(t=0;t<16;t++){// t=s[x+1]
+          vmin=1000000000;
+          for(s=0;s<16;s++){// s=s[x]
+            v=vc[x][s]+QBI(d,x,r,0,0,s,b>>(N-1-x)*4&15)+QBI(d,x,r,0,2,s,t);
+            if(v<vmin)vmin=v;
+          }
+          vc[x+1][t]=vmin;
+        }
+        x++;
+      }
+    }
+    
+    // Strut exhaust
+    // At this point vv maps (*,r,1) to value of (*,<=r,*)
+    //
+    //     *b0       *b1       *         *
+    //     |         |         |         |
+    //     |         |         |         |
+    //     |         |         |         |
+    //     |         |         |         |
+    //     *         *s1       *b2       *b3
+    
+    for(c=0;c<N;c++){
+      // At this point vv maps (<c,r+1,1),(>=c,r,1) to value below
+      sh=4*(N-1-c);
+      for(bl=0;bl<M;bl+=1LL<<4*(N-c)){// bl = state of (0,r+1,1),...,(c-1,r+1,1)
+        if(r==N-1&&bl>0)continue;
+        for(br=0;br<1LL<<sh;br++){// br = state of (c+1,r,1),...,(N-1,r,1)
+          b=bl+br;
+          for(bc=0;bc<16;bc++){// bc = state of (c,r+1,1)
+            vmin=1000000000;
+            for(s=0;s<16;s++){// s = state of (c,r,1)
+              v=vv[b+((int64)s<<sh)]+QBI(d,c,r,1,2,s,bc);
+              if(v<vmin)vmin=v;
+            }
+            tv[bc]=vmin;
+          }
+          for(bc=0;bc<16;bc++){
+            int64 b1=b+((int64)bc<<sh);
+            vv[b1]=tv[bc];
+          }
+        }
+      }
+    }
+    // Now vv maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
+  }//r
+  v=vv[0];
+  free(vv);
+  return v;
+
+
+
+
+
+  applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
+  return v;
+*/
+}
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,gtr;
   double mint,maxt;
@@ -1056,6 +1337,7 @@ int main(int ac,char**av){
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   printf("Weight-choosing mode: %d\n",weightmode);
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
+  double t0;
   switch(mode){
   case 0:// Find single minimum value
     opt1(mint,maxt,deb,1,0,strat,gtr);
@@ -1076,8 +1358,11 @@ int main(int ac,char**av){
       printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
     }
     break;
-  case 3:// Simple full exhaust
-    printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
+  case 3:// Prove using subset method
+    printf("Restricted set exhaust\n");
+    t0=cpu();
+    v=fullexhaust();
+    printf("Optimum %d found in %gs\n",v,cpu()-t0);
     break;
   case 4:;// Checks
     opt1(mint,maxt,1,1,0,strat,gtr);
@@ -1088,10 +1373,10 @@ int main(int ac,char**av){
       printf("Strip %2d %2d %2d   %6d\n",o,c0,c1,v);
     }
     break;
-  case 5:// Prove using subset method
+  case 5:// Prove using subset method v2
     printf("Restricted set exhaust\n");
-    double t0=cpu();
-    v=fullexhaust();
+    t0=cpu();
+    v=fullexhaust2();
     printf("Optimum %d found in %gs\n",v,cpu()-t0);
     break;
   case 6:
@@ -1106,7 +1391,7 @@ int main(int ac,char**av){
       wid=1;
       for(o=0;o<2;o++)for(c0=0;c0<N-wid+1;c0++){
         c1=c0+wid;
-        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust(o,c0,c1,upd);
+        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust2(o,c0,c1,upd);
         v0+=stripval(o,0,c0)+stripval(o,c1,N);
         if(upd)assert(v0==val());
         printf("Strip %d %2d %2d   %6d   %gs\n",o,c0,c1,v0,(cpu()-t0)/n);
@@ -1114,6 +1399,17 @@ int main(int ac,char**av){
       }
     }
     break;
+  case 9:
+    while(1){
+      int o,c0,c1,v0,v1,v2;
+      o=randbit();c0=randint(N);c1=c0+1+randint(N-c0);
+      v0=stripexhaust(o,c0,c1,0)+stripval(o,0,c0)+stripval(o,c1,N);
+      v1=stripexhaust2(o,c0,c1,1)+stripval(o,0,c0)+stripval(o,c1,N);
+      v2=val();
+      printf("%d %2d %2d : %6d %6d %6d\n",o,c0,c1,v0,v1,v2);
+      assert(v0==v1&&v1==v2);
+      initweights(weightmode);
+    }
   }
   if(outstatefile)writestate(outstatefile);
   return 0;
