@@ -391,142 +391,6 @@ int stripexhaust(int d,int c0,int c1,int upd){
   // Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
   for(x=0;x<wid;x++){for(s=0;s<16;s++)ps[x][s]=s;if(upd)shuf(ps[x],16);}
   memset(vv,0,M*sizeof(short));
-  // Encoding of boundary into b is that the (c0+y,?,?) term corresponds to nibble wid-1-y (i.e., backwards)
-  for(r=0;r<N;r++){
-    // Comb exhaust
-    // At this point: vv maps (*,r,1) to value of (*,r,1), (*,<r,*)
-    //      
-    //        *b0       *b1       *b2
-    //       /         /         /
-    //      /         /         /
-    //     *---------*---------*
-    //     s0        s1        s2
-    //
-    // b0{
-    //   s1{ vc1[s1]=min_{s0} Q(s-1ext,s0)+Q(s0,b0)+Q(s0,s1) }
-    //   b1{
-    //     s2{ vc2[s2]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s2) }
-    //     b2{
-    //       vv[b0][b1][b2]+=min_{s2} vc2[s2]+Q(s2,b2)+Q(s2,s3ext)
-    //     }
-    //   }
-    // }
-
-    for(s=0;s<16;s++)vc[0][s]=QBI(d,c0,r,0,1,s,XBI(d,c0-1,r,0));
-    x=0;b=0;
-    while(x>=0){
-      // At this point b has (at least) (wid-1-x)*4 zeros at the end of its binary expansion
-      if(x==wid-1){
-        t=XBI(d,c1,r,0);
-        vmin=1000000000;smin=-1;
-        for(s=0;s<16;s++){// s=s_x
-          v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b&15)+QBI(d,c0+x,r,0,2,s,t))<<4|ps[x][s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        vv[b]+=vmin>>4;
-        if(upd)hc[r][x][b]=smin;
-        b++;
-        while((b>>(wid-1-x)*4&15)==0)x--;
-      }else{
-        for(t=0;t<16;t++){// t=s_{x+1}
-          vmin=1000000000;smin=-1;
-          for(s=0;s<16;s++){// s=s_x
-            v=(vc[x][s]+QBI(d,c0+x,r,0,0,s,b>>(wid-1-x)*4&15)+QBI(d,c0+x,r,0,2,s,t))<<4|ps[x][s];
-            if(v<vmin){vmin=v;smin=s;}
-          }
-          vc[x+1][t]=vmin>>4;
-          if(upd)hc[r][x][b+t]=smin;
-        }
-        x++;
-      }
-    }
-
-    // Strut exhaust
-    // At this point vv maps (*,r,1) to value of (*,<=r,*)
-    //
-    //     *b0       *b1       *         *
-    //     |         |         |         |
-    //     |         |         |         |
-    //     |         |         |         |
-    //     |         |         |         |
-    //     *         *s1       *b2       *b3
-    
-    for(x=0;x<wid;x++){
-      c=c0+x;
-      // At this point vv maps (<c,r+1,1),(>=c,r,1) to value below
-      sh=4*(wid-1-x);
-      for(bl=0;bl<M;bl+=1LL<<4*(wid-x)){// bl = state of (c0,r+1,1),...,(c-1,r+1,1)
-        if(r==N-1&&bl>0)continue;
-        for(br=0;br<1LL<<sh;br++){// br = state of (c+1,r,1),...,(c1-1,r,1)
-          b=bl+br;
-          for(bc=0;bc<16;bc++){// bc = state of (c,r+1,1)
-            //if(r==N-1&&bc>0)continue;
-            vmin=1000000000;smin=-1;
-            for(s=0;s<16;s++){// s = state of (c,r,1)
-              v=((vv[b+((int64)s<<sh)]+QBI(d,c,r,1,2,s,bc))<<4)|ps[x][s];
-              if(v<vmin){vmin=v;smin=s;}
-            }
-            v1[bc]=vmin>>4;
-            h1[bc]=smin;
-          }
-          for(bc=0;bc<16;bc++){
-            int64 b1=b+((int64)bc<<sh);
-            vv[b1]=v1[bc];
-            if(upd)hs[r][x][b1]=h1[bc];
-          }
-        }
-      }
-    }
-    // Now vv maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
-  }//r
-  if(upd){
-    b=0;
-    for(r=N-1;r>=0;r--){
-      // Now b = opt value of (*,r+1,1)
-      for(x=wid-1;x>=0;x--){
-        sh=(wid-1-x)*4;
-        s=hs[r][x][b];XBI(d,c0+x,r,1)=s;
-        b=(b&~(15LL<<sh))|(int64)s<<sh;
-      }
-      // Now b = opt value of (*,r,1)
-      s=0;
-      for(x=wid-1;x>=0;x--){
-        sh=(wid-1-x)*4;
-        s=hc[r][x][(b&(-(1LL<<sh)))+s];
-        XBI(d,c0+x,r,0)=s;
-      }      
-    }
-    free(hs);free(hc);
-  }
-  v=vv[0];
-  free(vv);
-  return v;//+stripval(d,0,c0)+stripval(d,c1,N);
-}
-
-int stripexhaust2(int d,int c0,int c1,int upd){
-  // If d=0 exhaust columns c0..(c1-1), if d=1 exhaust rows c0..(c1-1)
-  // Comments and variable names are as if in the column case (d=0)
-  // upd=1 <-> the optimum is written back into the global state
-  // Returns value of strip only
-
-  int c,r,s,t,v,x,bc,sh,wid,smin,vmin;
-  int64 b,M,bl,br;
-  short*vv,v1[16];// Map from boundary state to value of interior
-  wid=c1-c0;
-  M=1LL<<4*wid;
-  int ps[wid][16],vc[wid][16],h1[16];
-  unsigned char (*hc)[wid][M]=0,// Comb history: hc[r][x][b] = opt value of (c0+x,r,0) given (c0+y,r,I(y<=x))=b   (y=0,...,wid-1)
-    (*hs)[wid][M]=0;           // Strut history: hs[r][x][b] = opt value of (c0+x,r,1) given (c0+y,r+I(y<=x),1)=b   (y=0,...,wid-1)
-  vv=(short*)malloc(M*sizeof(short));
-  if(upd){
-    hc=(unsigned char (*)[wid][M])malloc(N*wid*M);
-    hs=(unsigned char (*)[wid][M])malloc(N*wid*M);
-  }
-  if(!(vv&&(!upd||(hc&&hs)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust()\n",
-                                      M*(sizeof(short)+(!!upd)*2.*N*wid)/(1<<30));return 1;}
-  // Break ties randomly. Sufficient to choose fixed tiebreaker outside r,b loops
-  for(x=0;x<wid;x++){for(s=0;s<16;s++)ps[x][s]=s;if(upd)shuf(ps[x],16);}
-  memset(vv,0,M*sizeof(short));
   // Encoding of boundary into b is that the (c0+y,?,?) term corresponds to nibble y
   for(r=0;r<N;r++){
     // Comb exhaust
@@ -1110,14 +974,15 @@ int fullexhaust(){
 }
 
 int fullexhaust2(){
-  /*
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
-  int a,c,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1;
-  int64 b,ns,maxs,size,sizer;
+  int a,c,r,s,t,v,x,t0,bc,bc0,vmin,A,s0,mul0,mul1,bb[N+1],bn[N+1],bn0[N],
+    XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N],
+    vc[N][16],pre0[N][16][16],pre1[N][16][16],pre2[16][16];
+  int64 b,br,bm,ns,maxs,size,bp[N+1];
   double tns,ctns,cost,mincost;
-  short*v0,*v1;
-  int XBa0[NBV],QBa0[NBV][3][16][16],pre[65536][4],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
+  short*v0,*v1,*v0l,*v1l;
+
   getrestrictedsets();
   memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
   memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
@@ -1151,15 +1016,12 @@ int fullexhaust2(){
 
   memset(v0,0,size*sizeof(short));
 
-  int c,r,s,t,v,x,bc,sh,wid,vmin;
-  int64 b,M,bl,br;
-  short*vv,tv[16];// Map from boundary state to value of interior
-  M=1LL<<4*N;
-  int vc[N][16];
-  // Encoding of boundary into b is that the (y,?,?) term corresponds to nibble N-1-y (backwards)
+  double t1,t2;
+  t1=t2=0;
+  // Encoding of boundary into b is that the (y,?,?) term corresponds to nibble y
   for(r=0;r<N;r++){
     // Comb exhaust
-    // At this point: vv maps (*,r,1) to value of (*,r,1), (*,<r,*)
+    // At this point: v0 maps (*,r,1) to value of (*,r,1), (*,<r,*)
     //      
     //        *b0       *b1       *b2
     //       /         /         /
@@ -1167,87 +1029,114 @@ int fullexhaust2(){
     //     *---------*---------*
     //     s0        s1        s2
     //
-    // b0{
-    //   s1{ vc1[s1]=min_{s0} Q(s-1ext,s0)+Q(s0,b0)+Q(s0,s1) }
+    // b2{
+    //   s1{ vc1[s1]=min_{s2} Q(s2,b2)+Q(s2,s1) }
     //   b1{
-    //     s2{ vc2[s2]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s2) }
-    //     b2{
-    //       vv[b0][b1][b2]+=min_{s2} vc2[s2]+Q(s2,b2)+Q(s2,s3ext)
+    //     s0{ vc0[s0]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s0) }
+    //     b0{
+    //       v0[b2][b1][b0]+=min_{s0} vc0[s0]+Q(s0,b0)
     //     }
     //   }
     // }
 
-    for(s=0;s<16;s++)vc[0][s]=0;
-    x=0;b=0;
-    while(x>=0){
-      // At this point x has (at least) (N-1-x)*4 zeros at the end of its binary expansion
-      if(x==N-1){
+    t1-=cpu();
+    for(s=0;s<16;s++)vc[N-1][s]=0;
+    for(x=0,bp[0]=1;x<N;x++){bn[x]=nok[enc(x,r,1)];bp[x+1]=bp[x]*bn[x];}bn[N]=2;
+    assert(bp[N]<=size);
+    for(x=0;x<N;x++){
+      bn0[x]=nok[enc(x,r,0)];
+      for(s0=0;s0<bn0[x];s0++){// s0=s_x
+        s=ok[enc(x,r,0)][s0];
+        for(t0=0;t0<bn[x];t0++){// t=b_x
+          t=ok[enc(x,r,1)][t0];
+          pre0[x][t0][s0]=QB(x,r,0,0,s,t);
+        }
+        if(x>0){
+          for(t0=0;t0<bn0[x-1];t0++){// t=s_{x-1}
+            t=ok[enc(x-1,r,0)][t0];
+            pre1[x][t0][s0]=QB(x,r,0,1,s,t);
+          }
+        }
+      }
+    }
+    for(x=0;x<=N;x++)bb[x]=0;
+    x=N-1;b=0;
+    // b, bb are in multibase so that component x is bb[x] = (b/bp[x])%bn[x] = state no. of (x,r,1)
+    while(x<N){
+      // At this point b has (at least) x zeros at the least significant end of its multibase expansion
+      if(x==0){
         vmin=1000000000;
-        for(s=0;s<16;s++){// s=s[x]
-          v=vc[x][s]+QBI(d,x,r,0,0,s,b&15);
+        for(s0=0;s0<bn0[0];s0++){// s=s_0
+          v=vc[0][s0]+pre0[0][bb[0]][s0];
           if(v<vmin)vmin=v;
         }
-        vv[b]+=vmin;
+        v0[b]+=vmin;
         b++;
-        while((b>>(N-1-x)*4&15)==0)x--;
+        while(++bb[x]==bn[x])bb[x++]=0;
       }else{
-        for(t=0;t<16;t++){// t=s[x+1]
+        for(t0=0;t0<bn0[x-1];t0++){// t=s_{x-1}
           vmin=1000000000;
-          for(s=0;s<16;s++){// s=s[x]
-            v=vc[x][s]+QBI(d,x,r,0,0,s,b>>(N-1-x)*4&15)+QBI(d,x,r,0,2,s,t);
+          for(s0=0;s0<bn0[x];s0++){// s=s_x
+            v=vc[x][s0]+pre0[x][bb[x]][s0]+pre1[x][t0][s0];
             if(v<vmin)vmin=v;
           }
-          vc[x+1][t]=vmin;
+          vc[x-1][t0]=vmin;
         }
-        x++;
+        x--;
       }
     }
-    
+    // At this point v0 maps (*,r,1) to value of (*,<=r,*)
+    t1+=cpu();
+
     // Strut exhaust
-    // At this point vv maps (*,r,1) to value of (*,<=r,*)
     //
-    //     *b0       *b1       *         *
+    //     *         *b1       *b2       *b3
+    //     |         |         |         |
+    //     |         ^         |         |
     //     |         |         |         |
     //     |         |         |         |
-    //     |         |         |         |
-    //     |         |         |         |
-    //     *         *s1       *b2       *b3
+    //     *b0       *s1       *         *  
+    //
+    // (c=1 picture)
     
+    t2-=cpu();
     for(c=0;c<N;c++){
-      // At this point vv maps (<c,r+1,1),(>=c,r,1) to value below
-      sh=4*(N-1-c);
-      for(bl=0;bl<M;bl+=1LL<<4*(N-c)){// bl = state of (0,r+1,1),...,(c-1,r+1,1)
-        if(r==N-1&&bl>0)continue;
-        for(br=0;br<1LL<<sh;br++){// br = state of (c+1,r,1),...,(N-1,r,1)
-          b=bl+br;
-          for(bc=0;bc<16;bc++){// bc = state of (c,r+1,1)
-            vmin=1000000000;
-            for(s=0;s<16;s++){// s = state of (c,r,1)
-              v=vv[b+((int64)s<<sh)]+QBI(d,c,r,1,2,s,bc);
-              if(v<vmin)vmin=v;
-            }
-            tv[bc]=vmin;
-          }
-          for(bc=0;bc<16;bc++){
-            int64 b1=b+((int64)bc<<sh);
-            vv[b1]=tv[bc];
-          }
+      if(c&1){v0l=v1;v1l=v0;} else {v0l=v0;v1l=v1;}
+      // At this point v0l maps (>=c,r,1), (<c,r+1,1) to the value below these vertices
+      for(x=c+1,bm=1;x<N;x++)bm*=nok[enc(x,r,1)];
+      for(x=0;x<c;x++)bm*=nok[encp(x,r+1,1)];
+      mul0=nok[enc(c,r,1)];
+      mul1=nok[encp(c,r+1,1)];
+      assert(bm*MAX(mul0,mul1)<=size);
+      for(bc0=0;bc0<mul1;bc0++){// bc = state of (c,r+1,1)
+        bc=ok[encp(c,r+1,1)][bc0];
+        for(s0=0;s0<mul0;s0++){// s = state of (c,r,1)
+          s=ok[enc(c,r,1)][s0];
+          pre2[bc0][s0]=QB(c,r,1,2,s,bc);
         }
       }
-    }
-    // Now vv maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
+      for(br=0;br<bm;br++){// br = state of non-c columns
+        for(bc0=0;bc0<mul1;bc0++){// bc = state of (c,r+1,1)
+          vmin=1000000000;
+          for(s0=0;s0<mul0;s0++){// s = state of (c,r,1)
+            v=v0l[s0+mul0*br]+pre2[bc0][s0];
+            if(v<vmin)vmin=v;
+          }
+          v1l[br+bm*bc0]=vmin;
+        }
+      }
+    }//c
+    if(N&1)memcpy(v0,v1,size*sizeof(short));
+    // Now v0 maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
+    t2+=cpu();
+
   }//r
-  v=vv[0];
-  free(vv);
-  return v;
 
-
-
-
-
+  v=v0[0];
+  free(v1);free(v0);
   applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
+  printf("TTT %8.2fs %8.2fs\n",t1,t2);
   return v;
-*/
 }
 
 int main(int ac,char**av){
@@ -1388,10 +1277,10 @@ int main(int ac,char**av){
       opt1(mint,maxt,1,1,0,strat,gtr);
       printf("val=%d\n",val());
       upd=1;
-      wid=1;
+      wid=2;
       for(o=0;o<2;o++)for(c0=0;c0<N-wid+1;c0++){
         c1=c0+wid;
-        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust2(o,c0,c1,upd);
+        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust(o,c0,c1,upd);
         v0+=stripval(o,0,c0)+stripval(o,c1,N);
         if(upd)assert(v0==val());
         printf("Strip %d %2d %2d   %6d   %gs\n",o,c0,c1,v0,(cpu()-t0)/n);
@@ -1399,17 +1288,6 @@ int main(int ac,char**av){
       }
     }
     break;
-  case 9:
-    while(1){
-      int o,c0,c1,v0,v1,v2;
-      o=randbit();c0=randint(N);c1=c0+1+randint(N-c0);
-      v0=stripexhaust(o,c0,c1,0)+stripval(o,0,c0)+stripval(o,c1,N);
-      v1=stripexhaust2(o,c0,c1,1)+stripval(o,0,c0)+stripval(o,c1,N);
-      v2=val();
-      printf("%d %2d %2d : %6d %6d %6d\n",o,c0,c1,v0,v1,v2);
-      assert(v0==v1&&v1==v2);
-      initweights(weightmode);
-    }
   }
   if(outstatefile)writestate(outstatefile);
   return 0;
