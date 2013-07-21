@@ -900,7 +900,8 @@ int fullexhaust(){
           s0i1=okinv(c,r,1,s0>>4);
           if(c==0)pre[np][0]=s0i1+nok[enc(c,r,1)]*s1i1; else pre[np][0]=s0i+nok2[enc2(c,r)]*s1i1;
           pre[np][1]=QB(c,r,0,0,s0&15,s0>>4)+QB(c,r,0,2,s0&15,s1&15);
-          if(s0i>0)pre[np-1][2]=((s0>>4)>(ps0>>4));
+          pre[np][2]=0;
+          if(s0i>0){assert(np>0);pre[np-1][2]=((s0>>4)>(ps0>>4));}
           pre[np][3]=s0i1+s1i*nok[enc(c,r,1)];
           ps0=s0;
           np++;
@@ -908,7 +909,7 @@ int fullexhaust(){
           //if(v<vmin)vmin=v;
           //if(s0i0==<last one>){v1[s0i1,s1i,b]=vmin;vmin=32767;}
         }
-        pre[np-1][2]=1;
+        assert(np>0);pre[np-1][2]=1;
       }
       mul0=(c==0?nok[enc(c,r,1)]:nok2[enc2(c,r)])*nok[encp(c+1,r,1)];
       mul1=nok[enc(c,r,1)]*nok2[enc2p(c+1,r)];
@@ -976,138 +977,147 @@ int fullexhaust(){
 int fullexhaust2(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
-  int a,c,r,s,t,v,x,t0,bc,bc0,vmin,A,s0,mul0,mul1,bb[N+1],bn[N+1],bn0[N],
+  int a,c,r,s,v,x,bc,bc0,A,s0,mul0,mul1,
     XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N],
-    vc[N][16],pre0[N][16][16],pre1[N][16][16],pre2[16][16];
-  int64 b,br,bm,ns,maxs,size,bp[N+1];
-  double tns,ctns,cost,mincost;
-  short*v0,*v1,*v0l,*v1l;
+    pre[4096][4],pre2[16][16];
+  int64 b,br,bm,nc,ns,nc0,tnc,maxc,maxs,maxt,size0,size1,bp[N+1];
+  double t0,t1,t2,tns,ctns,cost,mincost;
+  short*v0,*v1,*vold,*vnew;
 
+  t0=-cpu();
   getrestrictedsets();
   memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
   memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
   memcpy(ok20,ok2,sizeof(ok20));memcpy(nok20,nok2,sizeof(nok20));
-  mincost=1e100;A=-1;size=1LL<<60;
+  mincost=1e100;A=-1;size0=size1=1LL<<60;
   if(deb>=1)printf("                  Memory/GiB   Time(a.u.)  Memory*Time\n");
   for(a=0;a<8;a++){// Loop over automorphisms of C_N to choose best representation to exhaust
     applyam(a,XBa0,QBa0,ok0,nok0,ok20,nok20);
-    maxs=0;tns=0;
+    maxc=maxs=0;tns=0;
     for(r=0;r<N;r++){
+      nc0=1;tnc=0;
+      for(c=N-1;c>=0;c--){
+        tns+=nok[encp(c-1,r,0)]*nok2[enc2(c,r)]*nc0;
+        nc0*=nok[encp(c+1,r,1)];
+        nc=nc0*nok[enc(c,r,0)];
+        tnc+=nc;
+      }
+      if(tnc>maxc)maxc=tnc;
       for(c=0;c<N;c++){
         ns=1;
         for(x=0;x<c;x++)ns*=nok[encp(x,r+1,1)];
         for(x=c;x<N;x++)ns*=nok[enc(x,r,1)];
-        tns+=ns;
+        tns+=ns*nok[encp(c,r+1,1)];
         if(ns>maxs)maxs=ns;
       }
-    }
-    cost=tns*maxs;// Using cost = time * memory
-    if(deb>=1){double z=(double)maxs*2.*sizeof(short)/(1<<30);printf("Automorphism %d: %12g %12g %12g\n",a,z,tns,z*tns);}
-    if(cost<mincost){mincost=cost;size=maxs;ctns=tns;A=a;}
-  }
+    }//r
+    maxt=maxs+MAX(maxs,maxc);
+    cost=tns*maxt;// Using cost = time * memory
+    if(deb>=1){double z=(double)maxt*sizeof(short)/(1<<30);printf("Automorphism %d: %12g %12g %12g\n",a,z,tns,z*tns);}
+    if(cost<mincost){mincost=cost;size0=maxs;size1=MAX(maxs,maxc);ctns=tns;A=a;}
+  }//a
   applyam(A,XBa0,QBa0,ok0,nok0,ok20,nok20);
   if(deb>=1)printf("Choosing automorphism %d\n",A);
-  printf("Size %.1fGiB\n",size*2.*sizeof(short)/(1<<30));
+  printf("Size %.1fGiB\n",(double)(size0+size1)*sizeof(short)/(1<<30));
   printf("Time units %g\n",ctns);
-  fflush(stdout);//exit(0);
-  v0=(short*)malloc(size*sizeof(short));
-  v1=(short*)malloc(size*sizeof(short));
-  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust()\n",size*2.*sizeof(short)/(1<<30));return 1;}
+  fflush(stdout);
+  v0=(short*)malloc(size0*sizeof(short));
+  v1=(short*)malloc(size1*sizeof(short));
+  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust()\n",(double)(size0+size1)*sizeof(short)/(1<<30));return 1;}
+  t0+=cpu();
 
-  memset(v0,0,size*sizeof(short));
-
-  double t1,t2;
   t1=t2=0;
-  // Encoding of boundary into b is that the (y,?,?) term corresponds to nibble y
+  memset(v0,0,size0*sizeof(short));
   for(r=0;r<N;r++){
     // Comb exhaust
     // At this point: v0 maps (*,r,1) to value of (*,r,1), (*,<r,*)
     //      
-    //        *b0       *b1       *b2
-    //       /         /         /
-    //      /         /         /
-    //     *---------*---------*
-    //     s0        s1        s2
+    //        *b0       *b1       *b2       *b3
+    //       /         /         /         /
+    //      /         /         /         /
+    //     *---------*---------*---------*
+    //     s0        s1        s2        s3
     //
-    // b2{
-    //   s1{ vc1[s1]=min_{s2} Q(s2,b2)+Q(s2,s1) }
-    //   b1{
-    //     s0{ vc0[s0]=min_{s1} vc1[s1]+Q(s1,b1)+Q(s1,s0) }
-    //     b0{
-    //       v0[b2][b1][b0]+=min_{s0} vc0[s0]+Q(s0,b0)
-    //     }
-    //   }
-    // }
+    // vc3[s3] = 0
+    // vc2[s2,b3] = min_{s3} Q(s3,b3)+Q(s3,s2)
+    // vc1[s1,b2,b3] = min_{s2} vc2[s2,b3]+Q(s2,b2)+Q(s2,s1)
+    // vc0[s0,b1,b2,b3] = min_{s1} vc1[s1,b2,b3]+Q(s1,b1)+Q(s1,s0)
+    // v0[b0,b1,b2,b3] += min_{s0} vc0[s0,b1,b2,b3]+Q(s0,b0)
 
     t1-=cpu();
-    for(s=0;s<16;s++)vc[N-1][s]=0;
-    for(x=0,bp[0]=1;x<N;x++){bn[x]=nok[enc(x,r,1)];bp[x+1]=bp[x]*bn[x];}bn[N]=2;
-    assert(bp[N]<=size);
-    for(x=0;x<N;x++){
-      bn0[x]=nok[enc(x,r,0)];
-      for(s0=0;s0<bn0[x];s0++){// s0=s_x
-        s=ok[enc(x,r,0)][s0];
-        for(t0=0;t0<bn[x];t0++){// t=b_x
-          t=ok[enc(x,r,1)][t0];
-          pre0[x][t0][s0]=QB(x,r,0,0,s,t);
+    vold=v1;
+    for(c=N-1,bm=1;c>=0;bm*=nok[enc(c,r,1)],c--){
+      int np,s0i,s1i,b1i,sb1,sb1i,psb1;
+      // Loop over br = (b_{c+1},...,b_{N-1}) { // the irrelevant parameters
+      //   Loop over s_{c-1} {
+      //     vmin=32767
+      //     Loop over s_c+b_c { // s_c being the fast-changing half of s_c,b_c
+      //       v=vc[c][s_c,br]+Q(s_c,b_c)+Q(s_c,s_{c-1})
+      //       if(v<vmin)vmin=v
+      //       if(s_c==<last one given b_c>){vc[c-1][s_{c-1},b_c,br]=vmin;vmin=32767;}
+      //     }
+      //   }
+      // }
+      vnew=vold+nok[enc(c,r,0)]*bm;
+      if(c==N-1)for(b=0;b<vnew-vold;b++)vold[b]=0;
+      np=0;
+      for(s0i=0;s0i<nok[encp(c-1,r,0)];s0i++){
+        s0=ok[encp(c-1,r,0)][s0i];
+        psb1=1000;
+        for(sb1i=0;sb1i<nok2[enc2(c,r)];sb1i++){
+          sb1=ok2[enc2(c,r)][sb1i];
+          s1i=okinv(c,r,0,sb1&15);
+          b1i=okinv(c,r,1,sb1>>4);
+          pre[np][0]=s1i;
+          pre[np][1]=QB(c,r,0,0,sb1&15,sb1>>4)+QB(c,r,0,1,sb1&15,s0);
+          pre[np][2]=0;
+          if(sb1i>0){assert(np>0);pre[np-1][2]=((sb1>>4)>(psb1>>4));}
+          pre[np][3]=s0i+nok[encp(c-1,r,0)]*b1i;
+          psb1=sb1;
+          np++;
         }
-        if(x>0){
-          for(t0=0;t0<bn0[x-1];t0++){// t=s_{x-1}
-            t=ok[enc(x-1,r,0)][t0];
-            pre1[x][t0][s0]=QB(x,r,0,1,s,t);
-          }
-        }
-      }
-    }
-    for(x=0;x<=N;x++)bb[x]=0;
-    x=N-1;b=0;
-    // b, bb are in multibase so that component x is bb[x] = (b/bp[x])%bn[x] = state no. of (x,r,1)
-    while(x<N){
-      // At this point b has (at least) x zeros at the least significant end of its multibase expansion
-      if(x==0){
-        vmin=1000000000;
-        for(s0=0;s0<bn0[0];s0++){// s=s_0
-          v=vc[0][s0]+pre0[0][bb[0]][s0];
+        assert(np>0);pre[np-1][2]=1;
+      } 
+      mul0=nok[enc(c,r,0)];
+      mul1=nok[encp(c-1,r,0)]*nok[enc(c,r,1)];
+#pragma omp parallel for
+      for(br=0;br<bm;br++){
+        int p,v,vmin;
+        vmin=32767;
+        for(p=0;p<np;p++){
+          v=vold[pre[p][0]+mul0*br]+pre[p][1];
           if(v<vmin)vmin=v;
-        }
-        v0[b]+=vmin;
-        b++;
-        while(++bb[x]==bn[x])bb[x++]=0;
-      }else{
-        for(t0=0;t0<bn0[x-1];t0++){// t=s_{x-1}
-          vmin=1000000000;
-          for(s0=0;s0<bn0[x];s0++){// s=s_x
-            v=vc[x][s0]+pre0[x][bb[x]][s0]+pre1[x][t0][s0];
-            if(v<vmin)vmin=v;
+          if(pre[p][2]){
+            if(c>0)vnew[pre[p][3]+mul1*br]=vmin; else v0[pre[p][3]+mul1*br]+=vmin;
+            vmin=32767;
           }
-          vc[x-1][t0]=vmin;
         }
-        x--;
       }
-    }
+      vold=vnew;
+    }//c
+    assert(bp[N]<=size0);
     // At this point v0 maps (*,r,1) to value of (*,<=r,*)
     t1+=cpu();
 
     // Strut exhaust
     //
-    //     *         *b1       *b2       *b3
+    //     *b0       *bc       *         *
     //     |         |         |         |
     //     |         ^         |         |
     //     |         |         |         |
-    //     |         |         |         |
-    //     *b0       *s1       *         *  
+    //     *         *s        *b2       *b3
     //
     // (c=1 picture)
     
     t2-=cpu();
     for(c=0;c<N;c++){
-      if(c&1){v0l=v1;v1l=v0;} else {v0l=v0;v1l=v1;}
-      // At this point v0l maps (>=c,r,1), (<c,r+1,1) to the value below these vertices
+      if(c&1){vold=v1;vnew=v0;} else {vold=v0;vnew=v1;}
+      // At this point vold maps (>=c,r,1), (<c,r+1,1) to the value below these vertices
       for(x=c+1,bm=1;x<N;x++)bm*=nok[enc(x,r,1)];
       for(x=0;x<c;x++)bm*=nok[encp(x,r+1,1)];
       mul0=nok[enc(c,r,1)];
       mul1=nok[encp(c,r+1,1)];
-      assert(bm*MAX(mul0,mul1)<=size);
+      assert(bm*MAX(mul0,mul1)<=size0);
       for(bc0=0;bc0<mul1;bc0++){// bc = state of (c,r+1,1)
         bc=ok[encp(c,r+1,1)][bc0];
         for(s0=0;s0<mul0;s0++){// s = state of (c,r,1)
@@ -1115,18 +1125,20 @@ int fullexhaust2(){
           pre2[bc0][s0]=QB(c,r,1,2,s,bc);
         }
       }
+#pragma omp parallel for
       for(br=0;br<bm;br++){// br = state of non-c columns
+        int v,vmin,bc0,s0;
         for(bc0=0;bc0<mul1;bc0++){// bc = state of (c,r+1,1)
           vmin=1000000000;
           for(s0=0;s0<mul0;s0++){// s = state of (c,r,1)
-            v=v0l[s0+mul0*br]+pre2[bc0][s0];
+            v=vold[s0+mul0*br]+pre2[bc0][s0];
             if(v<vmin)vmin=v;
           }
-          v1l[br+bm*bc0]=vmin;
+          vnew[br+bm*bc0]=vmin;
         }
       }
     }//c
-    if(N&1)memcpy(v0,v1,size*sizeof(short));
+    if(N&1)memcpy(v0,v1,size0*sizeof(short));
     // Now v0 maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
     t2+=cpu();
 
@@ -1135,7 +1147,7 @@ int fullexhaust2(){
   v=v0[0];
   free(v1);free(v0);
   applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
-  printf("TTT %8.2fs %8.2fs\n",t1,t2);
+  printf("Setup time %8.2fs\nComb time  %8.2fs\nStrut time %8.2fs\n",t0,t1,t2);
   return v;
 }
 
