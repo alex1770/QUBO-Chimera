@@ -29,15 +29,18 @@ a6 fc ff ce ef de eb 6a
  11   8  31  25  50  31   8   4 
   3   7  13  10  10  11   8   2 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:      5.96046  2.38926e+10  1.42411e+11
-Automorphism 1:      18.7107  7.22182e+10  1.35125e+12
-Automorphism 2:      8.95859  2.88606e+10   2.5855e+11
-Automorphism 3:      17.0097   7.1181e+10  1.21077e+12
-Automorphism 4:      7.75262  2.87565e+10  2.22938e+11
-Automorphism 5:      15.6277  7.30654e+10  1.14184e+12
-Automorphism 6:      6.39004  2.41354e+10  1.54226e+11
-Automorphism 7:      22.4529  7.38539e+10  1.65823e+12
-Choosing automorphism 0
-Size 6.0GiB
-Time units 2.38926e+10
-Optimum -906 found in 357.99s
+Automorphism 0:      2.35707  1.02742e+11  2.42171e+11
+Automorphism 1:       6.4151   3.7385e+11  2.39828e+12
+Automorphism 2:      2.78299  1.31214e+11  3.65166e+11
+Automorphism 3:      5.44312  3.73404e+11  2.03248e+12
+Automorphism 4:      2.78299  1.31351e+11   3.6555e+11
+Automorphism 5:      5.44312  3.73329e+11  2.03207e+12
+Automorphism 6:      2.25531  1.02598e+11  2.31391e+11
+Automorphism 7:       6.4151  3.73782e+11  2.39785e+12
+Choosing automorphism 6
+Size 2.3GiB
+Time units 1.02598e+11
+Setup time     1.70s
+Comb time      6.44s
+Strut time    96.74s
+Optimum -906 found in 105.48s

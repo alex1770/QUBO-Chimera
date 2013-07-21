@@ -30,15 +30,18 @@ cc g4 8a 22 22 22 48 78
   4   8  10  14   8  18  22  16 
   8   8   8   8   4   4   8   4 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:          4.5  1.28867e+10  5.79904e+10
-Automorphism 1:     0.592163    1.581e+09   9.3621e+08
-Automorphism 2:      3.44531  1.01118e+10  3.48383e+10
-Automorphism 3:       1.3125  2.26317e+09  2.97041e+09
-Automorphism 4:      6.39844  1.11886e+10  7.15899e+10
-Automorphism 5:        0.875  2.02289e+09  1.77003e+09
-Automorphism 6:         6.75  1.47561e+10  9.96035e+10
-Automorphism 7:     0.565247   1.5933e+09  9.00606e+08
+Automorphism 0:      2.55855  8.53311e+10  2.18324e+11
+Automorphism 1:     0.215332  6.99081e+09  1.50535e+09
+Automorphism 2:      2.30314   6.5066e+10  1.49856e+11
+Automorphism 3:       0.4375  8.74168e+09  3.82448e+09
+Automorphism 4:      2.39449  6.50712e+10  1.55813e+11
+Automorphism 5:       0.4375  8.72442e+09  3.81693e+09
+Automorphism 6:      2.46721  8.53236e+10  2.10511e+11
+Automorphism 7:     0.215332  6.97375e+09  1.50167e+09
 Choosing automorphism 7
-Size 0.6GiB
-Time units 1.5933e+09
-Optimum -1429 found in 22.09s
+Size 0.2GiB
+Time units 6.97375e+09
+Setup time     0.85s
+Comb time      0.56s
+Strut time     6.18s
+Optimum -1429 found in 7.64s

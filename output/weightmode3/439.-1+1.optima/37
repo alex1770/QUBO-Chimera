@@ -28,15 +28,18 @@ a4 66 8e 88 8g 48 46 44
  16   6   2  18  22  28  16  32 
   6   6   4  14   6   8  16   8 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:       0.5625  2.34427e+09  1.31865e+09
-Automorphism 1:      5.57812  6.50575e+09  3.62899e+10
-Automorphism 2:     0.492188  1.44746e+09  7.12422e+08
-Automorphism 3:      4.88086   6.3104e+09  3.08002e+10
-Automorphism 4:       0.5625  1.81951e+09  1.02347e+09
-Automorphism 5:      2.29688  5.34447e+09  1.22756e+10
-Automorphism 6:     0.697266  2.02945e+09  1.41507e+09
-Automorphism 7:      3.01465   6.3584e+09  1.91684e+10
-Choosing automorphism 2
-Size 0.5GiB
-Time units 1.44746e+09
-Optimum -1351 found in 17.5s
+Automorphism 0:     0.328125  8.82636e+09  2.89615e+09
+Automorphism 1:       1.3125  2.67192e+10   3.5069e+10
+Automorphism 2:     0.180561  6.02039e+09  1.08705e+09
+Automorphism 3:       1.3125  2.46386e+10  3.23382e+10
+Automorphism 4:     0.175691  6.03564e+09  1.06041e+09
+Automorphism 5:       1.3125  2.46775e+10  3.23892e+10
+Automorphism 6:     0.328125  8.79358e+09  2.88539e+09
+Automorphism 7:       1.3125  2.67544e+10  3.51151e+10
+Choosing automorphism 4
+Size 0.2GiB
+Time units 6.03564e+09
+Setup time     0.48s
+Comb time      0.66s
+Strut time     5.95s
+Optimum -1351 found in 7.14s

@@ -30,15 +30,18 @@ Total  973 / 2048
   2  14  32  10  16   4   6   4 
   4  16  32   8  14   2   9  11 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:         0.75  2.42742e+09  1.82056e+09
-Automorphism 1:         0.25  5.69907e+08  1.42477e+08
-Automorphism 2:      0.84375  2.10227e+09  1.77379e+09
-Automorphism 3:       0.3125  9.06355e+08  2.83236e+08
-Automorphism 4:     0.676758  1.90213e+09  1.28728e+09
-Automorphism 5:     0.307617   9.0871e+08  2.79535e+08
-Automorphism 6:         0.75  2.35058e+09  1.76294e+09
-Automorphism 7:     0.191406  5.82244e+08  1.11445e+08
-Choosing automorphism 7
-Size 0.2GiB
-Time units 5.82244e+08
-Optimum -1407 found in 6.77s
+Automorphism 0:        0.375  1.03302e+10  3.87381e+09
+Automorphism 1:     0.114125   2.0696e+09  2.36193e+08
+Automorphism 2:      0.28125  8.20881e+09  2.30873e+09
+Automorphism 3:     0.136719  3.30899e+09  4.52401e+08
+Automorphism 4:     0.285841  8.24341e+09  2.35631e+09
+Automorphism 5:     0.165907  3.30557e+09  5.48418e+08
+Automorphism 6:        0.375  1.02978e+10  3.86169e+09
+Automorphism 7:     0.152235  2.05129e+09  3.12278e+08
+Choosing automorphism 1
+Size 0.1GiB
+Time units 2.0696e+09
+Setup time     0.62s
+Comb time      0.30s
+Strut time     2.30s
+Optimum -1407 found in 3.25s

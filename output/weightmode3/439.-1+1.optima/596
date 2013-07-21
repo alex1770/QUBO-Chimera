@@ -30,15 +30,18 @@ bb a9 64 22 22 42 42 44
  20  12   2   6  20  16  20   2 
  14  12   6   2   2   4   4   4 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:       2.1875  7.09932e+09  1.55298e+10
-Automorphism 1:     0.597656  1.73403e+09  1.03635e+09
-Automorphism 2:        1.875   6.9067e+09  1.29501e+10
-Automorphism 3:     0.933838    2.256e+09  2.10674e+09
-Automorphism 4:      4.21875   8.5142e+09  3.59193e+10
-Automorphism 5:      1.31836  2.59674e+09  3.42344e+09
-Automorphism 6:      2.90527  6.82745e+09  1.98356e+10
-Automorphism 7:        0.375  1.57093e+09  5.89098e+08
+Automorphism 0:      1.36719  3.32931e+10   4.5518e+10
+Automorphism 1:      0.28125  7.96157e+09  2.23919e+09
+Automorphism 2:        1.125  3.44904e+10  3.88017e+10
+Automorphism 3:     0.439453  1.03351e+10   4.5418e+09
+Automorphism 4:        1.125  3.44028e+10  3.87031e+10
+Automorphism 5:     0.439453  1.03177e+10  4.53413e+09
+Automorphism 6:      1.36719  3.33808e+10  4.56378e+10
+Automorphism 7:      0.28125  7.95633e+09  2.23772e+09
 Choosing automorphism 7
-Size 0.4GiB
-Time units 1.57093e+09
-Optimum -1403 found in 22.31s
+Size 0.3GiB
+Time units 7.95633e+09
+Setup time     1.14s
+Comb time      0.49s
+Strut time     7.33s
+Optimum -1403 found in 9.04s

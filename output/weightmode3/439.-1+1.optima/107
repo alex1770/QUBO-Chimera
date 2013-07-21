@@ -29,15 +29,18 @@ ac c8 88 ce 22 24 42 66
   6  28  28   4  14   6   2   2 
   4  14  24   8   8  14  10   4 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:     0.549316  7.70311e+08  4.23144e+08
-Automorphism 1:      4.88086  5.59628e+09  2.73147e+10
-Automorphism 2:     0.220619  5.29436e+08  1.16804e+08
-Automorphism 3:      1.43555  2.47286e+09   3.5499e+09
-Automorphism 4:     0.337418  5.75453e+08  1.94168e+08
-Automorphism 5:      1.86621  2.66435e+09  4.97224e+09
-Automorphism 6:     0.263672  6.97716e+08  1.83968e+08
-Automorphism 7:      3.73242  5.18354e+09  1.93471e+10
+Automorphism 0:     0.146484  3.21071e+09  4.70318e+08
+Automorphism 1:      1.14844  1.94681e+10  2.23579e+10
+Automorphism 2:     0.103821  2.16438e+09  2.24708e+08
+Automorphism 3:     0.574219  8.83984e+09    5.076e+09
+Automorphism 4:     0.107619  2.15348e+09  2.31755e+08
+Automorphism 5:     0.574219  8.81299e+09  5.06059e+09
+Automorphism 6:     0.146484  3.22229e+09  4.72015e+08
+Automorphism 7:      1.14844  1.94411e+10  2.23269e+10
 Choosing automorphism 2
-Size 0.2GiB
-Time units 5.29436e+08
-Optimum -1447 found in 6.53s
+Size 0.1GiB
+Time units 2.16438e+09
+Setup time     0.49s
+Comb time      0.20s
+Strut time     2.27s
+Optimum -1447 found in 2.99s

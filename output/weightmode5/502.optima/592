@@ -29,15 +29,18 @@ bc dd fe fg c8 ff ed be
  12  40  46  29  32  42  21   8 
   5  11  13   7   8   5   5   2 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:      13.2718  4.38303e+10  5.81705e+11
-Automorphism 1:      8.56301  2.44844e+10   2.0966e+11
-Automorphism 2:      14.1312  5.90763e+10  8.34817e+11
-Automorphism 3:       9.2933  3.21362e+10  2.98651e+11
-Automorphism 4:      14.9387  5.81899e+10  8.69279e+11
-Automorphism 5:      7.89093   3.3397e+10  2.63534e+11
-Automorphism 6:      10.7974  4.23417e+10  4.57178e+11
-Automorphism 7:      5.21227  2.34022e+10  1.21979e+11
-Choosing automorphism 7
-Size 5.2GiB
-Time units 2.34022e+10
-Optimum -950 found in 355.53s
+Automorphism 0:      3.37418  1.95458e+11  6.59508e+11
+Automorphism 1:      2.97844   1.0614e+11  3.16132e+11
+Automorphism 2:      5.24872  2.75793e+11  1.44756e+12
+Automorphism 3:      3.24921  1.50861e+11  4.90178e+11
+Automorphism 4:      5.24872  2.75869e+11  1.44796e+12
+Automorphism 5:      3.24921  1.50907e+11  4.90328e+11
+Automorphism 6:      3.37418  1.95382e+11  6.59252e+11
+Automorphism 7:      2.97844  1.06184e+11  3.16262e+11
+Choosing automorphism 1
+Size 3.0GiB
+Time units 1.0614e+11
+Setup time     1.61s
+Comb time      7.83s
+Strut time    95.95s
+Optimum -950 found in 106.13s

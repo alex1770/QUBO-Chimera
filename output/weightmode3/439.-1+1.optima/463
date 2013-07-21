@@ -29,15 +29,18 @@ ec 8e e8 c8 48 ee 88 88
  20  18  18  12  12  26  32   8 
   6   8  18  10  20  12   8   2 
                   Memory/GiB   Time(a.u.)  Memory*Time
-Automorphism 0:      5.35938  1.63588e+10   8.7673e+10
-Automorphism 1:      2.26611   4.1604e+09  9.42794e+09
-Automorphism 2:      6.89062  1.60687e+10  1.10723e+11
-Automorphism 3:      1.11084  3.77743e+09  4.19612e+09
-Automorphism 4:      5.90625  1.64327e+10  9.70559e+10
-Automorphism 5:      1.14395  3.89086e+09  4.45096e+09
-Automorphism 6:      5.90625  1.70726e+10  1.00835e+11
-Automorphism 7:      1.14395  4.04274e+09  4.62469e+09
-Choosing automorphism 3
-Size 1.1GiB
-Time units 3.77743e+09
-Optimum -1329 found in 48.45s
+Automorphism 0:       3.0625  9.20259e+10  2.81829e+11
+Automorphism 1:     0.533203  1.35013e+10  7.19895e+09
+Automorphism 2:      3.44531  1.02378e+11  3.52724e+11
+Automorphism 3:     0.485992  1.52728e+10  7.42247e+09
+Automorphism 4:      3.44531  1.02427e+11  3.52893e+11
+Automorphism 5:     0.485992  1.53028e+10  7.43705e+09
+Automorphism 6:       3.0625  9.19778e+10  2.81682e+11
+Automorphism 7:     0.533203  1.35401e+10  7.21963e+09
+Choosing automorphism 1
+Size 0.5GiB
+Time units 1.35013e+10
+Setup time     0.81s
+Comb time      1.06s
+Strut time    13.51s
+Optimum -1329 found in 15.51s
