@@ -779,7 +779,7 @@ void getrestrictedsets(void){
     for(i=0;i<nok[enc(x,y,o)];i++)printf(" %2d",ok[enc(x,y,o)][i]);
     printf("\n");
   }
-  // Sort ok2[] to facilitate exhaust2()
+  // Sort ok2[] to facilitate fullexhaust()
   for(x=0;x<N;x++)for(y=0;y<N;y++)qsort(ok2[enc2(x,y)],nok2[enc2(x,y)],sizeof(int),cmpint);
   ok[NBV][0]=0;nok[NBV]=1;   // Special entries at the end to cater for off-grid cells
   ok2[N*N][0]=0;nok2[N*N]=1; //
@@ -836,145 +836,6 @@ void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok
 }
 
 int fullexhaust(){
-  // Uses restricted sets to cut down possibilities
-  // and full automorphism group to choose best orientation
-  int a,c,r,v,x,A,np,ps0,s0,s0i,s1,s1i,s0i1,s1i1,mul0,mul1;
-  int64 b,ns,maxs,size,sizer;
-  double tns,ctns,cost,mincost;
-  short*v0,*v1;
-  int XBa0[NBV],QBa0[NBV][3][16][16],pre[65536][4],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
-  getrestrictedsets();
-  memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
-  memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
-  memcpy(ok20,ok2,sizeof(ok20));memcpy(nok20,nok2,sizeof(nok20));
-  mincost=1e100;A=-1;size=1LL<<60;
-  if(deb>=1)printf("                  Memory/GiB   Time(a.u.)  Memory*Time\n");
-  for(a=0;a<8;a++){// Loop over automorphisms of C_N to choose best representation to exhaust
-    applyam(a,XBa0,QBa0,ok0,nok0,ok20,nok20);
-    maxs=0;tns=0;
-    for(r=0;r<N;r++){
-      for(c=0;c<N;c++){
-        ns=1;
-        for(x=0;x<c;x++)ns*=nok[encp(x,r+1,1)];
-        ns*=MAX(nok2[enc2(c,r)]*nok[encp(c+1,r,1)],nok[enc(c,r,1)]*nok2[enc2p(c+1,r)]);
-        for(x=c+2;x<N;x++)ns*=nok[enc(x,r,1)];
-        tns+=ns;
-        if(ns>maxs)maxs=ns;
-      }
-    }
-    cost=tns*maxs;// Using cost = time * memory
-    if(deb>=1){double z=(double)maxs*2.*sizeof(short)/(1<<30);printf("Automorphism %d: %12g %12g %12g\n",a,z,tns,z*tns);}
-    if(cost<mincost){mincost=cost;size=maxs;ctns=tns;A=a;}
-  }
-  applyam(A,XBa0,QBa0,ok0,nok0,ok20,nok20);
-  if(deb>=1)printf("Choosing automorphism %d\n",A);
-  printf("Size %.1fGiB\n",size*2.*sizeof(short)/(1<<30));
-  printf("Time units %g\n",ctns);
-  fflush(stdout);//exit(0);
-  v0=(short*)malloc(size*sizeof(short));
-  v1=(short*)malloc(size*sizeof(short));
-  if(!(v0&&v1)){fprintf(stderr,"Couldn't allocate %gGiB in fullexhaust()\n",size*2.*sizeof(short)/(1<<30));return 1;}
-  memset(v0,0,size*sizeof(short));
-  for(r=0;r<N;r++){
-    for(c=0;c<N;c++){
-      // Add c,r,0 to interior
-      // In multibase low-high order:
-      // Old boundary (c,r)*   \OR               (1 full)  if c>0, OR
-      //              (c,r,1)  /                 (1)       if c=0
-      //              (x,r,1)    x=c+1,...,N-1,  (N-1-c)
-      //              (x,r+1,1)  x=0,1,...,c-1   (c)
-      // New boundary (c,r,1)                    (1)
-      //              (c+1,r)*                   (1 full)  \ if c<N-1
-      //              (x,r,1)     x=c+2,...,N-1, (N-2-c)   /
-      //              (x,r+1,1)   x=0,...,c-1    (c)
-      sizer=1;
-      for(x=c+2;x<N;x++)sizer*=nok[enc(x,r,1)];
-      for(x=0;x<c;x++)sizer*=nok[encp(x,r+1,1)];
-      np=0;
-      for(s1i=0;s1i<nok2[enc2p(c+1,r)];s1i++){
-        s1=ok2[enc2p(c+1,r)][s1i];
-        s1i1=okinv(c+1,r,1,s1>>4);
-        ps0=1000;
-        for(s0i=0;s0i<nok2[enc2(c,r)];s0i++){
-          s0=ok2[enc2(c,r)][s0i];
-          s0i1=okinv(c,r,1,s0>>4);
-          if(c==0)pre[np][0]=s0i1+nok[enc(c,r,1)]*s1i1; else pre[np][0]=s0i+nok2[enc2(c,r)]*s1i1;
-          pre[np][1]=QB(c,r,0,0,s0&15,s0>>4)+QB(c,r,0,2,s0&15,s1&15);
-          pre[np][2]=0;
-          if(s0i>0){assert(np>0);pre[np-1][2]=((s0>>4)>(ps0>>4));}
-          pre[np][3]=s0i1+s1i*nok[enc(c,r,1)];
-          ps0=s0;
-          np++;
-          //v=v0[s0i,s1i1,b]+QB(c,r,0,0,s0&15,s0>>4)+QB(c,r,0,2,s0&15,s1>>4);
-          //if(v<vmin)vmin=v;
-          //if(s0i0==<last one>){v1[s0i1,s1i,b]=vmin;vmin=32767;}
-        }
-        assert(np>0);pre[np-1][2]=1;
-      }
-      mul0=(c==0?nok[enc(c,r,1)]:nok2[enc2(c,r)])*nok[encp(c+1,r,1)];
-      mul1=nok[enc(c,r,1)]*nok2[enc2p(c+1,r)];
-      if(deb>=2)printf("%d %d 0 : %12lld -> %12lld\n",r,c,sizer*mul0,sizer*mul1);
-      assert(sizer*MAX(mul0,mul1)<=size);
-#pragma omp parallel for
-      for(b=0;b<sizer;b++){// b=state of rest of new boundary (>=c+2,r,1), (<c,r+1,1)
-        int p,v,vmin;
-        vmin=32767;
-        for(p=0;p<np;p++){
-          v=v0[pre[p][0]+mul0*b]+pre[p][1];
-          if(v<vmin)vmin=v;
-          if(pre[p][2]){v1[pre[p][3]+mul1*b]=vmin;vmin=32767;}
-        }
-      }
-      // Add c,r,1 to interior
-      // In multibase low-high order:
-      // Old boundary (c,r,1)                    (1)
-      //              (c+1,r)*                   (1 full)   \ if c<N-1
-      //              (x,r,1)     x=c+2,...,N-1, (N-2-c)    /
-      //              (x,r+1,1)   x=0,...,c-1    (c)
-      // New boundary (c+1,r)*                   (1 full)   \ if c<N-1
-      //              (x,r,1)    x=c+2,...,N-1,  (N-2-c)    /
-      //              (x,r+1,1)  x=0,1,...,c     (c+1)
-      // Boundary loses (c,r,1) and gains (c,r+1,1)
-      // New edge (c,r,1) to (c,r+1,1)
-      sizer=nok2[enc2p(c+1,r)];
-      for(x=c+2;x<N;x++)sizer*=nok[enc(x,r,1)];
-      for(x=0;x<c;x++)sizer*=nok[encp(x,r+1,1)];
-      mul0=nok[enc(c,r,1)];
-      mul1=nok[encp(c,r+1,1)];
-      if(deb>=2)printf("%d %d 1 : %12lld -> %12lld\n",r,c,sizer*mul0,sizer*mul1);
-      assert(sizer*MAX(mul0,mul1)<=size);
-      np=0;
-      for(s1i1=0;s1i1<nok[encp(c,r+1,1)];s1i1++){
-        for(s0i1=0;s0i1<nok[enc(c,r,1)];s0i1++){
-          pre[np][0]=s0i1;
-          pre[np][1]=QB(c,r,1,2,ok[enc(c,r,1)][s0i1],ok[encp(c,r+1,1)][s1i1]);
-          pre[np][2]=(s0i1==nok[enc(c,r,1)]-1);
-          pre[np][3]=s1i1;
-          np++;
-          //v=v1[s0i1+nok[enc(c,r,1)]*b]+QB(c,r,1,2,s01,s11);
-          //if(v<vmin)vmin=v;
-          //if(s0i1==nok[enc(c,r,1)]-1){v0[b+sizer*s1i1]=vmin;vmin=32767;}
-        }
-      }
-#pragma omp parallel for
-      for(b=0;b<sizer;b++){
-        int p,v,vmin;
-        vmin=32767;
-        for(p=0;p<np;p++){
-          v=v1[pre[p][0]+mul0*b]+pre[p][1];
-          if(v<vmin)vmin=v;
-          if(pre[p][2]){v0[b+sizer*pre[p][3]]=vmin;vmin=32767;}
-        }
-      }
-    }//c
-  }//r
-  v=v0[0];
-  free(v1);free(v0);
-  applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
-  return v;
-}
-
-int fullexhaust2(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
   int a,c,r,s,v,x,bc,bc0,A,s0,mul0,mul1,
@@ -1180,9 +1041,9 @@ int main(int ac,char**av){
       fprintf(stderr,"            0   Try to find minimum value by heuristic search (default)\n");
       fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search\n");
       fprintf(stderr,"            2   Try to find expected minimum value by heuristic search\n");
-      fprintf(stderr,"            3   Full exhaust (proving), basic method\n");
+      fprintf(stderr,"            3   (no longer used)\n");
       fprintf(stderr,"            4   Consistency checks\n");
-      fprintf(stderr,"            5   Full exhaust (proving), better method\n");
+      fprintf(stderr,"            5   Full exhaust (proving)\n");
       fprintf(stderr,"       -n   num working nodes\n");
       fprintf(stderr,"       -N   size of Chimera graph\n");
       fprintf(stderr,"       -o   output problem (weight) file\n");
@@ -1259,12 +1120,6 @@ int main(int ac,char**av){
       printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
     }
     break;
-  case 3:// Prove using subset method
-    printf("Restricted set exhaust\n");
-    t0=cpu();
-    v=fullexhaust();
-    printf("Optimum %d found in %gs\n",v,cpu()-t0);
-    break;
   case 4:;// Checks
     opt1(mint,maxt,1,1,0,strat,gtr);
     printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
@@ -1277,7 +1132,7 @@ int main(int ac,char**av){
   case 5:// Prove using subset method v2
     printf("Restricted set exhaust\n");
     t0=cpu();
-    v=fullexhaust2();
+    v=fullexhaust();
     printf("Optimum %d found in %gs\n",v,cpu()-t0);
     break;
   case 6:
