@@ -576,6 +576,139 @@ void pertstate(int sq){
   }
 }
 
+int tree1exhaust(int d,int p,int r0,int upd){
+  // If d=0 exhaust the (induced) tree consisting of all columns of parity p,
+  // the o=1 (vertically connected) verts of the other columns, and row r0.
+  // If d=1 then same with rows <-> columns.
+  // Comments and variable names are as if in the column case (d=0)
+  // upd=1 <-> the optimum is written back into the global state
+  // Returns value of tree only
+  int b,c,f,r,s,v,smin,vmin,ps[16],v0[16],v1[16],v2[16],v3[16],v4[16],hc[N][N][16],hs[N][N][16],hr[N][16];
+  // v0[s] = value of current column fragment given that (c,r,1) = s
+  // v2[s] = value of current column (apart from (c,r0,0)) given that (c,r0,1) = s
+  // v3[s] = value of tree to left of column c given that (c,r0,0) = s
+
+  for(s=0;s<16;s++)v3[s]=0;
+  for(c=0;c<N;c++){
+    for(s=0;s<16;s++)ps[s]=s;
+    if(upd)shuf(ps,16);
+
+    for(s=0;s<16;s++)v0[s]=0;
+    for(r=0;r<r0;r++){
+      // Here v0[b] = value of (c,<r,*) given that (c,r,1)=b
+      if((c-p)&1){
+        for(b=0;b<16;b++){// b = state of (c,r,1)
+          v1[b]=v0[b]+QBI(d,c,r,0,0,XBI(d,c,r,0),b);
+        }
+      } else {
+        for(b=0;b<16;b++){// b = state of (c,r,1)
+          vmin=1000000000;smin=0;
+          for(s=0;s<16;s++){// s = state of (c,r,0)
+            v=(QBI(d,c,r,0,0,s,b)+
+               QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
+               QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4|ps[s];
+            if(v<vmin){vmin=v;smin=s;}
+          }
+          v1[b]=v0[b]+(vmin>>4);
+          hc[c][r][b]=smin;
+        }
+      }
+      for(b=0;b<16;b++){// b = state of (c,r+1,1)
+        vmin=1000000000;smin=0;
+        for(s=0;s<16;s++){// s = state of (c,r,1)
+          v=(v1[s]+QBI(d,c,r,1,2,s,b))<<4|ps[s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        v0[b]=vmin>>4;
+        hs[c][r][b]=smin;
+      }
+    }
+    memcpy(v2,v0,sizeof(v0));
+
+    for(s=0;s<16;s++)v0[s]=0;
+    for(r=N-1;r>r0;r--){
+      // Here v0[b] = value of (c,>r,*) given that (c,r,1)=b
+      if((c-p)&1){
+        for(b=0;b<16;b++){// b = state of (c,r,1)
+          v1[b]=v0[b]+QBI(d,c,r,0,0,XBI(d,c,r,0),b);
+        }
+      } else {
+        for(b=0;b<16;b++){// b = state of (c,r,1)
+          vmin=1000000000;smin=0;
+          for(s=0;s<16;s++){// s = state of (c,r,0)
+            v=(QBI(d,c,r,0,0,s,b)+
+               QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
+               QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4|ps[s];
+            if(v<vmin){vmin=v;smin=s;}
+          }
+          v1[b]=v0[b]+(vmin>>4);
+          hc[c][r][b]=smin;
+        }
+      }
+      for(b=0;b<16;b++){// b = state of (c,r-1,1)
+        vmin=1000000000;smin=0;
+        for(s=0;s<16;s++){// s = state of (c,r,1)
+          v=(v1[s]+QBI(d,c,r,1,1,s,b))<<4|ps[s];
+          if(v<vmin){vmin=v;smin=s;}
+        }
+        v0[b]=vmin>>4;
+        hs[c][r][b]=smin;
+      }
+    }
+    for(s=0;s<16;s++)v2[s]+=v0[s];
+
+    for(b=0;b<16;b++){// b = state of (c,r0,0)
+      vmin=1000000000;smin=0;
+      for(s=0;s<16;s++){// s = state of (c,r0,1)
+        v=(v2[s]+QBI(d,c,r0,1,0,s,b))<<4|ps[s];
+        if(v<vmin){vmin=v;smin=s;}
+      }
+      v4[b]=v3[b]+(vmin>>4);
+      hc[c][r0][b]=smin;
+    }
+
+    for(b=0;b<16;b++){// b = state of (c+1,r0,0)
+      vmin=1000000000;smin=0;
+      for(s=0;s<16;s++){// s = state of (c,r0,0)
+        v=(v4[s]+QBI(d,c,r0,0,2,s,b))<<4|ps[s];
+        if(v<vmin){vmin=v;smin=s;}
+      }
+      v3[b]=vmin>>4;
+      hr[c][b]=smin;
+    }
+  }//c
+
+  if(upd){
+    for(c=N-1;c>=0;c--){
+      f=!((c-p)&1);
+      XBI(d,c,r0,0)=hr[c][c==N-1?0:XBI(d,c+1,r0,0)];
+      XBI(d,c,r0,1)=hc[c][r0][XBI(d,c,r0,0)];
+      for(r=r0+1;r<N;r++){
+        XBI(d,c,r,1)=hs[c][r][XBI(d,c,r-1,1)];
+        if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+      }
+      for(r=r0-1;r>=0;r--){
+        XBI(d,c,r,1)=hs[c][r][XBI(d,c,r+1,1)];
+        if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+      }
+    }
+  }
+
+  return v3[0];
+}
+
+int stabletreeexhaust(int cv){
+  int d,n,p,r,v;
+  n=0;d=randint(2);p=randint(2);r=randint(N);
+  while(1){
+    v=tree1exhaust(d,p,r,1);
+    if(v<cv){cv=v;n=0;}else{n+=1;if(n==4*N)return cv;}
+    r=(r+1)%N;
+    if(randint(2))d=1-d;
+    if(randint(2))p=1-p;
+  }
+}
+
 int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   //
   // Heuristic optimisation, writing back best value found. Can be used to find TTS, the
@@ -664,6 +797,9 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
         if(pr>=2)printf("\n");
         w1=0;lbv=1000000000;// This has the effect of clearing the state, since with lbv=infinity, Xlbest will be overwritten before it is read
       }
+      break;
+    case 3:
+      cv=stabletreeexhaust(cv);
       break;
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
@@ -1139,18 +1275,24 @@ int main(int ac,char**av){
     readstate("state");printf("state = %d\n",val());break;
   case 8:
     {
-      int n,o,wid,v0,upd;
+      int d,n,p,r,wid,v0,upd;
       double t0;
       opt1(mint,maxt,1,1,0,strat,gtr);
       printf("val=%d\n",val());
       upd=1;
-      wid=2;
-      for(o=0;o<2;o++)for(c0=0;c0<N-wid+1;c0++){
-        c1=c0+wid;
-        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust(o,c0,c1,upd);
-        v0+=stripval(o,0,c0)+stripval(o,c1,N);
+      for(d=0;d<2;d++)for(p=0;p<2;p++)for(r=0;r<N;r++){
+        for(n=0,t0=cpu();n<25000;n++)v0=tree1exhaust(d,p,r,upd);
+        printf("tree1 %d %d %2d   %6d   %gs\n",d,p,r,val(),(cpu()-t0)/n);
         if(upd)assert(v0==val());
-        printf("Strip %d %2d %2d   %6d   %gs\n",o,c0,c1,v0,(cpu()-t0)/n);
+        fflush(stdout);
+      }
+      wid=1;
+      for(d=0;d<2;d++)for(c0=0;c0<N-wid+1;c0++){
+        c1=c0+wid;
+        for(n=0,t0=cpu();n<(2000000>>(wid*4))+1;n++)v0=stripexhaust(d,c0,c1,upd);
+        v0+=stripval(d,0,c0)+stripval(d,c1,N);
+        printf("Strip %d %2d %2d   %6d   %gs\n",d,c0,c1,v0,(cpu()-t0)/n);
+        if(upd)assert(v0==val());
         fflush(stdout);
       }
     }
