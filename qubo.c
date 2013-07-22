@@ -583,7 +583,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
   // Comments and variable names are as if in the column case (d=0)
   // upd=1 <-> the optimum is written back into the global state
   // Returns value of tree only
-  int b,c,f,r,s,v,smin,vmin,ps[16],v0[16],v1[16],v2[16],v3[16],v4[16],hc[N][N][16],hs[N][N][16],hr[N][16];
+  int b,c,f,r,s,v,dir,smin,vmin,ps[16],v0[16],v1[16],v2[16],v3[16],v4[16],hc[N][N][16],hs[N][N][16],hr[N][16];
   // v0[s] = value of current column fragment given that (c,r,1) = s
   // v2[s] = value of current column (apart from (c,r0,0)) given that (c,r0,1) = s
   // v3[s] = value of tree to left of column c given that (c,r0,0) = s
@@ -593,69 +593,40 @@ int tree1exhaust(int d,int p,int r0,int upd){
     for(s=0;s<16;s++)ps[s]=s;
     if(upd)shuf(ps,16);
 
-    for(s=0;s<16;s++)v0[s]=0;
-    for(r=0;r<r0;r++){
-      // Here v0[b] = value of (c,<r,*) given that (c,r,1)=b
-      if((c-p)&1){
-        for(b=0;b<16;b++){// b = state of (c,r,1)
-          v1[b]=v0[b]+QBI(d,c,r,0,0,XBI(d,c,r,0),b);
+    for(s=0;s<16;s++)v2[s]=0;
+    for(dir=0;dir<2;dir++){
+      for(s=0;s<16;s++)v0[s]=0;
+      for(r=dir*(N-1);r!=r0;r+=1-2*dir){
+        // Here v0[b] = value of (c,previous,*) given that (c,r,1)=b
+        if((c-p)&1){
+          for(b=0;b<16;b++){// b = state of (c,r,1)
+            v1[b]=v0[b]+QBI(d,c,r,0,0,XBI(d,c,r,0),b);
+          }
+        } else {
+          for(b=0;b<16;b++){// b = state of (c,r,1)
+            vmin=1000000000;smin=0;
+            for(s=0;s<16;s++){// s = state of (c,r,0)
+              v=(QBI(d,c,r,0,0,s,b)+
+                 QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
+                 QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4|ps[s];
+              if(v<vmin){vmin=v;smin=s;}
+            }
+            v1[b]=v0[b]+(vmin>>4);
+            hc[c][r][b]=smin;
+          }
         }
-      } else {
-        for(b=0;b<16;b++){// b = state of (c,r,1)
+        for(b=0;b<16;b++){// b = state of (c,r+1-2*dir,1)
           vmin=1000000000;smin=0;
-          for(s=0;s<16;s++){// s = state of (c,r,0)
-            v=(QBI(d,c,r,0,0,s,b)+
-               QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
-               QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4|ps[s];
+          for(s=0;s<16;s++){// s = state of (c,r,1)
+            v=(v1[s]+QBI(d,c,r,1,2-dir,s,b))<<4|ps[s];
             if(v<vmin){vmin=v;smin=s;}
           }
-          v1[b]=v0[b]+(vmin>>4);
-          hc[c][r][b]=smin;
+          v0[b]=vmin>>4;
+          hs[c][r][b]=smin;
         }
       }
-      for(b=0;b<16;b++){// b = state of (c,r+1,1)
-        vmin=1000000000;smin=0;
-        for(s=0;s<16;s++){// s = state of (c,r,1)
-          v=(v1[s]+QBI(d,c,r,1,2,s,b))<<4|ps[s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        v0[b]=vmin>>4;
-        hs[c][r][b]=smin;
-      }
+      for(s=0;s<16;s++)v2[s]+=v0[s];
     }
-    memcpy(v2,v0,sizeof(v0));
-
-    for(s=0;s<16;s++)v0[s]=0;
-    for(r=N-1;r>r0;r--){
-      // Here v0[b] = value of (c,>r,*) given that (c,r,1)=b
-      if((c-p)&1){
-        for(b=0;b<16;b++){// b = state of (c,r,1)
-          v1[b]=v0[b]+QBI(d,c,r,0,0,XBI(d,c,r,0),b);
-        }
-      } else {
-        for(b=0;b<16;b++){// b = state of (c,r,1)
-          vmin=1000000000;smin=0;
-          for(s=0;s<16;s++){// s = state of (c,r,0)
-            v=(QBI(d,c,r,0,0,s,b)+
-               QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
-               QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)))<<4|ps[s];
-            if(v<vmin){vmin=v;smin=s;}
-          }
-          v1[b]=v0[b]+(vmin>>4);
-          hc[c][r][b]=smin;
-        }
-      }
-      for(b=0;b<16;b++){// b = state of (c,r-1,1)
-        vmin=1000000000;smin=0;
-        for(s=0;s<16;s++){// s = state of (c,r,1)
-          v=(v1[s]+QBI(d,c,r,1,1,s,b))<<4|ps[s];
-          if(v<vmin){vmin=v;smin=s;}
-        }
-        v0[b]=vmin>>4;
-        hs[c][r][b]=smin;
-      }
-    }
-    for(s=0;s<16;s++)v2[s]+=v0[s];
 
     for(b=0;b<16;b++){// b = state of (c,r0,0)
       vmin=1000000000;smin=0;
@@ -697,7 +668,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
   return v3[0];
 }
 
-int stabletreeexhaust(int cv){
+int stabletreeexhaust(int cv){// Repeated tree exhausts until no more improvement likely
   int d,n,p,r,v;
   n=0;d=randint(2);p=randint(2);r=randint(N);
   while(1){
@@ -1277,7 +1248,8 @@ int main(int ac,char**av){
     {
       int d,n,p,r,wid,v0,upd;
       double t0;
-      opt1(mint,maxt,1,1,0,strat,gtr);
+      //opt1(mint,maxt,1,1,0,strat,gtr);
+      init_state();
       printf("val=%d\n",val());
       upd=1;
       for(d=0;d<2;d++)for(p=0;p<2;p++)for(r=0;r<N;r++){
