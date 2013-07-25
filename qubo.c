@@ -559,20 +559,11 @@ void init_state(void){// Initialise state randomly
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
 }
 
-void pertstate(int sq){
-  int o,x,y,x0,y0,it;
-  for(it=0;it<1;it++){
-    x0=randint(N-sq+1);y0=randint(N-sq+1);
-    for(x=x0;x<x0+sq;x++)for(y=y0;y<y0+sq;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
-    if(1){
-      if(x0>0)lineexhaust(0,x0-1,1);
-      if(x0<N-sq)lineexhaust(0,x0+sq,1);
-      if(y0>0)lineexhaust(1,y0-1,1);
-      if(y0<N-sq)lineexhaust(1,y0+sq,1);
-    }else{
-      //for(x=x0;x<x0+sq;x++)lineexhaust(0,x,1);
-      //for(y=y0;y<y0+sq;y++)lineexhaust(1,y,1);
-    }
+void pertstate(double p){
+  int o,x,y,it;
+  for(it=0;it<p*N*N;it++){
+    x=randint(N);y=randint(N);
+    for(o=0;o<2;o++)XB(x,y,o)=randnib();
   }
 }
 
@@ -749,7 +740,10 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   if(strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
   sr=(strat<2);// Simple-restarting strategy
   do{
-    if(strat<10)init_state(); else pertstate(2);
+    if(strat<10)init_state();
+    if(strat==11)pertstate(0.25);
+    if(strat==12)pertstate(0.5);
+    if(strat==13)pertstate(0.75);
     cv=val();
     switch(strat%10){
     case 0:
