@@ -94,6 +94,7 @@ int randnib(void){return (random()>>16)&15;}
 int randint(int n){return random()%n;}
 
 typedef long long int int64;// gcc's 64-bit type
+typedef unsigned char UC;
 double*work; // work[wid]=estimate of relative running time of stablestripexhaust at width wid
              // (in arbitrary work units)
 
@@ -253,7 +254,7 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       break;
     case 8:if((d<4&&deco(p)==0)||d==5){r=randint(201)-100;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 9:if(p==0&&d==0&&i==0&&deco(p)==0)Q[p][i][d]=-1;
+    case 9:if(p==2&&d==0&&i==0&&deco(p)==0)Q[p][i][d]=-1;
       break;
     }
   }
@@ -382,12 +383,12 @@ int stripexhaust(int d,int c0,int c1,int upd){
   wid=c1-c0;
   M=1LL<<4*wid;
   int ps[wid][16],vc[wid][16],h1[16];
-  unsigned char (*hc)[wid][M]=0,// Comb history: hc[r][x][b] = opt value of (c0+x,r,0) given (c0+y,r,I(y<=x))=b   (y=0,...,wid-1)
+  UC (*hc)[wid][M]=0,// Comb history: hc[r][x][b] = opt value of (c0+x,r,0) given (c0+y,r,I(y<=x))=b   (y=0,...,wid-1)
     (*hs)[wid][M]=0;           // Strut history: hs[r][x][b] = opt value of (c0+x,r,1) given (c0+y,r+I(y<=x),1)=b   (y=0,...,wid-1)
   vv=(short*)malloc(M*sizeof(short));
   if(upd){
-    hc=(unsigned char (*)[wid][M])malloc(N*wid*M);
-    hs=(unsigned char (*)[wid][M])malloc(N*wid*M);
+    hc=(UC (*)[wid][M])malloc(N*wid*M);
+    hs=(UC (*)[wid][M])malloc(N*wid*M);
   }
   if(!(vv&&(!upd||(hc&&hs)))){fprintf(stderr,"Couldn't allocate %gGiB in stripexhaust()\n",
                                       M*(sizeof(short)+(!!upd)*2.*N*wid)/(1<<30));return 1;}
@@ -675,8 +676,8 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   // ph=0: FFSFFSFF  \ F=full, S=spike (o=1)
   // ph=1: FSFFSFFS  |
   // ph=2: SFFSFFSF  /
-  int b,c,i,r,s,x,v,b1,s0,s1,bc,lw,dir,mul,phl,smin,vmin,pre2[16][16],ps[N][16];
-  int64 br,bm,size0,size1;
+  int b,c,f,i,r,s,x,v,nf,b1,s0,s1,bc,lw,dir,inc,mul,phl,smin,vmin,pre2[16][16],ps[N][16];
+  int64 bi,br,bm,size0,size1;
   int jr0,jr1,jv0[16],jv1[16];// join row, value.
   short*v0,*v1,*v2,*vold,*vnew;
   double t0,t1,t2;
@@ -685,15 +686,29 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   v0=(short*)malloc(size0*sizeof(short));
   v1=(short*)malloc(size1*sizeof(short));
   v2=(short*)malloc(size0*sizeof(short));
-  if(!(v0&&v1&&v2)){fprintf(stderr,"Couldn't allocate %gGiB in treestripexhaust()\n",
-                            (double)(size0*2+size1)*sizeof(short)/(1<<30));return 1;}
+  nf=(N-1+ph)/(w+1)-(ph+1)/(w+1)+1;// Number of full (non-spike) exhausts (the end ones could be narrow, but still called full)
+  bm=1LL<<4*(w-1);
+  // Spike labels are f = 0...nf-1 or 0...nf; Full labels are f = 0...nf-1
+  int jr[N];// jr[c] = join row associated to column c
+  UC hs0[nf+1][N][16],hs1[nf+1][16],(*hf0)[N][w][bm*16],(*hf1)[N][w][bm][16],(*hf2)[w][bm][16],(*hf3)[w][bm][16];
+  hf0=0;hf1=0;hf2=hf3=0;
+  if(upd){
+    hf0=(UC(*)[N][w][bm*16])malloc(nf*N*w*bm*16);
+    hf1=(UC(*)[N][w][bm][16])malloc(nf*N*w*bm*16);
+    hf2=(UC(*)[w][bm][16])malloc(nf*w*bm*16);
+    hf3=(UC(*)[w][bm][16])malloc(nf*w*bm*16);
+  }
+  if(!(v0&&v1&&v2&&(upd==0||(hf0&&hf1&&hf2&&hf3)))){
+    fprintf(stderr,"Couldn't allocate %gGiB in treestripexhaust()\n",
+            (double)((size0*2+size1)*sizeof(short)+!!upd*(nf*(2*N+2)*w*bm*16))/(1<<30));return 1;}
   t0=t1=t2=0;
   for(c=0;c<N;c++){for(s=0;s<16;s++)ps[c][s]=s;if(upd)shuf(ps[c],16);}
   jr0=randint(N);for(i=0;i<16;i++)jv0[i]=0;
   if(testrow>=0)jr0=testrow;
-  for(c=0;c<N;){
+  for(c=f=0;c<N;){// f=full exhaust no.
     // jv0[s] = value of stuff to the left given that (c-1,jr0,0)=s
     phl=(c+ph)%(w+1);
+    jr[c]=jr0;
     if(phl==w){// Spike
       t0-=cpu();
       jr1=jr0;
@@ -710,7 +725,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
               if(v<vmin){vmin=v;smin=s;}
             }
             v0[b]=vmin>>4;
-            //hs[c][r][b]=smin;
+            if(upd)hs0[f][r][b]=smin;
           }
         }//r
         for(s=0;s<16;s++)v2[s]+=v0[s];
@@ -723,7 +738,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
           if(v<vmin){vmin=v;smin=s;}
         }
         v0[b]=jv0[b]+(vmin>>4);
-        //hc[c][jr0][b]=smin;
+        if(upd)hs0[f][jr0][b]=smin;
       }
 
       for(b=0;b<16;b++){// b = state of (c+1,jr0,0)
@@ -733,15 +748,17 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
           if(v<vmin){vmin=v;smin=s;}
         }
         jv1[b]=vmin>>4;
-        //hr[c][b]=smin;
+        if(upd)hs1[f][b]=smin;
       }
       c++;
       t0+=cpu();
 
     }else{// Full
+      assert(f<nf);
       lw=MIN(w-phl,N-c);assert(lw>=1&&lw<=w);// Local width
       jr1=randint(N);
       if(testrow>=0)jr1=testrow;
+      jr[c+lw-1]=jr1;
       // Width lw exhaust, incoming jv0[] at row jr0, outgoing jv1[] at row jr1
 
       memset(v2,0,size0*sizeof(short));
@@ -760,13 +777,13 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
           // vc3[s3] = Qext(s3,X4)
           // vc2[s2,b3] = min_{s3} vc3[s3]+Q(s3,b3)+Q(s3,s2)
           // vc1[s1,b2,b3] = min_{s2} vc2[s2,b3]+Q(s2,b2)+Q(s2,s1)
-          // vc0[s0,b1,b2,b3] = min_{s1} vc1[s1,b2,b3]+Q(s1,b1)+Q(s1,s0) (variable names s0,s1,b1 correspond to this case)
+          // vc0[s0,b1,b2,b3] = min_{s1} vc1[s1,b2,b3]+Q(s1,b1)+Q(s1,s0) (variable names s0,s1,b1 correspond to this x=1 case)
           // v0[b0,b1,b2,b3] += min_{s0} vc0[s0,b1,b2,b3]+Q(s0,b0)+{Qext(X_{-1},s0), or jv0[s0] if r=jr0}
           t1-=cpu();
           vold=v1;
           for(s=0;s<16;s++)vold[s]=QBI(d,c+lw-1,r,0,2,s,XBI(d,c+lw,r,0));// right boundary interaction
           for(x=lw-1,bm=1;x>=0;bm*=16,x--){
-            // Loop over br = (b_{x+1},...,b_{N-1}) { // the irrelevant parameters
+            // Loop over br = (b_{x+1},...,b_{lw-1}) { // the irrelevant parameters
             //   Loop over s_{x-1} {
             //     Loop over b_x {
             //       vc[x-1][s_{x-1},b_x,br] = min over s_x of vc[x][s_x,br]+Q(s_x,b_x)+Q(s_x,s_{x-1})
@@ -777,19 +794,21 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
             if(r==jr0)memcpy(ql,jv0,16*sizeof(int)); else for(s=0;s<16;s++)ql[s]=QBI(d,c,r,0,1,s,XBI(d,c-1,r,0));
             vnew=vold+16*bm;
             mul=(x>0?16:1);
-            for(br=0;br<bm;br++){
-              int v,vmin;
-              for(s0=0;s0<mul;s0++){
-                for(b1=0;b1<16;b1++){
-                  vmin=1000000000;
-                  for(s1=0;s1<16;s1++){
-                    v=vold[s1+16*br]+QBI(d,c+x,r,0,0,s1,b1)+(x>0?QBI(d,c+x,r,0,1,s1,s0):ql[s1]);
-                    if(v<vmin)vmin=v;
+            for(br=0;br<bm;br++){// br is state of (c+x+1,r,1),...,(c+lw-1,r,1)
+              for(s0=0;s0<mul;s0++){// s0 is state of (c+x-1,r,0) (doesn't exist if x=0)
+                for(b1=0;b1<16;b1++){// b1 is state of (c+x,r,1)
+                  vmin=1000000000;smin=0;
+                  for(s1=0;s1<16;s1++){// s1 is state of (c+x,r,0)
+                    v=(vold[s1+16*br]+QBI(d,c+x,r,0,0,s1,b1)+(x>0?QBI(d,c+x,r,0,1,s1,s0):ql[s1]))<<4|ps[c][s1];
+                    if(v<vmin){vmin=v;smin=s1;}
                   }
-                  if(x>0)vnew[s0+16*(b1+16*br)]=vmin; else v0[b1+16*br]+=vmin;
+                  bi=s0+mul*(b1+16*br);
+                  if(x>0)vnew[bi]=vmin>>4; else v0[bi]+=vmin>>4;
+                  //printf("comb c=%d f=%d r=%d x=%d br=%lld s0=%d b1=%d bi=%lld smin=%d vmin=%d\n",c,f,r,x,br,s0,b1,bi,smin,vmin>>4);
+                  if(upd)hf0[f][r][x][bi]=smin;
                 }
               }
-            }   
+            }
             vold=vnew;
           }//x
           assert(vnew-v1<=size1);
@@ -811,19 +830,23 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
           for(x=0;x<lw;x++){
             if(x&1){vold=v1;vnew=v0;} else {vold=v0;vnew=v1;}
             // At this point vold maps (>=c+x,r,1), (<c+x,r+1,1) to the value below these vertices
+            // (r+1 corresponds to dir=0; r-1 and mutatis mutandis for dir=1)
             for(bc=0;bc<16;bc++){// bc = state of (c+x,r+1,1)
               for(s=0;s<16;s++){// s = state of (c+x,r,1)
                 pre2[bc][s]=QBI(d,c+x,r,1,2-dir,s,bc);
               }
             }
-            for(br=0;br<bm;br++){// br = state of non-(c+x) columns
+            for(br=0;br<bm;br++){// br = state of non-(c+x) columns in cyclic order x+1,...,lw-1,0,...,x-1
+              //                         i.e., cols c+x+1,...,c+lw-1 at row r
+              //                         then cols c,...,c+x-1 at row r+1
               for(bc=0;bc<16;bc++){// bc = state of (c+x,r+1,1)
-                vmin=1000000000;
+                vmin=1000000000;smin=0;
                 for(s=0;s<16;s++){// s = state of (c+x,r,1)
-                  v=vold[s+16*br]+pre2[bc][s];// Add pertubations. alter
-                  if(v<vmin)vmin=v;
+                  v=(vold[s+16*br]+pre2[bc][s])<<4|ps[c][s];
+                  if(v<vmin){vmin=v;smin=s;}
                 }
-                vnew[br+bm*bc]=vmin;
+                vnew[br+bm*bc]=vmin>>4;
+                if(upd)hf1[f][r][x][br][bc]=smin;
               }
             }
           }//x
@@ -833,6 +856,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
         }//r
         for(br=0;br<size0;br++)v2[br]+=v0[br];
       }//dir
+
       // Now v2 maps (*,jr1,1) to value of (*,r!=jr1,*)
       // v2[b0,b1,b2,b3]=val(above and below)
       // Think of this as v2[s0,b0,b1,b2,b3] but not depending on s0
@@ -850,56 +874,121 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
       for(x=0;x<lw;x++){
         // v0[s_x,b_{x+1},..,b_{lw-1}] = min_{b_x} v2[s_x,b_x,...,b_{lw-1}]
         //                                         + Q(s_x,b_x) + (if x=0) Qext(X_{-1},s_x) or jv0[s_x] if jr1=jr0
+        // s_x is (c+x,jr1,0)
+        // b_x is (c+x,jr1,1)
+        //
         bm=1LL<<4*(lw-1-x);
         for(br=0;br<bm;br++){// br = state of b_{x+1},...,b_{lw-1}
           for(s=0;s<16;s++){// s = state of s_x
-            vmin=1000000000;
+            vmin=1000000000;smin=0;
             for(bc=0;bc<16;bc++){// bc = state of b_x
               if(x==0)v=v2[bc+16*br]; else v=v2[s+16*(bc+16*br)];
               v+=QBI(d,c+x,jr1,0,0,s,bc);
-              if(v<vmin)vmin=v;
+              v=(v<<4)|ps[c][bc];
+              if(v<vmin){vmin=v;smin=bc;}
             }
+            vmin>>=4;
             if(x==0){
               if(jr1==jr0)vmin+=jv0[s]; else vmin+=QBI(d,c,jr1,0,1,s,XBI(d,c-1,jr1,0));
             }
             v0[s+16*br]=vmin;
+            if(upd)hf2[f][x][br][s]=smin;
           }//s
         }//br
 
         // v2[s_{x+1},b_{x+1},...,b_{lw-1}] = min_{s_x} v0[s_x,b_{x+1},...,b_{lw-1}] + Q(s_x,s_{x+1})
         for(br=0;br<bm;br++){// br = state of b_{x+1},...,b_{lw-1}
           for(s1=0;s1<16;s1++){// s = state of s_{x+1}
-            vmin=1000000000;
+            vmin=1000000000;smin=0;
             for(s0=0;s0<16;s0++){// s = state of s_x
-              v=v0[s0+16*br]+QBI(d,c+x,jr1,0,2,s0,s1);
-              if(v<vmin)vmin=v;
+              v=(v0[s0+16*br]+QBI(d,c+x,jr1,0,2,s0,s1))<<4|ps[c][s0];
+              if(v<vmin){vmin=v;smin=s0;}
             }
-            v2[s1+16*br]=vmin;
+            v2[s1+16*br]=vmin>>4;
+            if(upd)hf3[f][x][br][s1]=smin;
           }//s1
         }//br
       }//x
       for(s=0;s<16;s++)jv1[s]=v2[s];
-
-      c+=lw;
+      c+=lw;f++;
     }
     for(s=0;s<16;s++)jv0[s]=jv1[s];
     jr0=jr1;
   }//c
+  assert(f==nf&&c==N);
 
+  if(upd){
+    for(c=N;c>0;){
+      // Incoming info is state of (c,jr[c-1],0)
+      phl=(c+w+ph)%(w+1);
+      jr1=jr[c-1];
+      if(phl==w){// Came from spike
+        c--;
+        XBI(d,c,jr1,0)=hs1[f][c<N?XBI(d,c+1,jr1,0):0];
+        XBI(d,c,jr1,1)=hs0[f][jr1][XBI(d,c,jr1,0)];
+        for(dir=0;dir<2;dir++){
+          inc=1-2*dir;
+          for(r=jr1-inc;r>=0&&r<N;r-=inc)XBI(d,c,r,1)=hs0[f][r][XBI(d,c,r+inc,1)];
+        }
+      }else{
+        f--;lw=MIN(phl+1,c);c-=lw;jr0=jr[c];
+        br=0;
+        for(x=lw-1;x>=0;x--){
+          XBI(d,c+x,jr1,0)=hf3[f][x][br][XBI(d,c+x+1,jr1,0)];
+          XBI(d,c+x,jr1,1)=hf2[f][x][br][XBI(d,c+x,jr1,0)];
+          br=(br<<4)|XBI(d,c+x,jr1,1);
+        }
+        // Info is (c...c+lw-1,jr1,*)
+        for(dir=0;dir<2;dir++){
+          inc=1-2*dir;
+          for(r=jr1-inc;r>=0&&r<N;r-=inc){
+            // Info is (c...c+lw-1,r+inc,1)
+            // De-strut
+            for(x=lw-2,br=0;x>=0;x--)br=(br<<4)|XBI(d,c+x,r+inc,1);
+            for(x=lw-1;x>=0;x--){
+              XBI(d,c+x,r,1)=hf1[f][r][x][br][XBI(d,c+x,r+inc,1)];
+              br=((br<<4)&~(15LL<<4*(lw-1)))|XBI(d,c+x,r,1);
+            }
+            // Info is (c...c+lw-1,r,1)
+            // De-comb
+            for(x=lw-1,br=0;x>=0;x--)br=(br<<4)|XBI(d,c+x,r,1);
+            for(x=0;x<lw;x++){
+              if(x==0)bi=br; else bi=(br<<4)|XBI(d,c+x-1,r,0);
+              XBI(d,c+x,r,0)=hf0[f][r][x][bi];
+              //printf("de-comb c=%d f=%d r=%d x=%d br=%lld bi=%lld smin=%d\n",c,f,r,x,br,bi,XBI(d,c+x,r,0));
+              br>>=4;
+            }
+          }//r
+        }//dir
+      }
+    }//c
+    assert(f==0&&c==0);
+    free(hf3);free(hf2);free(hf1);free(hf0);
+  }
   free(v2);free(v1);free(v0);
   //printf("Times %.2fs %.2fs %.2fs\n",t0,t1,t2);
   return jv0[0];
 }
 
-int stabletreeexhaust(int cv){// Repeated tree exhausts until no more improvement likely
-  int d,n,p,r,v;
-  n=0;d=randint(2);p=randint(2);r=randint(N);
-  while(1){
-    v=tree1exhaust(d,p,r,1);
-    if(v<cv){cv=v;n=0;}else{n+=1;if(n==4*N)return cv;}
-    r=(r+1)%N;
-    if(randint(2))d=1-d;
-    if(randint(2))p=1-p;
+int stabletreeexhaust(int cv,int wid){// Repeated tree exhausts until no more improvement likely
+  int d,n,ph,r,v;
+  n=0;d=randint(2);ph=randint(wid+1);r=randint(N);
+  if(wid==1){
+    while(1){
+      if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,-1);
+      if(v<cv){cv=v;n=0;}else{n+=1;if(n==4*N)return cv;}
+      r=(r+1)%N;
+      if(randint(2))d=1-d;
+      if(randint(2))ph=(ph+1)%(wid+1);
+    }
+  }else{
+    while(1){
+      r=-1;
+      for(d=0;d<2;d++)for(ph=0;ph<=wid;ph++){
+        v=treestripexhaust(d,wid,ph,1,r);
+        if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
+      }
+    }
   }
 }
 
@@ -996,7 +1085,10 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
       }
       break;
     case 3:
-      cv=stabletreeexhaust(cv);
+      cv=stabletreeexhaust(cv,1);
+      break;
+    case 4:
+      cv=stabletreeexhaust(cv,2);
       break;
     }
     if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
@@ -1046,8 +1138,8 @@ int ok2inv(int c,int r,int s){// returns -1 if s isn't on the OK2 list
 
 void getrestrictedsets(void){
   int i,j,o,s,v,x,y,bb,s0,s1,s0b,s1b,tt,tt0,v0,x0,x1,y0,y1,max,vmin,tv[16],meet[16][16],ll0,ll[65536];
-  unsigned char (*ok0)[16][16];
-  ok0=(unsigned char(*)[16][16])malloc(65536*16*16);assert(ok0);
+  UC (*ok0)[16][16];
+  ok0=(UC(*)[16][16])malloc(65536*16*16);assert(ok0);
   for(v=0;v<NBV;v++)for(s=0;s<16;s++)ok[v][s]=1;
   tt0=1000000000;
   while(1){
@@ -1455,50 +1547,6 @@ int main(int ac,char**av){
     break;
   case 4:;// Checks
     opt1(mint,maxt,1,1,0,strat,gtr);
-    {
-      int c,d,i,s,v,v0,v1,w,lw,ph,r0,phl;
-      if(1){
-        while(1){
-          initweights(weightmode);
-          opt1(mint,maxt,0,1,0,strat,gtr);
-          d=randint(2);r0=randint(N);ph=randint(2);
-          v0=tree1exhaust(d,ph,r0,0);
-          v1=treestripexhaust(d,1,ph,0,r0);
-          assert(v0==v1);
-          d=randint(2);r0=randint(N);
-          w=randint(MIN(N-2,3))+2;ph=randint(w+1);
-          r0=-1;
-          v0=treestripexhaust(d,w,ph,0,r0);
-          printf("%2d %2d %2d %2d    %6d :",d,r0,w,ph,v0);
-          for(c=0;c<N;){
-            phl=(c+ph)%(w+1);
-            if(phl==w){c++;continue;}
-            lw=MIN(w-phl,N-c);
-            stripexhaust(d,c,c+lw,1);
-            c+=lw;
-          }
-          v1=val();
-          printf("%6d\n",v1);
-          assert(v0<=v1);
-          if(0){
-            printf("%2d %2d %2d   %6d %6d   ",d,r0,ph,v0,v1);
-            for(i=0,s=0;i<100;i++){
-              v=treestripexhaust(d,1,ph,0,-1);
-              s+=(v>v0)-(v<v0);
-            }
-            printf("   %6d\n",s);
-            if(v0!=v1)exit(0);
-          }
-        }
-      }
-      for(w=1;w<=MIN(N,4);w++){
-        for(ph=0;ph<=w;ph++){
-          v=treestripexhaust(0,w,ph,0,-1);
-          printf("%2d %2d   %6d\n",w,ph,v);
-        }
-      }
-      exit(0);
-    }
     printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
@@ -1514,28 +1562,86 @@ int main(int ac,char**av){
     break;
   case 6:
     readstate("state");printf("state = %d\n",val());break;
-  case 8:
+  case 8:// timing tests
     {
-      int d,n,p,r,wid,v0,upd;
+      int d,n,ph,r,wid,v0,upd;
       double t0;
       opt1(mint,maxt,1,1,0,strat,gtr);
       init_state();
       printf("val=%d\n",val());
-      upd=1;
-      if(1)for(d=0;d<2;d++)for(p=0;p<2;p++)for(r=0;r<N;r++){
-        for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=tree1exhaust(d,p,r,upd);
-        printf("tree1 %d %d %2d   %6d   %gs\n",d,p,r,val(),(cpu()-t0)/n);
-        if(upd)assert(v0==val());
+      upd=0;
+      wid=5;
+      for(d=0;d<2;d++)for(ph=0;ph<=wid;ph++)for(r=0;r<N;r++){
+        for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=treestripexhaust(d,wid,ph,upd,r);
+        printf("treestripexh %d %d %d %2d   %6d   %gs\n",d,wid,ph,r,v0,(cpu()-t0)/n);
         fflush(stdout);
       }
-      wid=1;
+      for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
+        v0=1000000000;
+        for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=tree1exhaust(d,ph,r,0);
+        printf("tree1 %d %d %2d   %6d   %gs\n",d,ph,r,v0,(cpu()-t0)/n);
+        fflush(stdout);
+      }
       for(d=0;d<2;d++)for(c0=0;c0<N-wid+1;c0++){
-        c1=c0+wid;
+        c1=c0+wid;v0=0;
         for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=stripexhaust(d,c0,c1,upd);
         v0+=stripval(d,0,c0)+stripval(d,c1,N);
         printf("Strip %d %2d %2d   %6d   %gs\n",d,c0,c1,v0,(cpu()-t0)/n);
         if(upd)assert(v0==val());
         fflush(stdout);
+      }
+    }
+    break;
+  case 9:// consistency checks
+    {
+      int c,d,w,lw,ph,phl,r,v0,v1;
+      //opt1(mint,maxt,1,1,0,strat,gtr);
+      printf("val=%d\n",val());
+      if(0){
+        writeweights("prob");
+        v0=treestripexhaust(0,1,0,1,0);
+        v1=val();
+        printf("%6d %6d\n",v0,v1);
+        assert(v0==v1);
+        exit(0);
+      }
+      while(1){
+        initweights(weightmode);
+        init_state();
+        for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
+          v0=treestripexhaust(d,1,ph,0,r);
+          v1=tree1exhaust(d,ph,r,0);
+          printf("tree1 %d %d %2d   %6d   %6d\n",d,ph,r,v0,v1);
+          assert(v0==v1);
+        }
+        opt1(mint,maxt,0,1,0,strat,gtr);
+        for(w=1;w<=3;w++){
+          for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=-1;r<N;r++){
+            init_state();
+            opt1(0,maxt,0,1,0,strat,gtr);
+            v0=treestripexhaust(d,w,ph,0,r);
+            for(c=0;c<N;){
+              phl=(c+ph)%(w+1);
+              if(phl==w){c++;continue;}
+              lw=MIN(w-phl,N-c);
+              stripexhaust(d,c,c+lw,1);
+              c+=lw;
+            }
+            v1=val();
+            printf("stripexhcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
+            assert(v0<=v1);
+          }
+        }
+        for(w=1;w<=3;w++){
+          for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=0;r<N;r++){
+            init_state();
+            v0=treestripexhaust(d,w,ph,1,r);
+            v1=val();
+            printf("updcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
+            assert(v0==v1);
+          }
+        }            
+        
       }
     }
     break;
