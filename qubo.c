@@ -81,10 +81,13 @@ int statemap[2];// statemap[0], statemap[1] are the two possible values that the
 int deb;// verbosity
 int seed;
 
+typedef long long int int64;// gcc's 64-bit type
+typedef unsigned char UC;
+
+#define NTB 1024
+int ps[NTB][256];
 #define MIN(x,y) ((x)<(y)?(x):(y))
 #define MAX(x,y) ((x)>(y)?(x):(y))
-#define MAXVAL 10000 // Assume for convenience that all values (energies) are <= this in absolute value
-                     // (Only used for stats)
 
 // Isolate random number generator in case we need to replace it with something better
 void initrand(int seed){srandom(seed);}
@@ -92,13 +95,14 @@ int randbit(void){return (random()>>16)&1;}
 int randsign(void){return randbit()*2-1;}
 int randnib(void){return (random()>>16)&15;}
 int randint(int n){return random()%n;}
+double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
 
-typedef long long int int64;// gcc's 64-bit type
-typedef unsigned char UC;
 double*work; // work[wid]=estimate of relative running time of stablestripexhaust at width wid
              // (in arbitrary work units)
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
+
+static int mod(int a,int b){a%=b;if(a<0)a+=b;return a;}// Fix for C's stupid broken mod
 
 void initgraph(int wn){
   int d,i,j,o,p,t,u,x,y,z;
@@ -250,7 +254,7 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       break;
     case 6:if((d<4&&deco(p)==0)||d==5){r=randsign()*(10+(seed%32)*(d>=4));Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 7:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+    case 7:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}// This is "noextfield" in QUBO form
       break;
     case 8:if((d<4&&deco(p)==0)||d==5){r=randint(201)-100;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
@@ -368,6 +372,14 @@ void shuf(int*a,int n){
   int i,j,t;
   for(i=0;i<n-1;i++){
     j=i+randint(n-i);t=a[i];a[i]=a[j];a[j]=t;
+  }
+}
+
+void inittiebreaks(){
+  int i,j;
+  for(i=0;i<NTB;i++){
+    for(j=0;j<256;j++)ps[i][j]=j;
+    shuf(ps[i],256);
   }
 }
 
@@ -514,48 +526,18 @@ int lineexhaust(int d,int c,int upd){return stripexhaust(d,c,c+1,upd);}
 int k44exhaust(int x,int y){
   // Exhausts big vertex (x,y)
   // Writes optimum value back into the global state
-  int v,s0,s1,v0,vmin,tv[16];
+  int t,v,s0,s1,v0,vmin,tv[16];
+  t=randint(NTB);// Random tiebreaker
   for(s1=0;s1<16;s1++)tv[s1]=QB(x,y,1,1,s1,XB(x,y-1,1))+QB(x,y,1,2,s1,XB(x,y+1,1));
   vmin=1000000000;
   for(s0=0;s0<16;s0++){
     v0=QB(x,y,0,1,s0,XB(x-1,y,0))+QB(x,y,0,2,s0,XB(x+1,y,0));
     for(s1=0;s1<16;s1++){
-      v=QB(x,y,0,0,s0,s1)+v0+tv[s1];
+      v=((QB(x,y,0,0,s0,s1)+v0+tv[s1])<<8)|ps[t][s0+(s1<<4)];
       if(v<vmin){vmin=v;XB(x,y,0)=s0;XB(x,y,1)=s1;}
     }
   }
-  return vmin;
-}
-
-int stablek44exhaust(int cv){// Repeated k44 exhausts until no more improvement likely
-  int i,r,v,x,y,ord[N*N];
-  r=0;
-  while(1){
-    for(i=0;i<N*N;i++)ord[i]=i;
-    shuf(ord,N*N);
-    for(i=0;i<N*N;i++){
-      x=ord[i]%N;y=ord[i]/N;k44exhaust(x,y);
-      v=val();assert(v<=cv);
-      if(v<cv){cv=v;r=0;}else{r+=1;if(r==N*N)return cv;}
-    }
-  }
-}
-
-int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more improvement likely
-  int c,i,o,r,v,nc,ord[2*(N-wid+1)];
-  nc=N-wid+1;r=0;
-  while(1){
-    for(i=0;i<2*nc;i++)ord[i]=i;
-    //shuf(ord,2*nc);
-    shuf(ord,nc);shuf(ord+nc,nc);
-    for(i=0;i<2*nc;i++){
-      c=ord[i]%nc;o=ord[i]/nc;
-      stripexhaust(o,c,c+wid,1);
-      v=val();assert(v<=cv);
-      if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
-      // (2nc isn't actually enough to ensure there is no more improvement possible)
-    }
-  }
+  return vmin>>8;
 }
 
 void init_state(void){// Initialise state randomly
@@ -564,11 +546,8 @@ void init_state(void){// Initialise state randomly
 }
 
 void pertstate(double p){
-  int o,x,y,it;
-  for(it=0;it<p*N*N;it++){
-    x=randint(N);y=randint(N);
-    for(o=0;o<2;o++)XB(x,y,o)=randnib();
-  }
+  int o,x,y;
+  for(x=0;x<N;x++)for(y=0;y<N;y++)if(randfloat()<p)for(o=0;o<2;o++)XB(x,y,o)=randnib();
 }
 
 int tree1exhaust(int d,int p,int r0,int upd){
@@ -970,36 +949,56 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   return jv0[0];
 }
 
-int stabletreeexhaust(int cv,int wid){// Repeated tree exhausts until no more improvement likely
-  int d,n,ph,r,v;
-  n=0;d=randint(2);ph=randint(wid+1);r=randint(N);
-  if(wid==1){
-    while(1){
-      if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,-1);
-      if(v<cv){cv=v;n=0;}else{n+=1;if(n==4*N)return cv;}
-      r=(r+1)%N;
-      if(randint(2))d=1-d;
-      if(randint(2))ph=(ph+1)%(wid+1);
-    }
-  }else{
-    while(1){
-      r=-1;
-      for(d=0;d<2;d++)for(ph=0;ph<=wid;ph++){
-        v=treestripexhaust(d,wid,ph,1,r);
-        if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
-      }
+int stablek44exhaust(int cv){// A round of exhausts on each K44 (big vertex)
+  int i,r,v,x,y,ord[N*N];
+  r=0;
+  for(i=0;i<N*N;i++)ord[i]=i;shuf(ord,N*N);
+  while(1){
+    for(i=0;i<N*N;i++){
+      x=ord[i]%N;y=ord[i]/N;k44exhaust(x,y);
+      v=val();assert(v<=cv);
+      if(v<cv){cv=v;r=0;}else{r+=1;if(r==N*N)return cv;}
     }
   }
 }
 
-int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
+int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more improvement likely
+  int c,i,o,r,v,nc,ord[2*(N-wid+1)];
+  nc=N-wid+1;r=0;
+  while(1){
+    for(i=0;i<2*nc;i++)ord[i]=i;
+    //shuf(ord,2*nc);
+    shuf(ord,nc);shuf(ord+nc,nc);
+    for(i=0;i<2*nc;i++){
+      c=ord[i]%nc;o=ord[i]/nc;
+      stripexhaust(o,c,c+wid,1);
+      v=val();assert(v<=cv);
+      if(v<cv){cv=v;r=0;}else{r+=1;if(r==2*nc)return cv;}
+    }
+  }
+}
+
+int stabletreeexhaust(int cv,int wid){// Repeated tree exhausts until no more improvement likely
+  int d,n,ph,ph0,r,v;
+  n=0;d=randint(2);ph=ph0=randint(wid+1);r=randint(N);
+  while(1){
+    if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,-1);
+    if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
+    r=(r+1)%N;
+    ph=(ph+1)%(wid+1);if(ph==ph0)d=1-d;
+  }
+}
+
+#define MAXST 1000 // for stats
+int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   //
   // Heuristic optimisation, writing back best value found. Can be used to find TTS, the
   // expected time to find an optimum solution, using the strategy labelled by 'strat'.
   // 'strat' is assumed to be a fixed strategy running forever which does not know what
   // the optimum value is. I.e., it is not allowed to make decisions as to how to search
-  // based on outside knowledge of the optimum value. The aim is to get an accurate
-  // estimate of the expected time for 'strat' to find its first optimum state.
+  // based on outside knowledge of the optimum value. In "findtts" mode, the aim is to get
+  // an accurate estimate of the expected time for 'strat' to find its first optimum
+  // state.
   // 
   // opt1() returns a pair (presumed optimum, estimate of TTS), the "presumed optimum"
   // being the smallest value found in its searching. If the presumed optimum is wrong
@@ -1010,112 +1009,133 @@ int opt1(double mint,double maxt,int pr,int tns,double *tts,int strat,int gtr){
   // make it very likely that the presumed optimum is the actual optimum, but we don't
   // seek to quantify what constitutes very likely here.
   // 
-  // There are simple strategies (strat=0,1) which are Markovian in nature, in that they
-  // keep starting from a random configuration (of spins), and have no other state, so
-  // they generate independent samples of TTS in their normal operation.
+  // Strategies maintain some "state" in addition to the spin configuration. They use
+  // information from previous iterations to guide the present iteration. This means that
+  // to get unbiased samples of "time to solve", you need to stop the strategy with it
+  // hits an optimum and then restart it cleanly, clearing all state.  Only that way can
+  // you be sure that you are averaging unbiased runs when taking the average TTS.
   //
-  // Other strategies (which are the subject of the rest of this comment) may have "state"
-  // or may not restart from a random configuration, for example they might use previously
-  // found configurations to help make a new one.  In these cases, you need to stop the
-  // strategy with it hits an optimum and then restart it cleanly, clearing all state.
-  // Only that way can you be sure that you are averaging independent runs when taking the
-  // average TTS.
-  //
-  // Of course, since the strategy doesn't actually know the optimum value (unless it has
-  // been supplied it via gtr), and is not allowed to use it to change its behaviour, it
-  // has to restart itself every time it hits a "presumed optimum", i.e., a (equal-)lowest
-  // value found so far. This presumed optimum can be carried over from previous runs, so
-  // long as it is not changing any decision that the strategy makes in any independent
-  // run. I.e., you have to imagine the run carrying on forever, but the presumed optimum
-  // just dictates when to take the time reading (at the point the run finds an equally
-  // good value).
+  // Notionally it runs as if it is presided over by an oracle that resets its state
+  // whenever it hits the optimal value. The wrinkle is that the strategy itself is the
+  // thing that is deciding the optimal value. Since the strategy doesn't actually know
+  // the optimum value for certain, and is not allowed to use it to change its behaviour,
+  // it has to restart itself every time it hits a "presumed optimum", i.e., a
+  // (equal-)lowest value found so far. For external convenience, a record of this optimum
+  // is carried over from independently restarted runs, but this value is "unauthorised
+  // information" - the strategy is not allowed to use it to make a decision. I.e., you
+  // have to imagine the run carrying on forever, but the presumed optimum just dictates
+  // when to take the time reading (at the point the run finds an equally good value).
   //
   // If the presumed optimum is bettered, so making a new presumed optimum, then all
   // previous statistics have to be discarded, including the current run which found the
   // new presumed optimum. This is because the new presumed optimum was not found under
   // "infinity run" conditions: the early stopping at the old presumed optimum might have
-  // biased it. Thus you actually need to find n+1 optima to generate n samples.
+  // biased it. So you actually need to find n+1 optima to generate n samples.
   //
   // S0: Randomise configuration; stablek44exhaust; repeat
   // S1: Randomise configuration; stablelineexhaust; repeat
-  // S2: Randomise configuration; stablelineexhaust; if #lineexhausts since last reset
-  //     point > (some constant) then do a stable-width2-exhaust from the best
-  //     post-lineexhaust config since the last reset point. If just did a width2-exhaust,
-  //     then do a reset, i.e., clear state. This reset is a choice: not necessary for
-  //     unbiasedness, but may help not getting stuck.
+  // S2: Randomise configuration; hybrid of stablelineexhaust and stable-width2-exhaust
+  // S3: Randomise configuration; stabletree1exhaust
+  // S4: Randomise configuration; stabletree2exhaust
+  // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
-  int v,bv,lbv,cv,ns,sr,nas,new,last,Xbest[NBV],Xlbest[NBV];
-  int64 nn,stats[2*MAXVAL+1];
+  int i,j,v,bv,lbv,cv,nv,ns,mcv,new,last,reset,Xbest[NBV],Xlbest[NBV];
+  int64 nn,nmcv,rep,stats[MAXST];
   double ff,t0,t1,t2,tt,w1,now;
-  if(pr)printf("Min time to run: %gs\nMax time to run: %gs\nGroundtruth: %d\n",mint,maxt,gtr);
-  bv=lbv=1000000000;nn=0;
+  double parms[5][2]={{8,0.3},{4,0.25},{8,0.25},{8,0.35},{4,0.2}};
+  ff=N*N/40.;
+  if(pr){
+    printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
+    printf("Solutions are %sdependent\n",findtts?"in":"");
+  }
+  bv=1000000000;nn=0;
   t0=cpu();// Initial time
   t1=0;// Elapsed time threshold for printing update
   // "presumed solution" means "minimum value found so far"
   ns=0;// Number of presumed solutions
-  nas=0;// Number of actual solutions (of value gtr)
-  t2=t0;// t2 = Time of last clean start
-  memset(stats,0,sizeof(stats));
-  w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
-  ff=N*N/40.;
+  t2=t0;// t2 = Time of last clean start (new minimum value in "independent" mode)
+
   if(N>=2&&strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
-  sr=(strat<2);// Simple-restarting strategy
+  reset=1;
+  w1=rep=nmcv=mcv=cv=lbv=0;// to shut warnings up
   do{
-    if(strat<10)init_state();
-    if(strat==11)pertstate(0.25);
-    if(strat==12)pertstate(0.5);
-    if(strat==13)pertstate(0.75);
-    cv=val();
+    if(reset){
+      init_state();cv=val();
+      memset(stats,0,sizeof(stats));// Counts of values found
+      lbv=1000000000;// Local best value for S2
+      memset(Xlbest,0,NBV*sizeof(int));// Local best state for S2
+      w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
+      mcv=1000000000;nmcv=0;// mcv = most common cv, nmcv = number of occurences of it
+      rep=0;
+      reset=0;
+    }
+    if(rep>=nmcv*parms[strat%10][0]){
+      if(strat<10)init_state(); else pertstate(parms[strat%10][1]);
+      cv=val();rep=0;
+    }
     switch(strat%10){
     case 0:
-      cv=stablek44exhaust(cv);// Simple "local" strategy
+      nv=stablek44exhaust(cv);// Simple "local" strategy
       break;
     case 1:
-      cv=stablestripexhaust(cv,1);
+      nv=stablestripexhaust(cv,1);
       break;
-    case 2:
-      cv=stablestripexhaust(cv,1);w1+=work[1];
-      if(cv<=lbv){lbv=cv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
+    case 2:// hybrid mode
+      nv=stablestripexhaust(cv,1);w1+=work[1];
+      if(nv<=lbv){lbv=nv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
       if(N>=2&&ff*w1>=work[2]){
         if(pr>=2){printf("Width 2 exhaust");fflush(stdout);}
         memcpy(XBa,Xlbest,NBV*sizeof(int));
-        cv=stablestripexhaust(lbv,2);
+        nv=stablestripexhaust(lbv,2);
         if(pr>=2)printf("\n");
-        w1=0;lbv=1000000000;// This has the effect of clearing the state, since with lbv=infinity, Xlbest will be overwritten before it is read
+        w1=0;lbv=1000000000;
       }
       break;
     case 3:
-      cv=stabletreeexhaust(cv,1);
+      nv=stabletreeexhaust(cv,1);
       break;
     case 4:
-      cv=stabletreeexhaust(cv,2);
+      nv=stabletreeexhaust(cv,2);
       break;
+    default:
+      fprintf(stderr,"Unknown strategy %d\n",strat);exit(1);
     }
-    if(abs(cv)<=MAXVAL)stats[MAXVAL+cv]++;
+    if(nv<cv)rep=0;
+    cv=nv;
+    if(cv<bv+MAXST){
+      i=mod(cv,MAXST);
+      for(j=i;j<i+MIN(bv-cv,MAXST);j++)stats[j%MAXST]=0;
+      if(rep==0)stats[i]++;
+      if(stats[i]>nmcv){mcv=cv;nmcv=stats[i];}
+      if(cv<mcv)rep+=stats[mod(cv,MAXST)]; else rep=1LL<<60;
+    }
     if((pr>=3&&cv<=bv)||pr==4){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
     nn++;
     now=cpu();
     new=(cv<bv);
     if(new){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv){
-      if(sr||!new)ns++; else t2=now;
-      init_state();
-      w1=0;lbv=1000000000;
+      if(new&&findtts)t2=now; else ns++;
+      if(findtts)reset=1;
     }
-    if(cv==gtr){nas++;init_state();}
-    if(gtr==1000000000)last=(ns>=tns); else last=(nas>=tns);
     tt=now-t0;
-    last=(tt>=mint&&last)||tt>=maxt;
+    last=(now-t2>=mint&&ns>=tns)||tt>=maxt;
     if(new||tt>=t1||last){
       t1=MAX(tt*1.1,tt+5);
       if(pr>=1){
-        printf("%12lld %10d %10d %8.2f %8.2f\n",nn,bv,ns,now-t2,tt);
-        if(pr>=2&&bv>=-MAXVAL)for(v=0;v>=bv;v--)if(stats[MAXVAL+v])printf("%6d %12lld\n",v,stats[MAXVAL+v]);
+        if(findtts)printf("%12lld %10d %10d %8.2f %8.2f %10.3g\n",nn,bv,ns,now-t2,tt,ns/(now-t2)); else
+          printf("%12lld %10d %8.2f\n",nn,bv,tt);
+        if(pr>=2){
+          for(v=bv+MAXST-1;v>=bv;v--){
+            i=mod(v,MAXST);
+            if(stats[i])printf("%6d %12lld\n",v,stats[i]);
+          }
+        }
         fflush(stdout);
       }
     }
   }while(!last);
-  if(tts)*tts=(now-t2)/ns;
+  if(findtts)*findtts=(now-t2)/ns;
   memcpy(XBa,Xbest,NBV*sizeof(int));
   return bv;
 }
@@ -1438,15 +1458,14 @@ int fullexhaust(){
 }
 
 int main(int ac,char**av){
-  int opt,wn,mode,strat,weightmode,gtr;
+  int opt,wn,mode,strat,weightmode;
   double mint,maxt;
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=2;deb=1;gtr=1000000000;
-  while((opt=getopt(ac,av,"g:m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
+  weightmode=5;mode=0;N=8;strat=2;deb=1;
+  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
     switch(opt){
-    case 'g': gtr=atoi(optarg);break;
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
     case 'N': N=atoi(optarg);break;
@@ -1513,6 +1532,7 @@ int main(int ac,char**av){
   ok2=(int(*)[256])malloc((N*N+1)*256*sizeof(int));
   nok2=(int*)malloc((N*N+1)*sizeof(int));
   initwork();
+  inittiebreaks();
   initrand(seed);
   initgraph(wn);
   if(inprobfile){
@@ -1526,13 +1546,13 @@ int main(int ac,char**av){
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   double t0;
   switch(mode){
-  case 0:// Find single minimum value
-    opt1(mint,maxt,deb,1,0,strat,gtr);
+  case 0:// Find minimum value using heuristic strategy strat, not worrying about independence of subsequent minima
+    opt1(mint,maxt,deb,1,0,strat);
     break;
-  case 1:;// Find rate of solution generation
+  case 1:;// Find rate of solution generation, ensuring that minima are independent
     int v;
     double tts;
-    v=opt1(gtr==1000000000?0.5:mint,maxt,1,gtr==1000000000?500:10,&tts,strat,gtr);
+    v=opt1(0.5,maxt,deb,500,&tts,strat);
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
     break;
   case 2:;// Find average minimum value
@@ -1540,13 +1560,13 @@ int main(int ac,char**av){
     s0=s1=s2=0;
     while(1){
       initweights(weightmode);
-      v=opt1(0,maxt,0,500,0,strat,gtr);
+      v=opt1(0,maxt,0,500,0,strat);
       s0+=1;s1+=v;s2+=v*v;va=(s2-s1*s1/s0)/(s0-1);
       printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
     }
     break;
   case 4:;// Checks
-    opt1(mint,maxt,1,1,0,strat,gtr);
+    opt1(mint,maxt,1,1,0,strat);
     printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
     int o,c0,c1;
     for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
@@ -1566,7 +1586,7 @@ int main(int ac,char**av){
     {
       int d,n,ph,r,wid,v0,upd;
       double t0;
-      opt1(mint,maxt,1,1,0,strat,gtr);
+      opt1(mint,maxt,1,1,0,strat);
       init_state();
       printf("val=%d\n",val());
       upd=0;
@@ -1594,8 +1614,8 @@ int main(int ac,char**av){
     break;
   case 9:// consistency checks
     {
-      int c,d,w,lw,ph,phl,r,v0,v1;
-      //opt1(mint,maxt,1,1,0,strat,gtr);
+      int c,d,o,w,lw,ph,phl,r,v0,v1;
+      //opt1(mint,maxt,1,1,0,strat);
       printf("val=%d\n",val());
       if(0){
         writeweights("prob");
@@ -1614,11 +1634,10 @@ int main(int ac,char**av){
           printf("tree1 %d %d %2d   %6d   %6d\n",d,ph,r,v0,v1);
           assert(v0==v1);
         }
-        opt1(mint,maxt,0,1,0,strat,gtr);
         for(w=1;w<=3;w++){
           for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=-1;r<N;r++){
             init_state();
-            opt1(0,maxt,0,1,0,strat,gtr);
+            opt1(0,maxt,0,1,0,strat);
             v0=treestripexhaust(d,w,ph,0,r);
             for(c=0;c<N;){
               phl=(c+ph)%(w+1);
@@ -1630,6 +1649,22 @@ int main(int ac,char**av){
             v1=val();
             printf("stripexhcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
             assert(v0<=v1);
+          }
+        }
+        for(w=1;w<=3;w++){
+          for(d=0;d<2;d++)for(ph=0;ph<=w;ph++){
+            init_state();
+            opt1(mint,maxt,0,1,0,strat);
+            v0=val();
+            for(c=0;c<N;c++){
+              phl=(c+ph)%(w+1);
+              for(o=0;o<2;o++){
+                if(!(phl==w&&o==0))for(r=0;r<N;r++)XBI(d,c,r,o)=randnib();
+              }
+            }
+            v1=treestripexhaust(d,w,ph,0,-1);
+            printf("stripexhspiketest %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
+            assert(v1<=v0);
           }
         }
         for(w=1;w<=3;w++){
