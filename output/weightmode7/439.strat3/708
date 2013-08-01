@@ -1,0 +1,19 @@
+N=8
+Mode: 1
+Seed: 708
+Search strategy: 3
+Initialising random weight matrix with 439 working nodes
+439 working nodes out of 512
+States are 0,1
+Weight-choosing mode: 7
+Min time to run: 0.5s
+Max time to run: 1e+10s
+Solutions are independent
+           1       -387          0     0.00     0.00       -nan
+           4       -388          0     0.00     0.00       -nan
+          42       -389          0     0.00     0.01       -nan
+         192       -390          0     0.00     0.04       -nan
+       23570       -390        181     5.00     5.04       36.2
+       46971       -390        361    10.00    10.04       36.1
+       65326       -390        500    13.88    13.92         36
+Time to solution 0.02776s, assuming true minimum is -390

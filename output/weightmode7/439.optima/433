@@ -1,0 +1,46 @@
+N=8
+Mode: 5
+Seed: 433
+Search strategy: 2
+Initialising random weight matrix with 439 working nodes
+439 working nodes out of 512
+States are 0,1
+Weight-choosing mode: 7
+Restricted set exhaust
+Total 2048 / 2048
+Total 1192 / 2048
+Total 1162 / 2048
+Total 1156 / 2048
+Total 1156 / 2048
+84 84 8a 64 22 22 44 22 
+ec ee 8g 64 22 e8 g4 88 
+88 88 c4 ee 88 g8 88 84 
+8g gg 84 g8 ge g8 88 ec 
+cc gg 8c e8 g8 gg g4 cc 
+8c g8 cc 22 8g 8c ge 88 
+88 e8 64 88 4g ee 88 44 
+42 22 63 a6 84 cc ad 66 
+  8   8  16   6   2   2   4   2 
+ 18  24  18   6   2  16  16   8 
+  8  32  16  24  14  24  14   8 
+ 22  30   8  22  32  24  14  18 
+ 18  34  16  24  34  26  16  20 
+ 18  22  16   2  22  20  28   8 
+  8  16   6  10  16  24  22   4 
+  4   2   6  14   8  18  18   6 
+                  Memory/GiB   Time(a.u.)  Memory*Time
+Automorphism 0:      1.47656  2.56705e+10  3.79041e+10
+Automorphism 1:      1.14844  2.57586e+10  2.95821e+10
+Automorphism 2:      0.84375  1.96742e+10  1.66001e+10
+Automorphism 3:       1.3125   2.9931e+10  3.92845e+10
+Automorphism 4:      0.84375  1.96233e+10  1.65572e+10
+Automorphism 5:       1.3125  2.98649e+10  3.91977e+10
+Automorphism 6:      1.47656  2.57222e+10  3.79804e+10
+Automorphism 7:      1.14844  2.57342e+10  2.95542e+10
+Choosing automorphism 4
+Size 0.8GiB
+Time units 1.96233e+10
+Setup time     0.93s
+Comb time      1.34s
+Strut time    19.47s
+Optimum -356 found in 21.97s

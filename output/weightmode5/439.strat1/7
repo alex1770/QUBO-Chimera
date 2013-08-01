@@ -8,8 +8,8 @@ States are 0,1
 Weight-choosing mode: 5
 Min time to run: 0.5s
 Max time to run: 1e+10s
-Groundtruth: 1000000000
-           1       -782          1     0.00
-          18       -784          1     0.00
-        2269       -784        500     0.90
-Time to solution 0.0018s, assuming true minimum is -784
+Solutions are independent
+           1       -772          0     0.00     0.00       -nan
+           2       -784          0     0.00     0.00       -nan
+        2624       -784        500     0.64     0.64        781
+Time to solution 0.00128s, assuming true minimum is -784
