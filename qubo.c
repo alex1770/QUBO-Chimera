@@ -97,9 +97,6 @@ int randnib(void){return (random()>>16)&15;}
 int randint(int n){return random()%n;}
 double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
 
-double*work; // work[wid]=estimate of relative running time of stablestripexhaust at width wid
-             // (in arbitrary work units)
-
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
 static int mod(int a,int b){a%=b;if(a<0)a+=b;return a;}// Fix for C's stupid broken mod
@@ -359,13 +356,6 @@ void readstate(char *f){
     XB(x,y,o)|=(s==statemap[1])<<i;
   }
   fclose(fp);
-}
-
-void initwork(){
-  int wid;
-  work=(double*)malloc((N+1)*sizeof(double));
-  // work[wid] counts approx number of QBI references in a stable exhaust of width wid
-  for(wid=1;wid<=N;wid++)work[wid]=N*(1LL<<4*(wid+1))*(wid+32/15.)*(N-wid+1)*3;
 }
 
 void shuf(int*a,int n){
@@ -1039,11 +1029,16 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // S4: Randomise configuration; stabletree2exhaust
   // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
-  int i,j,v,bv,lbv,cv,nv,ns,mcv,new,last,reset,Xbest[NBV],Xlbest[NBV];
+  int i,j,v,w,bv,lbv,cv,nv,ns,mcv,new,last,reset,Xbest[NBV],Xlbest[NBV];
   int64 nn,nmcv,rep,stats[MAXST];
-  double ff,t0,t1,t2,tt,w1,now;
+  double ff,t0,t1,t2,tt,w1,now,work[N+1];
   double parms[5][2]={{8,0.3},{4,0.25},{8,0.25},{8,0.35},{4,0.2}};
+
+  // These are for hybrid strat 2, not currently used
+  // work[wid] counts approx number of QBI references in a stable exhaust of width wid
+  for(w=1;w<=N;w++)work[w]=N*(1LL<<4*(w+1))*(w+32/15.)*(N-w+1)*3;
   ff=N*N/40.;
+
   if(pr){
     printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
     printf("Solutions are %sdependent\n",findtts?"in":"");
@@ -1062,9 +1057,9 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     if(reset){
       init_state();cv=val();
       memset(stats,0,sizeof(stats));// Counts of values found
-      lbv=1000000000;// Local best value for S2
-      memset(Xlbest,0,NBV*sizeof(int));// Local best state for S2
-      w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution
+      lbv=1000000000;// Local best value (for S2)
+      memset(Xlbest,0,NBV*sizeof(int));// Local best state (for S2)
+      w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution (for S2)
       mcv=1000000000;nmcv=0;// mcv = most common cv, nmcv = number of occurences of it
       rep=0;
       reset=0;
@@ -1463,7 +1458,7 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=2;deb=1;
+  weightmode=5;mode=0;N=8;strat=3;deb=1;
   while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
@@ -1531,7 +1526,6 @@ int main(int ac,char**av){
   nok=(int*)malloc((NBV+1)*sizeof(int));
   ok2=(int(*)[256])malloc((N*N+1)*256*sizeof(int));
   nok2=(int*)malloc((N*N+1)*sizeof(int));
-  initwork();
   inittiebreaks();
   initrand(seed);
   initgraph(wn);
