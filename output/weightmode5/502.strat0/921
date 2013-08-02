@@ -1,0 +1,27 @@
+N=8
+Mode: 1
+Seed: 921
+Search strategy: 0
+Initialising random weight matrix with 502 working nodes
+502 working nodes out of 512
+States are 0,1
+Weight-choosing mode: 5
+Min time to run: 0.5s
+Max time to run: 1e+10s
+Solutions are independent
+           1       -950          0     0.00     0.00       -nan
+           3       -952          0     0.00     0.00       -nan
+          15       -956          0     0.00     0.00       -nan
+          33       -958          0     0.00     0.01       -nan
+          35       -966          0     0.00     0.01       -nan
+          43       -972          0     0.00     0.01       -nan
+        2503       -974          0     0.00     0.25       -nan
+       54197       -974         74     5.00     5.25       14.8
+      106214       -974        142    10.00    10.25       14.2
+      159050       -974        206    15.00    15.25       13.7
+      210431       -974        273    20.00    20.25       13.7
+      262116       -974        333    25.00    25.25       13.3
+      314389       -974        384    30.00    30.25       12.8
+      366972       -974        456    35.00    35.25         13
+      398337       -974        500    38.01    38.26       13.2
+Time to solution 0.07602s, assuming true minimum is -974
