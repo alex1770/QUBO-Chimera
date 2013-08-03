@@ -17,17 +17,11 @@ To generate and test a similar random example, type
 ./qubo -m1 -S1 -n502
 
 To repeat S1 timing run on instance 123 of Set 3, type
-./qubo -m1 -S1 -x-1 testproblems/noextfield-Ising/439/myformat/123
-to do it in Ising Model mode, where the state variables can be in {-1,1}, OR
-./qubo -m1 -S1 testproblems/noextfield/439/myformat/123
-to do it in QUBO mode, where the state variables can be in {0,1}.
-Note that the two modes are equivalent, but the minimum values will be different.
-For historical reasons, this run was originally conducted in Ising Model mode, and
-the output files at output/weightmode3/439.-1+1.strat1/ have Ising Model values.
-Ising model summary files are at testproblems/noextfield-Ising/439/summary*
-and QUBO summary files are at testproblems/noextfield/439/summary*
+./qubo -m1 -S1 testproblems/weightmode7/439/myformat/123
+The corresponding output file is at output/weightmode7/439.strat1/123
+Summary files are at testproblems/weightmode7/439/summary*
 To generate and test a similar random example, type
-./qubo -m1 -S1 -w3 -x-1 -n439
+./qubo -m1 -S1 -w7 -n439
 
 To get a list of available options, type
 ./qubo -?
