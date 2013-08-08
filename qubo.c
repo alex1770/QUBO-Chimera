@@ -632,6 +632,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
   return v3[0];
 }
 
+typedef int treestriptype;// Use int if range of values exceeds 16 bits. Use short to save memory on a very wide exhaust.
 int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   // w=width, ph=phase (0,...,w)
   // If d=0 exhaust the (induced) treewidth w subgraph consisting of:
@@ -648,13 +649,13 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   int b,c,f,i,r,s,x,v,nf,b1,s0,s1,bc,lw,dir,inc,mul,phl,smin,vmin,pre2[16][16],ps[N][16];
   int64 bi,br,bm,size0,size1;
   int jr0,jr1,jv0[16],jv1[16];// join row, value.
-  short*v0,*v1,*v2,*vold,*vnew;
+  treestriptype*v0,*v1,*v2,*vold,*vnew;
   double t0,t1,t2;
   size0=1LL<<4*w;
   size1=16*(size0-1)/15;
-  v0=(short*)malloc(size0*sizeof(short));
-  v1=(short*)malloc(size1*sizeof(short));
-  v2=(short*)malloc(size0*sizeof(short));
+  v0=(treestriptype*)malloc(size0*sizeof(treestriptype));
+  v1=(treestriptype*)malloc(size1*sizeof(treestriptype));
+  v2=(treestriptype*)malloc(size0*sizeof(treestriptype));
   nf=(N-1+ph)/(w+1)-(ph+1)/(w+1)+1;// Number of full (non-spike) exhausts (the end ones could be narrow, but still called full)
   bm=1LL<<4*(w-1);
   // Spike labels are f = 0...nf-1 or 0...nf; Full labels are f = 0...nf-1
@@ -669,7 +670,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   }
   if(!(v0&&v1&&v2&&(upd==0||(hf0&&hf1&&hf2&&hf3)))){
     fprintf(stderr,"Couldn't allocate %gGiB in treestripexhaust()\n",
-            (double)((size0*2+size1)*sizeof(short)+!!upd*(nf*(2*N+2)*w*bm*16))/(1<<30));return 1;}
+            (double)((size0*2+size1)*sizeof(treestriptype)+!!upd*(nf*(2*N+2)*w*bm*16))/(1<<30));return 1;}
   t0=t1=t2=0;
   for(c=0;c<N;c++){for(s=0;s<16;s++)ps[c][s]=s;if(upd)shuf(ps[c],16);}
   jr0=randint(N);for(i=0;i<16;i++)jv0[i]=0;
@@ -730,9 +731,9 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
       jr[c+lw-1]=jr1;
       // Width lw exhaust, incoming jv0[] at row jr0, outgoing jv1[] at row jr1
 
-      memset(v2,0,size0*sizeof(short));
+      memset(v2,0,size0*sizeof(treestriptype));
       for(dir=0;dir<2;dir++){
-        memset(v0,0,size0*sizeof(short));
+        memset(v0,0,size0*sizeof(treestriptype));
         for(r=dir*(N-1);r!=jr1;r+=1-2*dir){
           // Comb exhaust
           // At this point: v0 maps (*,r,1) to value of (*,r,1), (*,<r,*)
@@ -819,7 +820,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
               }
             }
           }//x
-          if(lw&1)memcpy(v0,v1,size0*sizeof(short));
+          if(lw&1)memcpy(v0,v1,size0*sizeof(treestriptype));
           // Now v0 maps (*,r+1,1) to value of (*,r+1,1),(*,<=r,*)
           t2+=cpu();
         }//r
@@ -1501,8 +1502,13 @@ int main(int ac,char**av){
       fprintf(stderr,"            2   Upper triangular\n");
       fprintf(stderr,"            3   All of Q_ij allowed, but constrained symmetric\n");
       fprintf(stderr,"            4   Constrained symmetric, diagonal not allowed\n");
-      fprintf(stderr,"            5   Start with J_ij (i<j) and h_i IID {-1,1} and transform\n");
-      fprintf(stderr,"                back to Q (ignoring constant term) (default)\n");
+      fprintf(stderr,"            5   Start with Ising J_ij (i<j) and h_i IID {-1,1} and transform back to QUBO,\n");
+      fprintf(stderr,"                ignoring constant term. (Default - meant to be equivalent to McGeoch instances.)\n");
+      fprintf(stderr,"            6   Test case\n");
+      fprintf(stderr,"            7   Start with Ising J_ij (i<j) IID {-1,1} and transform back to QUBO,\n");
+      fprintf(stderr,"                also known as \"no external field\".\n");
+      fprintf(stderr,"            8   Start with Ising J_ij (i<j) IID uniform in {-100,-99,...,100} and\n");
+      fprintf(stderr,"                transform back to QUBO.\n");
       fprintf(stderr,"       -x   set the lower state value\n");
       fprintf(stderr,"            Default 0 corresponds to QUBO state values in {0,1}\n");
       fprintf(stderr,"            Other common option is -1, corresponding to Ising model state values in {-1,1}\n");
@@ -1670,7 +1676,6 @@ int main(int ac,char**av){
             assert(v0==v1);
           }
         }            
-        
       }
     }
     break;
