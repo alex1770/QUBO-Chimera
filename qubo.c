@@ -1103,9 +1103,9 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
       for(j=i;j<i+MIN(bv-cv,MAXST);j++)stats[j%MAXST]=0;
       if(rep==0)stats[i]++;
       if(stats[i]>nmcv){mcv=cv;nmcv=stats[i];}
-      if(cv<mcv)rep+=stats[mod(cv,MAXST)]; else rep=1LL<<60;
     }
-    if((pr>=3&&cv<=bv)||pr==4){printf("\n");prstate(stdout,1,Xbest);printf("cv %d    bv %d\n",cv,bv);}
+    if(cv<mcv)rep+=stats[mod(cv,MAXST)]; else rep=1LL<<60;
+    if((pr>=3&&cv<=bv)||pr>=5){printf("\nSTATE cv=%d bv=%d\n",cv,bv);prstate(stdout,0,0);printf("DIFF\n");prstate(stdout,1,Xbest);}
     nn++;
     now=cpu();
     new=(cv<bv);
@@ -1126,6 +1126,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
             i=mod(v,MAXST);
             if(stats[i])printf("%6d %12lld\n",v,stats[i]);
           }
+          if(pr>=4){printf("STATE cv=%d bv=%d\n",cv,bv);prstate(stdout,0,0);printf("DIFF\n");prstate(stdout,1,Xbest);printf("\n");}
         }
         fflush(stdout);
       }
@@ -1451,6 +1452,9 @@ int fullexhaust(){
   applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
   printf("Setup time %8.2fs\nComb time  %8.2fs\nStrut time %8.2fs\n",t0,t1,t2);
   return v;
+}
+
+void combapprox(){
 }
 
 int main(int ac,char**av){
