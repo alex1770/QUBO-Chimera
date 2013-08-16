@@ -80,6 +80,7 @@ int N;// Size of Chimera graph
 int statemap[2];// statemap[0], statemap[1] are the two possible values that the state variables take
 int deb;// verbosity
 int seed;
+double ext;
 
 typedef long long int int64;// gcc's 64-bit type
 typedef unsigned char UC;
@@ -98,8 +99,6 @@ int randint(int n){return random()%n;}
 double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
-
-static int mod(int a,int b){a%=b;if(a<0)a+=b;return a;}// Fix for C's stupid broken mod
 
 void initgraph(int wn){
   int d,i,j,o,p,t,u,x,y,z;
@@ -255,7 +254,9 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       break;
     case 8:if((d<4&&deco(p)==0)||d==5){r=randint(201)-100;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 9:if(p==2&&d==0&&i==0&&deco(p)==0)Q[p][i][d]=-1;
+    case 9:if((d<4&&deco(p)==0)||d==5){int n=100+25*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      break;
+    case 10:if((d<4&&deco(p)==0)||d==5){int n=1000+250*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
     }
   }
@@ -632,7 +633,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
   return v3[0];
 }
 
-typedef int treestriptype;// Use int if range of values exceeds 16 bits. Use short to save memory on a very wide exhaust.
+typedef int treestriptype;// Use int if range of values exceeds 16 bits, or use short to save memory on a very wide exhaust.
 int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   // w=width, ph=phase (0,...,w)
   // If d=0 exhaust the (induced) treewidth w subgraph consisting of:
@@ -980,7 +981,37 @@ int stabletreeexhaust(int cv,int wid){// Repeated tree exhausts until no more im
   }
 }
 
-#define MAXST 1000 // for stats
+void resizecumsumleft(int64*cst,int size){// insert cst[0..size-1] into right of cst[0..2*size-1] and clear left
+  int s;
+  for(s=size/2;s>=1;s>>=1){
+    memcpy(cst+3*s,cst+s,s*sizeof(int64));
+    memset(cst+2*s,0,s*sizeof(int64));
+  }
+  cst[1]=cst[0];
+}
+void resizecumsumright(int64*cst,int size){// insert cst[0..size-1] into left of cst[0..2*size-1] and clear right
+  int s;
+  for(s=size/2;s>=1;s>>=1){
+    memcpy(cst+2*s,cst+s,s*sizeof(int64));
+    memset(cst+3*s,0,s*sizeof(int64));
+  }
+  cst[1]=0;
+}
+void inccumsum(int64*cst,int size,int v){// effectively increment all of [0,v)
+  for(v+=size;v>0;v/=2)if(v&1)cst[v/2]++;
+}
+int64 querycumsumgt(int64*cst,int size,int v){// query how many increments were greater than v
+  int64 t;
+  if(v<0)return cst[0];
+  if(v>=size)return 0;
+  for(v+=size,t=0;v>0;v/=2)if(!(v&1))t+=cst[v/2];
+  return t;
+}
+int64 querycumsumle(int64*cst,int size,int v){return cst[0]-querycumsumgt(cst,size,v);}// query how many increments were less than or equal to v
+int64 querycumsumlt(int64*cst,int size,int v){return querycumsumle(cst,size,v-1);}// ditto, less than v
+int64 querycumsumeq(int64*cst,int size,int v){return querycumsumle(cst,size,v)-querycumsumlt(cst,size,v);}// ditto, equal to v
+
+#define MAXST (1<<18) // For stats.
 int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   //
   // Heuristic optimisation, writing back best value found. Can be used to find TTS, the
@@ -1030,12 +1061,12 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // S4: Randomise configuration; stabletree2exhaust
   // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
-  int i,j,v,w,bv,lbv,cv,nv,ns,mcv,new,last,reset,Xbest[NBV],Xlbest[NBV];
-  int64 nn,nmcv,rep,stats[MAXST];
+  int v,w,bv,lbv,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
+  int64 nn,rep,stt,*stats;
   double ff,t0,t1,t2,tt,w1,now,work[N+1];
-  double parms[5][2]={{8,0.3},{4,0.25},{8,0.25},{8,0.35},{4,0.2}};
+  double parms[5][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2}};
 
-  // These are for hybrid strat 2, not currently used
+  // These are for hybrid strat 2, not currently used:
   // work[wid] counts approx number of QBI references in a stable exhaust of width wid
   for(w=1;w<=N;w++)work[w]=N*(1LL<<4*(w+1))*(w+32/15.)*(N-w+1)*3;
   ff=N*N/40.;
@@ -1050,22 +1081,24 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // "presumed solution" means "minimum value found so far"
   ns=0;// Number of presumed solutions
   t2=t0;// t2 = Time of last clean start (new minimum value in "independent" mode)
+  stats=(int64*)malloc(MAXST*sizeof(int64));assert(stats);
 
   if(N>=2&&strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
   reset=1;
-  w1=rep=nmcv=mcv=cv=lbv=0;// to shut warnings up
+  w1=rep=cv=lbv=0;// to shut warnings up
   do{
     if(reset){
       init_state();cv=val();
-      memset(stats,0,sizeof(stats));// Counts of values found
+      cmin=1000000000;ssize=1024;assert(ssize<=MAXST);memset(stats,0,ssize*sizeof(int64));// Reset stats
+      stt=0;// Total count of values found
       lbv=1000000000;// Local best value (for S2)
       memset(Xlbest,0,NBV*sizeof(int));// Local best state (for S2)
       w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution (for S2)
-      mcv=1000000000;nmcv=0;// mcv = most common cv, nmcv = number of occurences of it
       rep=0;
       reset=0;
     }
-    if(rep>=nmcv*parms[strat%10][0]){
+    //printf("%10d %10d %10lld %10lld ",cv,bv,rep,stt);
+    if(rep>=stt*parms[strat%10][0]){
       if(strat<10)init_state(); else pertstate(parms[strat%10][1]);
       cv=val();rep=0;
     }
@@ -1098,13 +1131,12 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     }
     if(nv<cv)rep=0;
     cv=nv;
-    if(cv<bv+MAXST){
-      i=mod(cv,MAXST);
-      for(j=i;j<i+MIN(bv-cv,MAXST);j++)stats[j%MAXST]=0;
-      if(rep==0)stats[i]++;
-      if(stats[i]>nmcv){mcv=cv;nmcv=stats[i];}
-    }
-    if(cv<mcv)rep+=stats[mod(cv,MAXST)]; else rep=1LL<<60;
+    if(cmin==1000000000)cmin=cv-ssize/2;
+    // [cmin,cmin+ssize) corresponds to [0,ssize) in stats[], as encoded by cumsum tree
+    while(cv<cmin){assert(ssize*2<=MAXST);resizecumsumleft(stats,ssize);cmin-=ssize;ssize*=2;}
+    while(cv>=cmin+ssize){assert(ssize*2<=MAXST);resizecumsumright(stats,ssize);ssize*=2;}
+    if(rep==0){inccumsum(stats,ssize,cv-cmin);stt++;}// possibly alter rep=0 condition
+    rep+=querycumsumle(stats,ssize,cv-cmin);
     if((pr>=3&&cv<=bv)||pr>=5){printf("\nSTATE cv=%d bv=%d\n",cv,bv);prstate(stdout,0,0);printf("DIFF\n");prstate(stdout,1,Xbest);}
     nn++;
     now=cpu();
@@ -1122,9 +1154,10 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
         if(findtts)printf("%12lld %10d %10d %8.2f %8.2f %10.3g\n",nn,bv,ns,now-t2,tt,ns/(now-t2)); else
           printf("%12lld %10d %8.2f\n",nn,bv,tt);
         if(pr>=2){
-          for(v=bv+MAXST-1;v>=bv;v--){
-            i=mod(v,MAXST);
-            if(stats[i])printf("%6d %12lld\n",v,stats[i]);
+          printf("Tot stat %lld\n",stt);
+          for(v=cmin+ssize-1;v>=cmin;v--){
+            int64 n=querycumsumeq(stats,ssize,v-cmin);
+            if(n)printf("%6d %12lld\n",v,n);
           }
           if(pr>=4){printf("STATE cv=%d bv=%d\n",cv,bv);prstate(stdout,0,0);printf("DIFF\n");prstate(stdout,1,Xbest);printf("\n");}
         }
@@ -1134,6 +1167,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   }while(!last);
   if(findtts)*findtts=(now-t2)/ns;
   memcpy(XBa,Xbest,NBV*sizeof(int));
+  free(stats);
   return bv;
 }
 
@@ -1454,7 +1488,193 @@ int fullexhaust(){
   return v;
 }
 
-void combapprox(){
+void pr16(int t[16][16]){
+  int i,j;
+  for(i=0;i<16;i++){
+    for(j=0;j<16;j++)printf(" %4d",t[i][j]);
+    printf("\n");
+  }
+}
+
+void combLB(int r,int (*f)[16][16]){
+  // f[N-1][16][16] are the approximators, to be returned
+  int c,v,b0,b1,s0,s1,vmin;
+  int ex[16][16];// excess
+  int t[16][16];
+  for(s1=0;s1<16;s1++){// s1 = state of (N-1,r,0)
+    for(b1=0;b1<16;b1++){// b1 = state of (N-1,r,1)
+      ex[s1][b1]=QB(N-1,r,0,0,s1,b1);
+    }
+  }
+  for(c=N-2;c>=0;c--){// approximating the (c,r,*), (c+1,r,*) part with f[c][][]
+    //      
+    //        *b0       *b1                *b2       *b3
+    //       /         /                  /         /
+    //      /         /                  /         /
+    //     *---------*   ...   ---------*---------*
+    //     s0        s1                 s2        s3
+    //
+    for(s0=0;s0<16;s0++){// s0 = (c,r,0)
+      for(b1=0;b1<16;b1++){// b1 = (c+1,r,1)
+        vmin=1000000000;
+        for(s1=0;s1<16;s1++){// s1 = (c+1,r,0)
+          v=QB(c,r,0,2,s0,s1)+ex[s1][b1];
+          if(v<vmin)vmin=v;
+        }
+        t[s0][b1]=vmin;
+      }//b1
+    }//s0
+    for(b0=0;b0<16;b0++){// b0 = (c,r,1)
+      for(b1=0;b1<16;b1++){// b1 = (c+1,r,1)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0 = (c,r,0)
+          v=QB(c,r,0,1,s0,XB(c-1,r,0))+QB(c,r,0,0,s0,b0)+t[s0][b1];
+          if(v<vmin)vmin=v;
+        }
+        f[c][b0][b1]=vmin;
+      }//b1
+    }//b0
+    for(b0=0;b0<16;b0++){// b0 = (c,r,1)
+      for(s0=0;s0<16;s0++){// s0 = (c,r,0)
+        vmin=1000000000;
+        for(b1=0;b1<16;b1++){// b1 = (c+1,r,1)
+          v=QB(c,r,0,0,s0,b0)+t[s0][b1]-f[c][b0][b1];
+          if(v<vmin)vmin=v;
+        }
+        ex[s0][b0]=vmin;
+      }//s0
+    }//b0
+  }//c
+  for(b0=0;b0<16;b0++){// b0 = (c,r,1)
+    vmin=1000000000;
+    for(s0=0;s0<16;s0++){// s0 = (c,r,0)
+      if(ex[s0][b0]<vmin)vmin=ex[s0][b0];
+    }
+    assert(vmin==0);
+  }
+}
+
+void reducerankLB(int t[16][16],int t0[16],int t1[16]){
+  int d,i,j,dd,nd,i1,j1,nmax,dmin,imin,jmin,vmin,n0[16],n1[16];
+  vmin=1000000000;imin=jmin=-1;
+  for(i=0;i<16;i++)for(j=0;j<16;j++)if(t[i][j]<vmin){vmin=t[i][j];imin=i;jmin=j;}
+  for(i=0;i<16;i++){t0[i]=t[i][jmin];t1[i]=t[imin][i]-vmin;}
+
+  nd=0;for(i=0;i<16;i++)n0[i]=n1[i]=0;
+  for(i=0;i<16;i++)for(j=0;j<16;j++)if(t0[i]+t1[j]>t[i][j]){n0[i]++;n1[j]++;nd++;}
+  while(nd>0){
+
+    if(0){
+      printf("             ");for(j=0;j<16;j++)printf(" %4d",n1[j]);printf("\n");
+      printf("             ");for(j=0;j<16;j++)printf(" %4d",t1[j]);printf("\n");
+      for(i=0;i<16;i++){
+        printf("%4d %4d : ",n0[i],t0[i]);
+        for(j=0;j<16;j++)printf(" %4d",t0[i]+t1[j]-t[i][j]);
+        printf("\n");
+      }
+      printf("\n");
+    }
+
+    nmax=0;dd=-1;
+    for(i=0;i<16;i++){
+      if(n0[i]>nmax){nmax=n0[i];dd=i;}
+      if(n1[i]>nmax){nmax=n1[i];dd=16+i;}
+    }
+    if(dd<16){
+      dmin=1000000000;j1=-1;
+      for(j=0;j<16;j++){
+        d=(t0[dd]+t1[j])-t[dd][j];
+        if(d>0&&d<dmin){dmin=d;j1=j;}
+      }
+      assert(j1>=0);
+      t0[dd]-=dmin;
+      for(j=0;j<16;j++)if(t0[dd]+t1[j]==t[dd][j]){n0[dd]--;n1[j]--;nd--;assert(n0[dd]>=0&&n1[j]>=0&&nd>=0);}
+    }else{
+      dd-=16;
+      dmin=1000000000;i1=-1;
+      for(i=0;i<16;i++){
+        d=(t0[i]+t1[dd])-t[i][dd];
+        if(d>0&&d<dmin){dmin=d;i1=i;}
+      }
+      assert(i1>=0);
+      t1[dd]-=dmin;
+      for(i=0;i<16;i++)if(t0[i]+t1[dd]==t[i][dd]){n0[i]--;n1[dd]--;nd--;assert(n0[i]>=0&&n1[dd]>=0&&nd>=0);}
+    }
+  }
+}
+
+int lin2exhaust(){
+  int c,i,j,r,v,vmin,b0,b1,b2,s0,s1;
+  int m0[16],m1[16],t[16][16],t0[16],t1[16],u[16][16],f0[N-1][16][16],f1[N-1][16][16];
+  for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f0[c][i][j]=0;
+  for(r=0;r<N;r++){
+    combLB(r,f1);
+    for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f1[c][i][j]+=f0[c][i][j];
+    if(r==N-1)break;
+    //
+    // Struts: build f0 (new row r+1) from f1 (old row r)
+    //
+    //     *b0     *b1     *b2     *  
+    //     |       |       |       |
+    //     |       |       ^       |
+    //     |       |       |       |
+    //     *       *       *s2     *b3
+    // (c=2 picture)
+    //
+    for(b0=0;b0<16;b0++)for(b1=0;b1<16;b1++){
+      vmin=1000000000;
+      for(s0=0;s0<16;s0++){
+        v=f1[0][s0][b1]+QB(0,r,1,2,s0,b0);
+        if(v<vmin)vmin=v;
+      }
+      f0[0][b0][b1]=vmin;
+    }
+    for(c=1;c<N-1;c++){
+      for(b1=0;b1<16;b1++){// b1=(c,r,1)
+        for(b0=0;b0<16;b0++)for(b2=0;b2<16;b2++){// b0=(c-1,r,1), b2=(c+1,r,1)
+          vmin=1000000000;
+          for(s1=0;s1<16;s1++){
+            v=f0[c-1][b0][s1]+f1[c][s1][b2]+QB(c,r,1,2,s1,b1);
+            if(v<vmin)vmin=v;
+          }
+          t[b0][b2]=vmin;
+        }// b0,b2
+        reducerankLB(t,t0,t1);
+        for(b0=0;b0<16;b0++)u[b0][b1]=t0[b0];
+        for(b2=0;b2<16;b2++)f0[c][b1][b2]=t1[b2];
+      }// b1
+      for(b0=0;b0<16;b0++)for(b1=0;b1<16;b1++)f0[c-1][b0][b1]=u[b0][b1];
+    }// c
+    for(b0=0;b0<16;b0++)for(b1=0;b1<16;b1++){
+      vmin=1000000000;
+      for(s1=0;s1<16;s1++){
+        v=f0[N-2][b0][s1]+QB(N-1,r,1,2,s1,b1);
+        if(v<vmin)vmin=v;
+      }
+      u[b0][b1]=vmin;
+    }
+    for(b0=0;b0<16;b0++)for(b1=0;b1<16;b1++)f0[N-2][b0][b1]=u[b0][b1];
+  }// r
+  // Result in f1
+  for(b0=0;b0<16;b0++)m0[b0]=0;
+  for(c=0;c<N-1;c++){
+    // m0[] is a map from (c,N-1,1) to minval of (<=c,N-1,1) using the c functions, f1[<c][][]
+    for(b0=0;b0<16;b0++){// b0=(c+1,N-1,1)
+      vmin=1000000000;
+      for(s0=0;s0<16;s0++){// s0=(c,N-1,1)
+        v=m0[s0]+f1[c][s0][b0];
+        if(v<vmin)vmin=v;
+      }
+      m1[b0]=vmin;
+    }// b0
+    for(b0=0;b0<16;b0++)m0[b0]=m1[b0];
+  }// c
+  vmin=1000000000;
+  for(s0=0;s0<16;s0++){// s0=(N-1,N-1,1)
+    v=m0[s0];
+    if(v<vmin)vmin=v;
+  }
+  return vmin;
 }
 
 int main(int ac,char**av){
@@ -1463,8 +1683,8 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=3;deb=1;
-  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:T:v:w:x:"))!=-1){
+  weightmode=5;mode=0;N=8;strat=3;deb=1;ext=1;
+  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
@@ -1478,6 +1698,7 @@ int main(int ac,char**av){
     case 'v': deb=atoi(optarg);break;
     case 'w': weightmode=atoi(optarg);break;
     case 'x': statemap[0]=atoi(optarg);break;
+    case 'X': ext=atof(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
       fprintf(stderr,"       -g   ground truth value (for -m1 mode)\n");
@@ -1556,7 +1777,7 @@ int main(int ac,char**av){
   case 1:;// Find rate of solution generation, ensuring that minima are independent
     int v;
     double tts;
-    v=opt1(0.5,maxt,deb,500,&tts,strat);
+    v=opt1(0.5,maxt,deb,100,&tts,strat);//alter
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
     break;
   case 2:;// Find average minimum value
@@ -1680,6 +1901,27 @@ int main(int ac,char**av){
             assert(v0==v1);
           }
         }            
+      }
+    }
+  case 10:
+    {
+      int c,r,v,f[N-1][16][16];
+      if(0){
+        init_state();
+        for(r=0;r<N;r++){
+          printf("Comb at row %2d\n",r);
+          combLB(r,f);
+          for(c=0;c<N-1;c++){pr16(f[c]);printf("\n");}
+          printf("\n");
+        }
+        exit(0);
+      }
+      while(1){
+        init_state();
+        //opt1(mint,maxt,deb,1,0,strat);
+        v=lin2exhaust();
+        printf("lin2 = %d\n",v);
+        //break;
       }
     }
     break;
