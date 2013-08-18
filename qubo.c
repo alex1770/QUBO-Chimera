@@ -1418,7 +1418,9 @@ int fullexhaust(){
       } 
       mul0=nok[enc(c,r,0)];
       mul1=nok[encp(c-1,r,0)]*nok[enc(c,r,1)];
+#ifdef PARALLEL
 #pragma omp parallel for
+#endif
       for(br=0;br<bm;br++){
         int p,v,vmin;
         vmin=32767;
@@ -1462,7 +1464,9 @@ int fullexhaust(){
           pre2[bc0][s0]=QB(c,r,1,2,s,bc);
         }
       }
+#ifdef PARALLEL
 #pragma omp parallel for
+#endif
       for(br=0;br<bm;br++){// br = state of non-c columns
         int v,vmin,bc0,s0;
         for(bc0=0;bc0<mul1;bc0++){// bc = state of (c,r+1,1)
@@ -1496,7 +1500,7 @@ void pr16(int t[16][16]){
   }
 }
 
-void combLB(int r,int (*f)[16][16]){
+void combLB2(int r,int (*f)[16][16]){
   // f[N-1][16][16] are the approximators, to be returned
   int c,v,b0,b1,s0,s1,vmin;
   int ex[16][16];// excess
@@ -1508,11 +1512,11 @@ void combLB(int r,int (*f)[16][16]){
   }
   for(c=N-2;c>=0;c--){// approximating the (c,r,*), (c+1,r,*) part with f[c][][]
     //      
-    //        *b0       *b1                *b2       *b3
-    //       /         /                  /         /
-    //      /         /                  /         /
-    //     *---------*   ...   ---------*---------*
-    //     s0        s1                 s2        s3
+    //                  *b0       *b1
+    //                 /         /
+    //                /         /
+    //    *----------*---------*---- ...
+    //    s_hint     s0        s1
     //
     for(s0=0;s0<16;s0++){// s0 = (c,r,0)
       for(b1=0;b1<16;b1++){// b1 = (c+1,r,1)
@@ -1603,13 +1607,94 @@ void reducerankLB(int t[16][16],int t0[16],int t1[16]){
   }
 }
 
+void combLB(int r,int w,int *f){
+  // f thought of as f[N-w+1][16^w] are the approximators, to be returned
+  // So f_0(a_0,...,a_{w-1})+f_1(a_1,...,a_w)+...+f_{N-w}(a_{N-w},...,a_{N-1}) <= comb_r(a_0,...,a_{N-1})
+  // Multiindices encoded low to high, e.g., (a_0,...,a_{w-1}) <-> a_0+16a_1+16^2a_2+...
+  
+  int c,v,s0,vmin;
+  int64 b,n;
+  n=1LL<<(4*w);
+  int v0[n],v1[n];//alter
+  if(w==1)for(b=0;b<16;b++)v0[b]=0; else {
+    // Add in (0,r,0) (0,r,1):
+    for(b=0;b<256;b++){// b = (0,r,0) (0,r,1)
+      v0[b]=QB(0,r,0,0,b&15,b>>4);
+    }
+    for(c=1;c<w-1;c++){
+      // State: v0[ (c-1,r,0) (0,r,1) (1,r,1) ... (c-1,r,1) ]   (low - high)
+      // Add in (c,r,0) and minimise over (c-1,r,0):
+      for(b=0;b<(1LL<<(c+1)*4);b++){// b = (c,r,0) (0,r,1) (1,r,1) ... (c-1,r,1)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0=(c-1,r,0)
+          v=v0[(b&~15)|s0]+QB(c-1,r,0,2,s0,b&15);
+          if(v<vmin)vmin=v;
+        }
+        v1[b]=vmin;
+      }//b
+      // Add in (c,r,1):
+      for(b=0;b<(1LL<<(c+2)*4);b++){// b = (c,r,0) (0,r,1) (1,r,1) ... (c,r,1)
+        v0[b]=v1[b&~(15LL<<(c+1)*4)]+QB(c,r,0,0,b&15,b>>(c+1)*4);
+      }
+    }//c
+  }
+  for(c=w-1;c<N;c++){
+    // State: v0[ (c-1,r,0) (c-w+1,r,1) (c-w+2,r,1) ... (c-1,r,1) ]   (low - high)
+    // Add in (c,r,0) and minimise over (c-1,r,0):
+    for(b=0;b<n;b++){// b = (c,r,0) (c-w+1,r,1) (c-w+2,r,1) ... (c-1,r,1)
+      vmin=1000000000;
+      for(s0=0;s0<16;s0++){// s0=(c-1,r,0)
+        v=v0[(b&~15)|s0]+QB(c,r,0,1,b&15,s0);
+        if(v<vmin)vmin=v;
+      }
+      v1[b]=vmin;
+    }//b
+    // Add in (c,r,1) and minimise over (c,r,0), using (c+1,r,0)_hint (sidebranch)
+    for(b=0;b<n;b++){// b = (c-w+1,r,1) (c-w+2,r,1) ... (c,r,1)
+      vmin=1000000000;
+      for(s0=0;s0<16;s0++){// s0=(c,r,0)
+        v=v1[((b<<4)&~(15LL<<(4*w)))|s0]+QB(c,r,0,0,s0,b>>(4*(w-1)))+QB(c,r,0,2,s0,XB(c+1,r,0));
+        if(v<vmin)vmin=v;
+      }
+      f[(int64)(c-(w-1))<<(4*w)|b]=vmin;
+    }//b
+    if(c==N-1)break;
+    // Add in (c,r,1) again, subtract f[c-(w-1)][] and minimise over (c-w+1,r,1)
+    if(w==1){
+      for(b=0;b<n;b++){// b = (c,r,0)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0=(c,r,1)
+          v=v1[b]+QB(c,r,0,0,b&15,s0)-f[(c<<4)|s0];
+          if(v<vmin)vmin=v;
+        }
+        v0[b]=vmin;
+      }//b
+    }else{
+      for(b=0;b<n;b++){// b = (c,r,0) (c-w+2,r,1) (c-w+3,r,1) ... (c,r,1)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0=(c-w+1,r,1)
+          v=v1[(((b&~15)<<4)&~(15LL<<4*w))|(b&15)|(s0<<4)]+QB(c,r,0,0,b&15,b>>4*(w-1))-f[(int64)(c-(w-1))<<(4*w)|(b&~15)|s0];
+          if(v<vmin)vmin=v;
+        }
+        v0[b]=vmin;
+      }//b
+    }
+  }//c
+}
+
 int lin2exhaust(){
   int c,i,j,r,v,vmin,b0,b1,b2,s0,s1;
   int m0[16],m1[16],t[16][16],t0[16],t1[16],u[16][16],f0[N-1][16][16],f1[N-1][16][16];
   for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f0[c][i][j]=0;
   for(r=0;r<N;r++){
-    combLB(r,f1);
-    for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f1[c][i][j]+=f0[c][i][j];
+    if(0){
+      combLB2(r,f1);
+      for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f1[c][i][j]+=f0[c][i][j];
+    }else{
+      combLB(r,2,(int*)f1);
+      for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f0[c][i][j]=f0[c][i][j]+f1[c][j][i];
+      for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f1[c][i][j]=f0[c][i][j];
+    }
     if(r==N-1)break;
     //
     // Struts: build f0 (new row r+1) from f1 (old row r)
@@ -1905,16 +1990,29 @@ int main(int ac,char**av){
     }
   case 10:
     {
-      int c,r,v,f[N-1][16][16];
+      int c,r,v,f[N-1][16][16],g[N-1][16][16];
       if(0){
+        int XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
         init_state();
+        memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
+        memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
+        memcpy(ok20,ok2,sizeof(ok20));memcpy(nok20,nok2,sizeof(nok20));
         for(r=0;r<N;r++){
           printf("Comb at row %2d\n",r);
-          combLB(r,f);
-          for(c=0;c<N-1;c++){pr16(f[c]);printf("\n");}
+          combLB2(r,f);
+          applyam(2,XBa0,QBa0,ok0,nok0,ok20,nok20);
+          combLB(r,2,(int*)g);
+          applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
+          if(1)for(c=0;c<N-1;c++){
+            printf("MEMCMP %d\n",memcmp(f[N-2-c],g[c],16*16));
+            if(0){
+              pr16(f[N-2-c]);printf("\n");
+              pr16(g[c]);
+              printf("\n---------------------\n\n");
+            }
+          }
           printf("\n");
         }
-        exit(0);
       }
       while(1){
         init_state();
@@ -1925,6 +2023,32 @@ int main(int ac,char**av){
       }
     }
     break;
+  case 11:
+    {
+      int d,i,m,r,w,dmax;
+      int64 b,n;
+      double s1;
+      init_state();
+      for(r=0;r<N;r++){
+        n=1LL<<(4*N);
+        int g[n];
+        combLB(r,N,g);
+        for(w=1;w<N;w++){
+          m=1LL<<(4*w);
+          int f[(N-w+1)*m];
+          combLB(r,w,f);
+          s1=0;dmax=0;
+          for(b=0;b<n;b++){
+            v=0;
+            for(i=0;i<=N-w;i++)v+=f[(i<<(4*w))+((b>>(4*i))&(m-1))];
+            d=g[b]-v;assert(d>=0);
+            s1+=d;if(d>dmax)dmax=d;
+            //printf("%10d %10d %10d\n",g[b],v,g[b]-v);
+          }
+          printf("%3d  %3d  %8d  %12g\n",r,w,dmax,s1/n);
+        }
+      }
+    }
   }
   if(outstatefile)writestate(outstatefile);
   return 0;

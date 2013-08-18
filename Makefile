@@ -7,7 +7,6 @@ par:: dummy-par
 CFLAGS:= -Wall -funroll-loops -O9
 LFLAGS:= -lm
 ifeq ($(filter par,$(MAKECMDGOALS)),)
-  CFLAGS:= $(CFLAGS) -Wno-unknown-pragmas
   DUM0:= dummy-par
   DUM1:= dummy-sing
 else
