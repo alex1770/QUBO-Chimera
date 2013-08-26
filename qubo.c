@@ -250,13 +250,16 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       break;
     case 6:if((d<4&&deco(p)==0)||d==5){r=randsign()*(10+(seed%32)*(d>=4));Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 7:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}// This is "noextfield" in QUBO form
+      // mode 7 is "noextfield" in QUBO form
+    case 7:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
+      // modes 8,9 are test modes
     case 8:if((d<4&&deco(p)==0)||d==5){r=randint(201)-100;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 9:if((d<4&&deco(p)==0)||d==5){int n=100+25*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+    case 9:if((d<4&&deco(p)==0)||d==5){int n=100+60*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 10:if((d<4&&deco(p)==0)||d==5){int n=1000+250*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      // modes 10 is candidate for most difficult class of instances (tried on N=16, and strat 14 in particular)
+    case 10:if((d<4&&deco(p)==0)||d==5){int n=100+120*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
     }
   }
@@ -634,7 +637,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
 }
 
 typedef int treestriptype;// Use int if range of values exceeds 16 bits, or use short to save memory on a very wide exhaust.
-int treestripexhaust(int d,int w,int ph,int upd,int testrow){
+int treestripexhaust(int d,int w,int ph,int upd,int fixedrow){
   // w=width, ph=phase (0,...,w)
   // If d=0 exhaust the (induced) treewidth w subgraph consisting of:
   //   all columns, c, s.t. c+ph is congruent to 0,1,...,w-1 mod w+1 ("full"),
@@ -675,7 +678,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
   t0=t1=t2=0;
   for(c=0;c<N;c++){for(s=0;s<16;s++)ps[c][s]=s;if(upd)shuf(ps[c],16);}
   jr0=randint(N);for(i=0;i<16;i++)jv0[i]=0;
-  if(testrow>=0)jr0=testrow;
+  if(fixedrow>=0)jr0=fixedrow;
   for(c=f=0;c<N;){// f=full exhaust no.
     // jv0[s] = value of stuff to the left given that (c-1,jr0,0)=s
     phl=(c+ph)%(w+1);
@@ -728,7 +731,7 @@ int treestripexhaust(int d,int w,int ph,int upd,int testrow){
       assert(f<nf);
       lw=MIN(w-phl,N-c);assert(lw>=1&&lw<=w);// Local width
       jr1=randint(N);
-      if(testrow>=0)jr1=testrow;
+      if(fixedrow>=0)jr1=fixedrow;
       jr[c+lw-1]=jr1;
       // Width lw exhaust, incoming jv0[] at row jr0, outgoing jv1[] at row jr1
 
@@ -974,7 +977,7 @@ int stabletreeexhaust(int cv,int wid){// Repeated tree exhausts until no more im
   int d,n,ph,ph0,r,v;
   n=0;d=randint(2);ph=ph0=randint(wid+1);r=randint(N);
   while(1){
-    if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,-1);
+    if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,r);
     if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
     r=(r+1)%N;
     ph=(ph+1)%(wid+1);if(ph==ph0)d=1-d;
@@ -1064,7 +1067,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   int v,w,bv,lbv,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
   int64 nn,rep,stt,*stats;
   double ff,t0,t1,t2,tt,w1,now,work[N+1];
-  double parms[5][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2}};
+  double parms[6][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2},{0.25,0.2}};
 
   // These are for hybrid strat 2, not currently used:
   // work[wid] counts approx number of QBI references in a stable exhaust of width wid
@@ -1072,6 +1075,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   ff=N*N/40.;
 
   if(pr){
+    printf("Target number of presumed optima: %d\n",tns);
     printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
     printf("Solutions are %sdependent\n",findtts?"in":"");
   }
@@ -1125,6 +1129,9 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
       break;
     case 4:
       nv=stabletreeexhaust(cv,2);
+      break;
+    case 5:
+      nv=stabletreeexhaust(cv,3);
       break;
     default:
       fprintf(stderr,"Unknown strategy %d\n",strat);exit(1);
@@ -1612,10 +1619,10 @@ void combLB(int r,int w,int *f){
   // So f_0(a_0,...,a_{w-1})+f_1(a_1,...,a_w)+...+f_{N-w}(a_{N-w},...,a_{N-1}) <= comb_r(a_0,...,a_{N-1})
   // Multiindices encoded low to high, e.g., (a_0,...,a_{w-1}) <-> a_0+16a_1+16^2a_2+...
   
-  int c,v,s0,vmin;
+  int c,v,s0,s1,vmin,vtot,tt[16];
   int64 b,n;
   n=1LL<<(4*w);
-  int v0[n],v1[n];//alter
+  int v0[n],v1[n];
   if(w==1)for(b=0;b<16;b++)v0[b]=0; else {
     // Add in (0,r,0) (0,r,1):
     for(b=0;b<256;b++){// b = (0,r,0) (0,r,1)
@@ -1649,11 +1656,16 @@ void combLB(int r,int w,int *f){
       }
       v1[b]=vmin;
     }//b
-    // Add in (c,r,1) and minimise over (c,r,0), using (c+1,r,0)_hint (sidebranch)
+    // Add in (c,r,1) and minimise over (c,r,0), using (c+1,r,0)_ave (sidebranch)
+    for(s0=0;s0<16;s0++){
+      vtot=0;
+      for(s1=0;s1<16;s1++)vtot+=QB(c,r,0,2,s0,s1);
+      tt[s0]=(vtot+8)>>4;
+    }
     for(b=0;b<n;b++){// b = (c-w+1,r,1) (c-w+2,r,1) ... (c,r,1)
       vmin=1000000000;
       for(s0=0;s0<16;s0++){// s0=(c,r,0)
-        v=v1[((b<<4)&~(15LL<<(4*w)))|s0]+QB(c,r,0,0,s0,b>>(4*(w-1)))+QB(c,r,0,2,s0,XB(c+1,r,0));
+        v=v1[((b<<4)&~(15LL<<(4*w)))|s0]+QB(c,r,0,0,s0,b>>(4*(w-1)))+tt[s0];
         if(v<vmin)vmin=v;
       }
       f[(int64)(c-(w-1))<<(4*w)|b]=vmin;
@@ -1682,7 +1694,7 @@ void combLB(int r,int w,int *f){
   }//c
 }
 
-int lin2exhaust(){
+int lin2LB(){
   int c,i,j,r,v,vmin,b0,b1,b2,s0,s1;
   int m0[16],m1[16],t[16][16],t0[16],t1[16],u[16][16],f0[N-1][16][16],f1[N-1][16][16];
   for(c=0;c<N-1;c++)for(i=0;i<16;i++)for(j=0;j<16;j++)f0[c][i][j]=0;
@@ -1762,20 +1774,115 @@ int lin2exhaust(){
   return vmin;
 }
 
+int linLB(int w){
+  int n,r,v,vmin,s0;
+  n=N-w+1;// Using n overlapping width-w functions
+  int64 b,c,d,b0,b1,N1,N2,N3,hit;
+  N1=n*(1LL<<4*w);
+  N2=1LL<<4*(w-1);
+  N3=1LL<<4*2*(w-1);
+  int f0[N1],f1[N1],t0[N3],t1[N3];
+  int64 hi[N2];
+
+  memset(f1,0,N1*sizeof(int));
+  for(r=0;r<N;r++){
+    // Here f1[] is the bound on (*,<r,1)
+    combLB(r,w,f0);
+    for(b=0;b<N1;b++)f0[b]+=f1[b];
+    if(r==N-1)break;
+    // f0 at the bottom (row r) -> construct f1 at the top (row r+1)
+    for(b1=0;b1<N2;b1++)for(b0=0;b0<N2;b0++){// b0=(<w-1,r,1) b1=(<w-1,r+1,1)
+      v=0;
+      for(c=0;c<w-1;c++)v+=QB(c,r,1,2,(b0>>4*c)&15,(b1>>4*c)&15);
+      t0[b0+(b1<<4*(w-1))]=v;
+    }
+    for(c=0;c<n;c++){
+      // t0[] maps (c..c+w-2,r,1),(c..c+w-2,r+1,1) to sum_{i<c}(f_i'-f_i) + struts
+      for(b1=0;b1<N2;b1++)for(b0=0;b0<N2;b0++){// b0=(c+1..c+w-1,r,1) b1=(c..c+w-2,r+1,1)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0=(c,r,1)
+          v=t0[s0+((b0<<4)&~(15LL<<4*(w-1)))+(b1<<4*(w-1))]+f0[s0+(b0<<4)+(c<<4*w)];
+          if(v<vmin)vmin=v;
+        }
+        t1[b0+(b1<<4*(w-1))]=vmin;
+      }
+      // t1[] maps (c+1..c+w-1,r,1),(c..c+w-2,r+1,1) to sum_{i<c}(f_i'-f_i)+f_c' + struts
+      assert(w>=2);//FTM
+      for(b=0;b<N2;b++)hi[b]=0;
+      for(d=1;d<MIN(w,n-c);d++){
+        for(b0=0;b0<1LL<<(w-d)*4;b0++){// b0=(c+d..c+w-1,r,1)
+          hit=0;
+          for(b1=0;b1<1LL<<d*4;b1++){// b1=(c+w..c+w+d-1,r,1)
+            hit+=f0[b0+(b1<<(w-d)*4)+((c+d)<<4*w)];
+          }
+          for(b1=0;b1<1LL<<(d-1)*4;b1++){// b1=(c+1..c+d-1,r,1)
+            hi[b1+(b0<<(d-1)*4)]+=hit<<(w-1-d)*4;
+          }
+        }
+      }
+      for(b=0;b<N2;b++)hi[b]=(hi[b]+(1LL<<((w-1)*4-1)))>>(w-1)*4;
+      for(b1=0;b1<1LL<<4*w;b1++){// b1=(c+w-1,r,1),(c..c+w-2,r+1,1)
+        vmin=1000000000;
+        for(b0=0;b0<1LL<<4*(w-2);b0++){// b0=(c+1..c+w-2,r,1)
+          v=t1[b0+(b1<<4*(w-2))]+hi[b0+((b1&15)<<4*(w-2))];
+          if(v<vmin)vmin=v;
+        }
+        t0[b1]=vmin;
+      }
+      // t0[] maps (c+w-1,r,1),(c..c+w-2,r+1,1) to sum_{i<c}(f_i'-f_i)+f_c' + struts
+      for(b=0;b<1LL<<4*w;b++){// b=(c..c+w-1,r+1,1)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0=(c+w-1,r,1)
+          v=t0[s0+((b<<4)&~(15LL<<4*w))]+QB(c+w-1,r,1,2,s0,b>>4*(w-1));
+          if(v<vmin)vmin=v;
+        }
+        f1[b+(c<<4*w)]=vmin;
+      }
+      for(b1=0;b1<N2;b1++)for(b0=0;b0<N2;b0++){// b0=(c+1..c+w-1,r,1) b1=(c+1..c+w-1,r+1,1)
+        vmin=1000000000;
+        for(s0=0;s0<16;s0++){// s0=(c,r+1,1)
+          v=t1[b0+((s0+((b1<<4)&~(15LL<<4*(w-1))))<<4*(w-1))]-f1[s0+(b1<<4)+(c<<4*w)];
+          if(v<vmin)vmin=v;
+        }
+        t0[b0+(b1<<4*(w-1))]=vmin+QB(c+w-1,r,1,2,b0>>4*(w-2),b1>>4*(w-2));
+      }
+    }//c
+  }//r
+  // Result in f0
+  for(b=0;b<N2;b++)t0[b]=0;
+  for(c=0;c<n;c++){
+    // t0[] is a map from (c..c+w-2,N-1,1) to minval of the sum of the c functions, f0[<c]
+    // Add variable (c+w-1,N-1,1) and min over (c,N-1,1)
+    for(b=0;b<N2;b++){// b=(c+1..c+w-1,N-1,1)
+      vmin=1000000000;
+      for(s0=0;s0<16;s0++){// s0=(c,N-1,1)
+        v=t0[s0+((b<<4)&~(15LL<<4*(w-1)))]+f0[s0+(b<<4)+(c<<4*w)];
+        if(v<vmin)vmin=v;
+      }
+      t1[b]=vmin;
+    }
+    for(b=0;b<N2;b++)t0[b]=t1[b];
+  }
+  vmin=1000000000;
+  for(b=0;b<N2;b++)if(t0[b]<vmin)vmin=t0[b];
+  return vmin;
+}
+
 int main(int ac,char**av){
-  int opt,wn,mode,strat,weightmode;
+  int opt,wn,mode,strat,weightmode,numpo;
   double mint,maxt;
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=0;N=8;strat=3;deb=1;ext=1;
-  while((opt=getopt(ac,av,"m:n:N:o:O:s:S:t:T:v:w:x:X:"))!=-1){
+  weightmode=5;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;
+  while((opt=getopt(ac,av,"m:n:N:o:O:p:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
     case 'N': N=atoi(optarg);break;
     case 'o': outprobfile=strdup(optarg);break;
     case 'O': outstatefile=strdup(optarg);break;
+    case 'p': numpo=atoi(optarg);break;
     case 's': seed=atoi(optarg);break;
     case 'S': strat=atoi(optarg);break;
     case 't': mint=atof(optarg);break;
@@ -1788,16 +1895,17 @@ int main(int ac,char**av){
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
       fprintf(stderr,"       -g   ground truth value (for -m1 mode)\n");
       fprintf(stderr,"       -m   mode of operation:\n");
-      fprintf(stderr,"            0   Try to find minimum value by heuristic search (default)\n");
-      fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search\n");
+      fprintf(stderr,"            0   Try to find minimum value by heuristic search\n");
+      fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search (default)\n");
       fprintf(stderr,"            2   Try to find expected minimum value by heuristic search\n");
       fprintf(stderr,"            3   (no longer used)\n");
       fprintf(stderr,"            4   Consistency checks\n");
       fprintf(stderr,"            5   Full exhaust (proving)\n");
-      fprintf(stderr,"       -n   num working nodes\n");
-      fprintf(stderr,"       -N   size of Chimera graph\n");
+      fprintf(stderr,"       -n   num working nodes (default all)\n");
+      fprintf(stderr,"       -N   size of Chimera graph (default 8)\n");
       fprintf(stderr,"       -o   output problem (weight) file\n");
       fprintf(stderr,"       -O   output state file\n");
+      fprintf(stderr,"       -p   target number of presumed optima for -m1\n");
       fprintf(stderr,"       -s   seed\n");
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
       fprintf(stderr,"            0   Exhaust K44s repeatedly\n");
@@ -1819,6 +1927,8 @@ int main(int ac,char**av){
       fprintf(stderr,"                also known as \"no external field\".\n");
       fprintf(stderr,"            8   Start with Ising J_ij (i<j) IID uniform in {-100,-99,...,100} and\n");
       fprintf(stderr,"                transform back to QUBO.\n");
+      fprintf(stderr,"           10   Start with Ising J_ij (i<j) IID uniform in {-n,-n+1,...,n} where n=100 intra-K_44,\n");
+      fprintf(stderr,"                n=220 inter-K_44, then transform back to QUBO.\n");
       fprintf(stderr,"       -x   set the lower state value\n");
       fprintf(stderr,"            Default 0 corresponds to QUBO state values in {0,1}\n");
       fprintf(stderr,"            Other common option is -1, corresponding to Ising model state values in {-1,1}\n");
@@ -1862,7 +1972,7 @@ int main(int ac,char**av){
   case 1:;// Find rate of solution generation, ensuring that minima are independent
     int v;
     double tts;
-    v=opt1(0.5,maxt,deb,100,&tts,strat);//alter
+    v=opt1(0.5,maxt,deb,numpo,&tts,strat);
     printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
     break;
   case 2:;// Find average minimum value
@@ -1990,7 +2100,7 @@ int main(int ac,char**av){
     }
   case 10:
     {
-      int c,r,v,f[N-1][16][16],g[N-1][16][16];
+      int c,r,f[N-1][16][16],g[N-1][16][16];
       if(0){
         int XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
         init_state();
@@ -2014,12 +2124,16 @@ int main(int ac,char**av){
           printf("\n");
         }
       }
-      while(1){
+      {
+        int w,v0;
         init_state();
-        //opt1(mint,maxt,deb,1,0,strat);
-        v=lin2exhaust();
-        printf("lin2 = %d\n",v);
-        //break;
+        v0=lin2LB();
+        printf("lin2 = %d\n",v0);
+        for(w=2;w<=MIN(N,2);w++){
+          printf("lin(%d) =",w);fflush(stdout);
+          v0=linLB(w);
+          printf(" %d\n",v0);
+        }
       }
     }
     break;
@@ -2029,6 +2143,7 @@ int main(int ac,char**av){
       int64 b,n;
       double s1;
       init_state();
+      //opt1(mint,maxt,deb,1,0,strat);
       for(r=0;r<N;r++){
         n=1LL<<(4*N);
         int g[n];
@@ -2042,6 +2157,7 @@ int main(int ac,char**av){
             v=0;
             for(i=0;i<=N-w;i++)v+=f[(i<<(4*w))+((b>>(4*i))&(m-1))];
             d=g[b]-v;assert(d>=0);
+            //if(w==N-1&&d>0)printf("%d ",d);
             s1+=d;if(d>dmax)dmax=d;
             //printf("%10d %10d %10d\n",g[b],v,g[b]-v);
           }
