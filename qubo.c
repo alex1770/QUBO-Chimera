@@ -250,15 +250,16 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       break;
     case 6:if((d<4&&deco(p)==0)||d==5){r=randsign()*(10+(seed%32)*(d>=4));Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-      // mode 7 is "noextfield" in QUBO form
+      // mode 7 is "noextfield" (J_{ij}=+/-1, h_i=0) in QUBO form
     case 7:if((d<4&&deco(p)==0)||d==5){r=randsign();Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-      // modes 8,9 are test modes
-    case 8:if((d<4&&deco(p)==0)||d==5){r=randint(201)-100;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      // mode 8 is a test mode
+    case 8:if((d<4&&deco(p)==0)||d==5){int n=100+20*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-    case 9:if((d<4&&deco(p)==0)||d==5){int n=100+60*(seed%10)*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      // mode 9 is candidate for most difficult class of instances at N=8 (tested with strat 13)
+    case 9:if((d<4&&deco(p)==0)||d==5){int n=100+100*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
-      // modes 10 is candidate for most difficult class of instances (tried on N=16, and strat 14 in particular)
+      // mode 10 is candidate for most difficult class of instances at N=16 (tested with strat 14)
     case 10:if((d<4&&deco(p)==0)||d==5){int n=100+120*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
     }
@@ -1086,7 +1087,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   ns=0;// Number of presumed solutions
   t2=t0;// t2 = Time of last clean start (new minimum value in "independent" mode)
   stats=(int64*)malloc(MAXST*sizeof(int64));assert(stats);
-
+  memset(Xbest,0,NBV*sizeof(int));
   if(N>=2&&strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
   reset=1;
   w1=rep=cv=lbv=0;// to shut warnings up
@@ -1142,7 +1143,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     // [cmin,cmin+ssize) corresponds to [0,ssize) in stats[], as encoded by cumsum tree
     while(cv<cmin){assert(ssize*2<=MAXST);resizecumsumleft(stats,ssize);cmin-=ssize;ssize*=2;}
     while(cv>=cmin+ssize){assert(ssize*2<=MAXST);resizecumsumright(stats,ssize);ssize*=2;}
-    if(rep==0){inccumsum(stats,ssize,cv-cmin);stt++;}// possibly alter rep=0 condition
+    if(rep==0){inccumsum(stats,ssize,cv-cmin);stt++;}// possibly change rep=0 condition
     rep+=querycumsumle(stats,ssize,cv-cmin);
     if((pr>=3&&cv<=bv)||pr>=5){printf("\nSTATE cv=%d bv=%d\n",cv,bv);prstate(stdout,0,0);printf("DIFF\n");prstate(stdout,1,Xbest);}
     nn++;
@@ -1200,6 +1201,7 @@ void getrestrictedsets(void){
   ok0=(UC(*)[16][16])malloc(65536*16*16);assert(ok0);
   for(v=0;v<NBV;v++)for(s=0;s<16;s++)ok[v][s]=1;
   tt0=1000000000;
+  for(x=0;x<N;x++)for(y=0;y<N;y++){for(i=0;i<256;i++)ok2[enc2(x,y)][i]=i;nok2[enc2(x,y)]=256;}
   while(1){
     tt=0;
     for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){for(s=0;s<16;s++)tt+=ok[enc(x,y,o)][s];}
@@ -1321,7 +1323,7 @@ void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok
 int fullexhaust(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
-  int a,c,r,s,v,x,bc,bc0,A,s0,mul0,mul1,
+  int a,c,r,s,v,x,bc,bc0,A,s0,mul0,mul1,offset,
     XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N],
     pre[4096][4],pre2[16][16];
   int64 b,br,bm,nc,ns,nc0,tnc,maxc,maxs,maxt,size0,size1;
@@ -1371,6 +1373,7 @@ int fullexhaust(){
                         (double)(size0+size1)*sizeof(short)/(1<<30));return 1;}
   t0+=cpu();
 
+  offset=32768/(N*(N+1));
   t1=t2=0;
   memset(v0,0,size0*sizeof(short));
   for(r=0;r<N;r++){
@@ -1444,6 +1447,43 @@ int fullexhaust(){
     }//c
     // At this point v0 maps (*,r,1) to value of (*,<=r,*)
     t1+=cpu();
+    if(0){
+      int i,t,v,maxd,nsb[256];
+      int64 b,p,b0,b1,b2,np,me,stats[4*N+1];
+      double t0,t1;
+      for(i=1,nsb[0]=0;i<256;i++)nsb[i]=nsb[i>>1]+(i&1);
+      maxd=MIN(4*N,2);
+      for(i=0,np=0,b=1;i<=maxd;i++){np+=b;b=(b*(4*N-i))/(i+1);}
+      int64 sb[np];
+      for(i=0,p=0;i<=maxd;i++)for(b=0;b<size0;b++){
+        for(b0=b,t=0;b0;b0>>=8)t+=nsb[b0&255];
+        if(t==i)sb[p++]=b;
+      }
+      assert(p==np);
+      for(t=0;t<=maxd;t++)stats[t]=0;
+      printf("Row %d\n",r);
+      me=0;t0=t1=0;
+      for(b0=0;b0<size0;b0++){
+        for(b1=1;b1<p;b1++){
+          b2=sb[b1];
+          v=v0[b0]-v0[b0^b2];
+          if(v>0){
+            for(b=b2,t=0;b;b>>=8)t+=nsb[b&255];
+            if(v>=2*t){
+              stats[t]++;t0+=1;t1+=t;
+              //printf("%08llx dominated by %08llx. Exor %08llx. valdif %d. Distance %d\n",b0,b0^b2,b2,v,t);
+              break;
+            }
+          }
+        }//b1
+        if(b1==p){me++;if(0){printf("    %0*llX maximal, value %d\n",N,b0,v0[b0]);fflush(stdout);}}
+      }//b0
+      for(t=0;t<=maxd;t++)if(stats[t])printf("Num %2d = %lld\n",t,stats[t]);
+      printf("%lld maximal element%s\n",me,me==1?"":"s");
+      printf("Average distance of dominator: %g\n",t1/t0);
+      printf("\n");
+      fflush(stdout);
+    }
 
     // Strut exhaust
     //
@@ -1482,7 +1522,7 @@ int fullexhaust(){
             v=vold[s0+mul0*br]+pre2[bc0][s0];
             if(v<vmin)vmin=v;
           }
-          vnew[br+bm*bc0]=vmin;
+          vnew[br+bm*bc0]=vmin+offset;// offset keeps the intermediate numbers smaller, allowing bigger range
         }
       }
     }//c
@@ -1496,7 +1536,7 @@ int fullexhaust(){
   free(v1);free(v0);
   applyam(0,XBa0,QBa0,ok0,nok0,ok20,nok20);
   printf("Setup time %8.2fs\nComb time  %8.2fs\nStrut time %8.2fs\n",t0,t1,t2);
-  return v;
+  return v-N*N*offset;
 }
 
 void pr16(int t[16][16]){
@@ -1960,6 +2000,11 @@ int main(int ac,char**av){
   }else{
     initweights(weightmode);printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
+  if(0){
+    int i,j,k;
+    for(i=0;i<N;i++)for(j=0;j<16;j++)for(k=0;k<16;k++)printf("QB(%d,0,0,0,%d,%d)=%d\n",i,j,k,QB(i,0,0,0,j,k));
+    for(i=0;i<N-1;i++)for(j=0;j<16;j++)for(k=0;k<16;k++)printf("QB(%d,0,0,2,%d,%d)=%d\n",i,j,k,QB(i,0,0,2,j,k));
+  }
   printf("%d working node%s out of %d\n",wn,wn==1?"":"s",NV);
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   printf("Weight-choosing mode: %d\n",weightmode);
@@ -2163,7 +2208,7 @@ int main(int ac,char**av){
           }
           printf("%3d  %3d  %8d  %12g\n",r,w,dmax,s1/n);
         }
-      }
+      }//r
     }
   }
   if(outstatefile)writestate(outstatefile);
