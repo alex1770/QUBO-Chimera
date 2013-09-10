@@ -974,10 +974,11 @@ int stablestripexhaust(int cv,int wid){// Repeated strip exhausts until no more 
   }
 }
 
-int stabletreeexhaust(int cv,int wid){// Repeated tree exhausts until no more improvement likely
+int stabletreeexhaust(int cv,int wid,int64*ntr){// Repeated tree exhausts until no more improvement likely
   int d,n,ph,ph0,r,v;
   n=0;d=randint(2);ph=ph0=randint(wid+1);r=randint(N);
   while(1){
+    if(ntr)(*ntr)++;
     if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,r);
     if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
     r=(r+1)%N;
@@ -1066,7 +1067,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
   int v,w,bv,lbv,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
-  int64 nn,rep,stt,*stats;
+  int64 nn,rep,stt,ntr,*stats;
   double ff,t0,t1,t2,tt,w1,now,work[N+1];
   double parms[6][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2},{0.25,0.2}};
 
@@ -1085,6 +1086,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   t1=0;// Elapsed time threshold for printing update
   // "presumed solution" means "minimum value found so far"
   ns=0;// Number of presumed solutions
+  ntr=0;// Number of treeexhausts (which is nearly number of sweeps)
   t2=t0;// t2 = Time of last clean start (new minimum value in "independent" mode)
   stats=(int64*)malloc(MAXST*sizeof(int64));assert(stats);
   memset(Xbest,0,NBV*sizeof(int));
@@ -1126,13 +1128,13 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
       }
       break;
     case 3:
-      nv=stabletreeexhaust(cv,1);
+      nv=stabletreeexhaust(cv,1,&ntr);
       break;
     case 4:
-      nv=stabletreeexhaust(cv,2);
+      nv=stabletreeexhaust(cv,2,&ntr);
       break;
     case 5:
-      nv=stabletreeexhaust(cv,3);
+      nv=stabletreeexhaust(cv,3,&ntr);
       break;
     default:
       fprintf(stderr,"Unknown strategy %d\n",strat);exit(1);
@@ -1149,7 +1151,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     nn++;
     now=cpu();
     new=(cv<bv);
-    if(new){bv=cv;ns=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
+    if(new){bv=cv;ns=0;ntr=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv){
       if(new&&findtts)t2=now; else ns++;
       if(findtts)reset=1;
@@ -1159,7 +1161,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     if(new||tt>=t1||last){
       t1=MAX(tt*1.1,tt+5);
       if(pr>=1){
-        if(findtts)printf("%12lld %10d %10d %8.2f %8.2f %10.3g\n",nn,bv,ns,now-t2,tt,ns/(now-t2)); else
+        if(findtts)printf("%12lld %10d %10d %8.2f %8.2f %10.3g %10.3g\n",nn,bv,ns,now-t2,tt,(now-t2)/ns,ntr/(double)ns); else
           printf("%12lld %10d %8.2f\n",nn,bv,tt);
         if(pr>=2){
           printf("Tot stat %lld\n",stt);
