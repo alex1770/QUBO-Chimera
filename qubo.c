@@ -391,7 +391,7 @@ int stripexhaust(int d,int c0,int c1,int upd){
   M=1LL<<4*wid;
   int ps[wid][16],vc[wid][16],h1[16];
   UC (*hc)[wid][M]=0,// Comb history: hc[r][x][b] = opt value of (c0+x,r,0) given (c0+y,r,I(y<=x))=b   (y=0,...,wid-1)
-    (*hs)[wid][M]=0;           // Strut history: hs[r][x][b] = opt value of (c0+x,r,1) given (c0+y,r+I(y<=x),1)=b   (y=0,...,wid-1)
+    (*hs)[wid][M]=0; // Strut history: hs[r][x][b] = opt value of (c0+x,r,1) given (c0+y,r+I(y<=x),1)=b   (y=0,...,wid-1)
   vv=(short*)malloc(M*sizeof(short));
   if(upd){
     hc=(UC (*)[wid][M])malloc(N*wid*M);
@@ -551,7 +551,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
   // If d=1 then same with rows <-> columns.
   // Comments and variable names are as if in the column case (d=0)
   // upd=1 <-> the optimum is written back into the global state
-  // Returns value of tree only
+  // Returns value of tree, which is global value because tree contains or is adjacent to every edge
   int b,c,f,r,s,v,dir,smin,vmin,ps[16],v0[16],v1[16],v2[16],v3[16],v4[16],hc[N][N][16],hs[N][N][16],hr[N][16];
   // v0[s] = value of current column fragment given that (c,r,1) = s
   // v2[s] = value of current column (apart from (c,r0,0)) given that (c,r0,1) = s
@@ -563,7 +563,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
     if(upd)shuf(ps,16);
 
     for(s=0;s<16;s++)v2[s]=0;
-    for(dir=0;dir<2;dir++){
+    for(dir=0;dir<2;dir++){// dir=0 <-> increasing r, dir=1 <-> decreasing r
       for(s=0;s<16;s++)v0[s]=0;
       for(r=dir*(N-1);r!=r0;r+=1-2*dir){
         // Here v0[b] = value of (c,previous,*) given that (c,r,1)=b
@@ -1916,7 +1916,7 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=5;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;
+  weightmode=7;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;
   while((opt=getopt(ac,av,"m:n:N:o:O:p:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
@@ -1950,9 +1950,12 @@ int main(int ac,char**av){
       fprintf(stderr,"       -p   target number of presumed optima for -m1\n");
       fprintf(stderr,"       -s   seed\n");
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
-      fprintf(stderr,"            0   Exhaust K44s repeatedly\n");
-      fprintf(stderr,"            1   Exhaust lines repeatedly (default)\n");
-      fprintf(stderr,"            2   Exhaust lines and line-pairs repeatedly\n");
+      fprintf(stderr,"            0      Exhaust K44s repeatedly\n");
+      fprintf(stderr,"            1      Exhaust lines repeatedly\n");
+      fprintf(stderr,"            3      Exhaust maximal treewidth 1 subgraphs (default)\n");
+      fprintf(stderr,"            4      Exhaust maximal treewidth 2 subgraphs\n");
+      fprintf(stderr,"            5      Exhaust maximal treewidth 3 subgraphs\n");
+      fprintf(stderr,"            10+n   As strategy n but with partial random state init\n");
       fprintf(stderr,"       -t   min run time for some modes\n");
       fprintf(stderr,"       -T   max run time for some modes\n");
       fprintf(stderr,"       -v   0,1,2,... verbosity level\n");
@@ -2212,7 +2215,43 @@ int main(int ac,char**av){
         }
       }//r
     }
-  }
+    break;
+  case 12:
+    {
+      int i,n,o,t,x,y,nb[16],stats[N][strat][256];
+      n=0;
+      for(x=0;x<N;x++)for(y=0;y<strat;y++)for(i=0;i<256;i++)stats[x][y][i]=0;
+      for(i=1,nb[0]=0;i<16;i++)nb[i]=nb[i>>1]+(i&1);
+      while(1){
+        for(x=0,t=0;x<N;x++){XB(x,strat,1)=randnib();t+=nb[XB(x,strat,1)];}
+        if(t>2*N)for(x=0;x<N;x++)XB(x,strat,1)^=15;
+        stripexhaust(1,0,strat,1);
+        for(x=0;x<N;x++)for(y=0;y<strat;y++)stats[x][y][XB(x,y,0)<<4|XB(x,y,1)]++;
+        n++;
+        if(0){
+          for(y=strat-1;y>=0;y--){
+            for(x=0;x<N;x++){printf(" ");for(o=0;o<2;o++)printf("%X",XB(x,y,o));}
+            printf("\n");
+          }
+          printf("\n");
+        }
+        if(n%10==0){
+          for(y=strat-1;y>=0;y--){
+            for(x=0;x<N;x++){
+              //double p,s;
+              //for(i=0,s=0;i<256;i++)if(stats[x][y][i]){p=stats[x][y][i]/(double)n;s-=p*log(p);}
+              //printf(" %7.3f",s/log(2));
+              for(i=0,t=0;i<256;i++)if(stats[x][y][i])t++;
+              printf(" %3d",t);
+            }
+            printf("\n");
+          }
+          printf("\n");
+        }
+      }
+    }
+    break;
+  }// switch(mode)
   if(outstatefile)writestate(outstatefile);
   return 0;
 }

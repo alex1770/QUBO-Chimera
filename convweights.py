@@ -1,6 +1,7 @@
 # Converts instance of D-Wave One from their file format to mine.
 # Instance files are from the ancillary list to http://arxiv.org/abs/1305.5837
 # Working qubit map from http://arxiv.org/abs/1304.4595
+# Keywords: Boixo, Paper 1
 
 wqm="""
 XX X. X. ..
