@@ -303,7 +303,8 @@ int readweights(char *f){
       if(o0==o1)e0=6; else e0=i1;
     }else{
       if(abs(x1-x0)==1&&y1==y0&&o0==0&&o1==0){e0=4+(x1-x0+1)/2;}else
-        if(x1==x0&&abs(y1-y0)==1&&o0==1&&o1==1){e0=4+(y1-y0+1)/2;}else assert(0);
+        if(x1==x0&&abs(y1-y0)==1&&o0==1&&o1==1){e0=4+(y1-y0+1)/2;}else
+          {fprintf(stderr,"Unexpected edge in line: %s",l);assert(0);}
     }
     v0=enc(x0,y0,o0);
     v1=enc(x1,y1,o1);
