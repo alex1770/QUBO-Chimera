@@ -1076,7 +1076,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // work[wid] counts approx number of QBI references in a stable exhaust of width wid
   for(w=1;w<=N;w++)work[w]=N*(1LL<<4*(w+1))*(w+32/15.)*(N-w+1)*3;
   ff=N*N/40.;
-
+  
   if(pr){
     printf("Target number of presumed optima: %d\n",tns);
     printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
@@ -1936,7 +1936,6 @@ int main(int ac,char**av){
     case 'X': ext=atof(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
-      fprintf(stderr,"       -g   ground truth value (for -m1 mode)\n");
       fprintf(stderr,"       -m   mode of operation:\n");
       fprintf(stderr,"            0   Try to find minimum value by heuristic search\n");
       fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search (default)\n");
@@ -1965,7 +1964,7 @@ int main(int ac,char**av){
       fprintf(stderr,"            1   As 0, but diagonal not allowed\n");
       fprintf(stderr,"            2   Upper triangular\n");
       fprintf(stderr,"            3   All of Q_ij allowed, but constrained symmetric\n");
-      fprintf(stderr,"            4   Constrained symmetric, diagonal not allowed\n");
+      fprintf(stderr,"            4   Constrained symmetric, diagonal not allowed - the basic Ising model mode\n");
       fprintf(stderr,"            5   Start with Ising J_ij (i<j) and h_i IID {-1,1} and transform back to QUBO,\n");
       fprintf(stderr,"                ignoring constant term. (Default - meant to be equivalent to McGeoch instances.)\n");
       fprintf(stderr,"            6   Test case\n");
