@@ -262,6 +262,9 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       // mode 10 is candidate for most difficult class of instances at N=16 (tested with strat 14)
     case 10:if((d<4&&deco(p)==0)||d==5){int n=100+120*(d>=4);r=randint(2*n+1)-n;Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
       break;
+      // mode 11 is uniform on {-n,...,-1,1,...,n} (converted to QUBO form) to mimic "range" of http://arxiv.org/abs/1401.2910
+    case 11:if((d<4&&deco(p)==0)||d==5){int n=7;r=randint(2*n)-n;r+=(r>=0);Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      break;
     }
   }
   getbigweights();
@@ -1105,7 +1108,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
       rep=0;
       reset=0;
     }
-    //printf("%10d %10d %10lld %10lld ",cv,bv,rep,stt);
+    //printf("%10d %10d %10lld %10lld\n",cv,bv,rep,stt);
     if(rep>=stt*parms[strat%10][0]){
       if(strat<10)init_state(); else pertstate(parms[strat%10][1]);
       cv=val();rep=0;
