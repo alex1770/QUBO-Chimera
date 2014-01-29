@@ -641,6 +641,103 @@ int tree1exhaust(int d,int p,int r0,int upd){
   return v3[0];
 }
 
+double tree1gibbs(int d,int p,int r0,double beta){
+  // If d=0 sample the (induced) tree consisting of all verts of columns of parity p,
+  //               the o=1 (vertically connected) verts of the other columns, and row r0.
+  // If d=1 then same with rows <-> columns.
+  // Comments and variable names are as if in the column case (d=0)
+  // Updates tree to new sample and returns log(Z) of tree
+  int b,c,f,r,s,dir,hc[N][N][16],hs[N][N][16],hr[N][16];
+  double w,Z,max,lp[16],pr[16],W0[16],W1[16],W2[16],W3[16],W4[16];
+  // W0[s] = log(Z) of current column fragment given that (c,r,1) = s
+  // W2[s] = log(Z) of current column (apart from (c,r0,0)) given that (c,r0,1) = s
+  // W3[s] = log(Z) of tree to left of column c given that (c,r0,0) = s
+
+  for(s=0;s<16;s++)W3[s]=0;
+  for(c=0;c<N;c++){
+
+    for(s=0;s<16;s++)W2[s]=0;
+    for(dir=0;dir<2;dir++){// dir=0 <-> increasing r, dir=1 <-> decreasing r
+      for(s=0;s<16;s++)W0[s]=0;
+      for(r=dir*(N-1);r!=r0;r+=1-2*dir){
+        // Here W0[b] = log(Z) of (c,previous,*) given that (c,r,1)=b
+        if((c-p)&1){
+          for(b=0;b<16;b++){// b = state of (c,r,1)
+            W1[b]=W0[b]-beta*QBI(d,c,r,0,0,XBI(d,c,r,0),b);
+          }
+        } else {
+          for(b=0;b<16;b++){// b = state of (c,r,1)
+            for(s=0,max=-1e9;s<16;s++){// s = state of (c,r,0)
+              lp[s]=-beta*(QBI(d,c,r,0,0,s,b)+
+                           QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
+                           QBI(d,c,r,0,2,s,XBI(d,c+1,r,0)));
+              if(lp[s]>max)max=lp[s];
+            }
+            for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
+            for(w=randfloat()*Z,s=0;s<16;s++){w-=pr[s];if(w<=0)break;}
+            assert(s<16);
+            W1[b]=W0[b]+max+log(Z);
+            hc[c][r][b]=s;
+          }
+        }
+        for(b=0;b<16;b++){// b = state of (c,r+1-2*dir,1)
+          for(s=0,max=-1e9;s<16;s++){// s = state of (c,r,1)
+            lp[s]=W1[s]-beta*QBI(d,c,r,1,2-dir,s,b);
+            if(lp[s]>max)max=lp[s];
+          }
+          for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
+          for(w=randfloat()*Z,s=0;s<16;s++){w-=pr[s];if(w<=0)break;}
+          assert(s<16);
+          W0[b]=max+log(Z);
+          hs[c][r][b]=s;
+        }
+      }//r
+      for(s=0;s<16;s++)W2[s]+=W0[s];
+    }//dir
+
+    for(b=0;b<16;b++){// b = state of (c,r0,0)
+      for(s=0,max=-1e9;s<16;s++){// s = state of (c,r0,1)
+        lp[s]=W2[s]-beta*QBI(d,c,r0,1,0,s,b);
+        if(lp[s]>max)max=lp[s];
+      }
+      for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
+      for(w=randfloat()*Z,s=0;s<16;s++){w-=pr[s];if(w<=0)break;}
+      assert(s<16);
+      W4[b]=W3[b]+max+log(Z);
+      hc[c][r0][b]=s;
+    }
+
+    for(b=0;b<16;b++){// b = state of (c+1,r0,0)
+      for(s=0,max=-1e9;s<16;s++){// s = state of (c,r0,0)
+        lp[s]=W4[s]-beta*QBI(d,c,r0,0,2,s,b);
+        if(lp[s]>max)max=lp[s];
+      }
+      for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
+      for(w=randfloat()*Z,s=0;s<16;s++){w-=pr[s];if(w<=0)break;}
+      assert(s<16);
+      W3[b]=max+log(Z);
+      hr[c][b]=s;
+    }
+  }//c
+
+
+  for(c=N-1;c>=0;c--){
+    f=!((c-p)&1);
+    XBI(d,c,r0,0)=hr[c][c==N-1?0:XBI(d,c+1,r0,0)];
+    XBI(d,c,r0,1)=hc[c][r0][XBI(d,c,r0,0)];
+    for(r=r0+1;r<N;r++){
+      XBI(d,c,r,1)=hs[c][r][XBI(d,c,r-1,1)];
+      if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+    }
+    for(r=r0-1;r>=0;r--){
+      XBI(d,c,r,1)=hs[c][r][XBI(d,c,r+1,1)];
+      if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+    }
+  }
+
+  return W3[0];
+}
+
 typedef int treestriptype;// Use int if range of values exceeds 16 bits, or use short to save memory on a very wide exhaust.
 int treestripexhaust(int d,int w,int ph,int upd,int fixedrow){
   // w=width, ph=phase (0,...,w)
@@ -1070,7 +1167,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // S4: Randomise configuration; stabletree2exhaust
   // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
-  int v,w,bv,lbv,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
+  int v,w,bv,lbv,nis,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
   int64 nn,rep,stt,ntr,*stats;
   double ff,t0,t1,t2,tt,w1,now,work[N+1];
   double parms[6][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2},{0.25,0.2}};
@@ -1096,10 +1193,10 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   memset(Xbest,0,NBV*sizeof(int));
   if(N>=2&&strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
   reset=1;
-  w1=rep=cv=lbv=0;// to shut warnings up
+  w1=rep=cv=lbv=nis=0;
   do{
     if(reset){
-      init_state();cv=val();
+      init_state();nis++;cv=val();
       cmin=1000000000;ssize=1024;assert(ssize<=MAXST);memset(stats,0,ssize*sizeof(int64));// Reset stats
       stt=0;// Total count of values found
       lbv=1000000000;// Local best value (for S2)
@@ -1110,7 +1207,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     }
     //printf("%10d %10d %10lld %10lld\n",cv,bv,rep,stt);
     if(rep>=stt*parms[strat%10][0]){
-      if(strat<10)init_state(); else pertstate(parms[strat%10][1]);
+      if(strat<10){init_state();nis++;} else pertstate(parms[strat%10][1]);
       cv=val();rep=0;
     }
     switch(strat%10){
@@ -1165,7 +1262,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     if(new||tt>=t1||last){
       t1=MAX(tt*1.1,tt+5);
       if(pr>=1){
-        if(findtts)printf("%12lld %10d %10d %8.2f %8.2f %10.3g %10.3g\n",nn,bv,ns,now-t2,tt,(now-t2)/ns,ntr/(double)ns); else
+        if(findtts)printf("%12lld %10d %10d %8.2f %8.2f %10.3g %10.3g %10.3g\n",nn,bv,ns,now-t2,tt,(now-t2)/ns,ntr/(double)nis,nis/(double)ns); else
           printf("%12lld %10d %8.2f\n",nn,bv,tt);
         if(pr>=2){
           printf("Tot stat %lld\n",stt);
@@ -2250,6 +2347,103 @@ int main(int ac,char**av){
             printf("\n");
           }
           printf("\n");
+        }
+      }
+    }
+    break;
+  case 13:// Gibbs tests
+    {
+      if(1){// Burn-in test
+        int i,n,v,nn=20;
+        double mu,va,beta,s0[nn],s1[nn],s2[nn];
+        beta=3.0;
+        for(i=0;i<nn;i++)s0[i]=s1[i]=s2[i]=0;
+        for(n=0;n<10000;n++){
+          init_state();
+          for(i=0;i<nn;i++){
+            tree1gibbs(randint(2),randint(2),randint(N),beta);
+            v=val();assert(isfinite(v));
+            s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
+          }
+        }
+        for(i=0;i<nn;i++){
+          mu=s1[i]/s0[i];
+          va=(s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1);
+          printf("%5d %12g %12g\n",i,mu,sqrt(va/s0[i]));
+        }
+      }
+      if(0){// Autocorrelation test; assumes weightmode 0, statemap[0]=-1 (Ising form, uniform +/-1, no fields)
+        int i,j,k,it,bp,nb=20,rep;
+        int sbuf[nb][NBV],btab[16];
+        double t,mu,beta,s0[nb],s1[nb],s2[nb];
+        if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+        beta=.8;rep=10000;
+        init_state();
+        for(i=0;i<(beta+1)*20;i++)tree1gibbs(randint(2),randint(2),randint(N),beta);// burn-in guess
+        for(i=0;i<nb;i++)s0[i]=s1[i]=s2[i]=0;
+        bp=0;it=-nb;
+        for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
+        while(1){
+          for(i=0;i<rep;i++)tree1gibbs(randint(2),randint(2),randint(N),beta);
+          memcpy(sbuf[bp],XBa,NBV*sizeof(int));
+          if(it>=0){
+            for(i=0;i<nb;i++){// Correlate current with "i" ago
+              j=bp-i;if(j<0)j+=nb;
+              for(k=0,t=0;k<NBV;k++)t+=btab[XBa[k]^sbuf[j][k]];
+              s0[i]+=1;s1[i]+=t;s2[i]+=t*t;
+            }
+            if(it%100==0){
+              printf("it=%d\n",it);
+              for(i=0;i<nb;i++){
+                mu=s1[i]/s0[i];
+                va=(s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1);
+                printf("%6d   %12g %12g\n",i*rep,mu,sqrt(va/s0[i]));
+              }
+              printf("\n");
+            }
+          }
+          it++;bp++;if(bp==nb)bp=0;
+        }
+      }
+    }
+    break;
+  case 14:// Binder parameter estimate
+    {
+      int i,j,k,n,nd,nb=6,burnin;
+      int sbuf[nb][NBV],btab[16];
+      double q,x,t0,t1,beta,sp[9];
+      for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
+      beta=1/.212;
+      burnin=20000;//(beta+1)*50;// burn-in guess
+      if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+      printf("beta = %g\n",beta);
+      printf("burn-in = %d\n",burnin);
+      nd=-1;//5964;
+      for(i=0;i<=8;i++)sp[i]=0;// sp[i] = sum of i^th powers of q
+      t0=cpu();
+      for(n=0;n<nd||nd<0;){// Disorder samples
+        initweights(weightmode);
+        for(i=0;i<nb;i++){// State samples
+          init_state();
+          for(j=0;j<burnin;j++)tree1gibbs(randint(2),randint(2),randint(N),beta);
+          memcpy(sbuf[i],XBa,NBV*sizeof(int));
+        }
+        for(i=0;i<nb-1;i++)for(j=i+1;j<nb;j++){
+          for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[i][k]^sbuf[j][k]];q/=NV;
+          for(k=0,x=1;k<=8;k++){sp[k]+=x;x*=q;}
+        }
+        n++;
+        t1=cpu();
+        if(t1-t0>5||n==nd){
+          t0=t1;
+          printf("n=%d\n",n);
+          printf("beta %g\n",beta);
+          printf("burn-in %d\n",burnin);
+          printf("nb %d\n",nb);
+          for(j=1;j<=8;j++)printf("%3d %12g\n",j,sp[j]/sp[0]);
+          printf("Binder %12g\n",.5*(3-sp[0]*sp[4]/(sp[2]*sp[2])));
+          printf("\n");
+          fflush(stdout);
         }
       }
     }
