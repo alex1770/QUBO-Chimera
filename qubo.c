@@ -9,6 +9,8 @@
 #include <omp.h>
 #endif
 
+#include "normal.c"
+
 // QUBO solver
 // Solves QUBO problem:
 // Minimise sum_{i,j} Q_ij x_i x_j over choices of x_i
@@ -2465,93 +2467,183 @@ int main(int ac,char**av){
       }
     }
     break;
-  case 15:// Exchange Monte-Carlo (1): find mean and variances of energy as a function of temperature
+  case 15:// Exchange Monte-Carlo: work out optimal temperatures
     {
-      int i,j,jm,n,nc;
-      int nt=200;// Number of trial temperatures
-      double jp,vmin,be[nt],cb[nt],s0[nt],s1[nt],s2[nt],mu[nt],sd[nt];
-      if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
-      for(i=0;i<nt;i++)be[i]=0.1*pow(2/.1,i/(nt-1.));// Interpolate geometrically for first guess
-      for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
-      //initweights(weightmode);
-      n=0;
-      while(1){
-        for(i=0;i<nt;i++){
-          init_state();
-          for(j=0;j<(be[i]+.1)*20;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
-          v=val();
-          s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
-        }
-        n++;
-        if(n%50==0){
-          for(i=0;i<nt;i++){
-            mu[i]=s1[i]/s0[i];
-            sd[i]=sqrt((s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1));
-            printf("%12g %12g %12g\n",be[i],mu[i],sd[i]);
-          }
-          for(jp=1;jp<=2;jp+=1){
-            i=nt-1;nc=0;
-            while(i>0){
-              cb[nc++]=be[i];
-              vmin=1e9;jm=-1;
-              for(j=i-1;j>=0;j--){
-                v=fabs(mu[i]+jp*sd[i]-mu[j]);
-                if(v<vmin){vmin=v;jm=j;}
-              }
-              i=jm;
-            }
-            printf("beta set @ %gsd:",jp);
-            for(i=nc-1;i>=0;i--)printf(" %.3f",cb[i]);
-            printf("\n");
-          }
-          printf("\n");
-        }
-      }
-    }
-    break;
-  case 16:// Exchange Monte-Carlo
-    {
-      int i,j,n;
-      int nt;// Number of temperatures
-      double be[]={0.102,0.111,0.150,0.188,0.225,0.266,0.309,0.354,0.406,0.464,0.532,0.618,0.729,0.887,1.146,2.000};
-      nt=sizeof(be)/sizeof(double);
-      double del;
+      int i,j,n,pr=genp[0];
+      int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
+      double del,be0,be1,be[nt],s0[nt],s1[nt],s2[nt];
+      //{0.102,0.111,0.150,0.188,0.225,0.266,0.309,0.354,0.406,0.464,0.532,0.618,0.729,0.887,1.146,2.000};
       int en[nt],ex[nt-1],sbuf[nt][NBV];
-      if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+      if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
       //initweights(weightmode);
+      be0=0.1;be1=5;// low and high beta
+      for(i=0;i<nt;i++)be[i]=be0*pow(be1/be0,i/(nt-1.));// Interpolate geometrically for first guess
       printf("nt=%d\n",nt);
+      printf("be0=%g\n",be0);
+      printf("be1=%g\n",be1);
       for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
       for(i=0;i<nt-1;i++)ex[i]=0;
-      n=0;
+      for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
+      n=-100;
       while(1){
         for(i=0;i<nt;i++){
           memcpy(XBa,sbuf[i],NBV*sizeof(int));
-          for(j=0;j<20;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
-          en[i]=val();
+          for(j=0;j<1;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+          v=val();en[i]=v;
           memcpy(sbuf[i],XBa,NBV*sizeof(int));
-          printf("%5d ",en[i]);
+          if(pr>=2)printf("%5d ",en[i]);
+          if(n>=0){s0[i]+=1;s1[i]+=v;s2[i]+=v*v;}
         }
-        printf("\n");
+        if(pr>=2)printf("\n");
         for(i=0;i<nt-1;i++){
-          printf("     ");
+          if(pr>=3)printf("     ");
           del=(be[i+1]-be[i])*(en[i]-en[i+1]);
           if(del<0||randfloat()<exp(-del)){
             memcpy(XBa,sbuf[i],NBV*sizeof(int));
             memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
             memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
             v=en[i];en[i]=en[i+1];en[i+1]=v;
-            printf("X");
-            ex[i]++;
-          } else printf(" ");
+            if(pr>=3)printf("X");
+            if(n>=0)ex[i]++;
+          } else if(pr>=3)printf(" ");
+        }
+        if(pr>=3)printf("\n");
+        n++;
+        if(n>0&&n%100==0){
+          int i0,nb;
+          double p,tp,err,minerr,mu1,sd1,mu[nt],sd[nt],ben[nt];
+          printf("\n");
+          if(pr>=1){printf("  ");for(i=0;i<nt-1;i++)printf(" %5.3f",ex[i]/(double)n);printf("\n");}
+          //for(i=0;i<nt;i++)printf("%5.3f ",s1[i]/s0[i]);printf("\n");
+          for(i=0;i<nt;i++){mu[i]=s1[i]/s0[i];sd[i]=sqrt((s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1));}
+          //for(i=0;i<nt;i++)printf("%5.3f ",mu[i]);printf(" mu[]\n");
+          //for(i=0;i<nt;i++)printf("%5.3f ",sd[i]);printf(" sd[]\n");
+          if(pr>=1){
+            printf("  ");
+            for(i=0;i<nt-1;i++){
+              mu1=-(be[i+1]-be[i])*(mu[i+1]-mu[i]);
+              sd1=(be[i+1]-be[i])*sqrt(sd[i]*sd[i]+sd[i+1]*sd[i+1]);
+              if(sd1>1e-6)p=Phi(-mu1/sd1)+exp(sd1*sd1/2-mu1)*Phi(mu1/sd1-sd1); else p=exp(-mu1);
+              printf(" %5.3f",p);
+            }
+            printf("\n");
+          }
+          tp=0.3;// Go for this transition prob
+          j=nt-1;nb=0;
+          while(j>0){
+            ben[nb++]=be[j];
+            minerr=1e9;i0=-1;
+            for(i=j-1;i>=0;i--){
+              mu1=-(be[j]-be[i])*(mu[j]-mu[i]);
+              sd1=(be[j]-be[i])*sqrt(sd[i]*sd[i]+sd[j]*sd[j]);
+              // Stable version of Phi(-mu1/sd1)+exp(sd1*sd1/2-mu1)*Phi(mu1/sd1-sd1):
+              if(sd1<1e-6)p=exp(-mu1); else p=Phi(-mu1/sd1)+phi(mu1/sd1)/Rphi(mu1/sd1-sd1);
+              err=log(p/tp);
+              if(fabs(err)<minerr){minerr=fabs(err);i0=i;}
+              if(err<0)break;
+            }
+            j=i0;
+          }
+          printf("p=%.3f choice of be[]:",tp);
+          for(i=nb-1;i>=0;i--)printf(" %5.3f",ben[i]);printf("\n");
+        }
+      }// while(1)
+    }
+    break;
+  case 16:// Exchange Monte-Carlo, example calculating Binder ratio 
+    {
+      int i,j,k,r,n,eqb,nd,pr=genp[0],btab[16];
+      double be0[]={0.108,0.137,0.166,0.196,0.226,0.258,0.291,0.326,0.364,0.405,0.451,0.500,0.557,0.624,0.704,0.808,0.944,1.131,1.438,2.000};
+      // ^ N=8 -w0 -x-1
+      double be2[]={0.133,0.170,0.209,0.248,0.288,0.329,0.370,0.413,0.458,0.507,0.557,0.612,0.672,0.744,0.830,0.941,1.084,1.268,1.543,1.967,2.821,5.000};
+      // ^ N=8 -w2 -x-1
+      int nt;// Number of temperatures
+      double *be;
+      if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
+      if(weightmode==0){be=be0;nt=sizeof(be0)/sizeof(double);} else {be=be2;nt=sizeof(be2)/sizeof(double);}
+      double q,x,del,nex,maxerr,lsp[nt][5],sp[nt][3][3],est[nt][3],ex[nt-1];
+      int en[nt],sbuf[2][nt][NBV];
+      printf("nt=%d\n",nt);
+      printf("beta_low=%g\n",be[0]);
+      printf("beta_high=%g\n",be[nt-1]);
+      printf("be[] =");for(i=0;i<nt;i++)printf(" %5.3f",be[i]);printf("\n");
+      for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
+      for(i=0;i<nt;i++)for(j=0;j<3;j++)for(k=0;k<3;k++)sp[i][j][k]=0;
+      for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
+      nd=0;// Number of disorder samples
+      eqb=(ngp>1?genp[1]:100);
+      printf("Equilibration time %d\n",eqb);
+      fflush(stdout);
+
+      while(1){// Loop over disorders
+        initweights(weightmode);// Disorder (J_ij) sample
+        for(r=0;r<2;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
+        for(i=0;i<nt;i++)for(k=0;k<=4;k++)lsp[i][k]=0;
+        n=-eqb;
+        while(n<eqb){// Thermal loop
+          for(r=0;r<2;r++){// Replica loop
+            for(i=0;i<nt;i++){
+              memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
+              for(j=0;j<1;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+              v=val();en[i]=v;
+              memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
+            }
+            for(i=0;i<nt-1;i++){
+              del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+              if(del<0||randfloat()<exp(-del)){
+                memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
+                memcpy(sbuf[r][i],sbuf[r][i+1],NBV*sizeof(int));
+                memcpy(sbuf[r][i+1],XBa,NBV*sizeof(int));
+                v=en[i];en[i]=en[i+1];en[i+1]=v;
+                ex[i]++;
+              }
+            }
+            nex++;
+          }//r
+          n++;
+          if(n>=0){
+            for(i=0;i<nt;i++){
+              for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[0][i][k]^sbuf[1][i][k]];q/=NV;
+              for(k=0,x=1;k<=4;k++){lsp[i][k]+=x;x*=q;}
+            }
+            if(pr>=2&&n%100==0){
+              for(i=0;i<nt;i++)printf("%6.3f ",.5*(3-lsp[i][0]*lsp[i][4]/(lsp[i][2]*lsp[i][2])));
+              printf("\n");
+            }
+          }
+        }
+        nd++;
+        
+        for(i=0;i<nt;i++){
+          double err[3];
+          for(j=0;j<3;j++){
+            x=lsp[i][j*2];sp[i][j][0]+=1;sp[i][j][1]+=x;sp[i][j][2]+=x*x;// x=<q^(2j)>   <.> = thermal sum
+            err[j]=sqrt((sp[i][j][2]-sp[i][j][1]*sp[i][j][1]/sp[i][j][0])/((sp[i][j][0]-1)*sp[i][j][0]));
+          }
+          for(j=-1;j<=1;j++){
+            double q0,q2,q4;
+            q0=sp[i][0][1];
+            q2=sp[i][1][1]+(j?j*err[1]:0);
+            q4=sp[i][2][1]-(j?j*err[2]:0);// ?: to avoid nans on first estimate
+            est[i][j+1]=.5*(3-q0*q4/(q2*q2));
+          }
         }
         printf("\n");
-        n++;
-        if(n%10==0){
-          printf("\n  ");
-          for(i=0;i<nt-1;i++)printf(" %5.3f",ex[i]/(double)n);
-          printf("\n\n");
+        printf("Number of disorders: %d\n",nd);
+        for(i=0;i<nt;i++)printf("%6.3f ",be[i]);printf("  be[]\n");
+        for(i=0;i<nt;i++)printf("%6.3f ",est[i][1]);printf("  est[]\n");
+        for(i=0,maxerr=0;i<nt;i++){
+          x=MAX(fabs(est[i][1]-est[i][0]),fabs(est[i][1]-est[i][2]));
+          printf("%6.3f ",x);
+          if(x>maxerr)maxerr=x;
         }
+        printf("  err[]\n");
+        printf("  ");
+        for(i=0;i<nt-1;i++)printf(" %6.3f",ex[i]/nex);printf("       exch[]\n");
+        fflush(stdout);
+        if(nd>=2&&maxerr<1e-3)break;
       }
+      
     }
     break;
   }// switch(mode)
