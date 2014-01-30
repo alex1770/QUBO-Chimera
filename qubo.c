@@ -2618,7 +2618,8 @@ int main(int ac,char**av){
           double err[3];
           for(j=0;j<3;j++){
             x=lsp[i][j*2];sp[i][j][0]+=1;sp[i][j][1]+=x;sp[i][j][2]+=x*x;// x=<q^(2j)>   <.> = thermal sum
-            err[j]=sqrt((sp[i][j][2]-sp[i][j][1]*sp[i][j][1]/sp[i][j][0])/((sp[i][j][0]-1)*sp[i][j][0]));
+            err[j]=sqrt((sp[i][j][2]-sp[i][j][1]*sp[i][j][1]/sp[i][j][0])/(sp[i][j][0]-1)*sp[i][j][0]);
+            // ^ scales as sqrt(nd) not 1/sqrt(nd) because keeping unnormalised quantities
           }
           for(j=-1;j<=1;j++){
             double q0,q2,q4;
