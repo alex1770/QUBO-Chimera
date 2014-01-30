@@ -82,6 +82,10 @@ int deb;// verbosity
 int seed;
 double ext;
 
+#define MAXNGP 100
+int ngp;// Number of general parameters
+double genp[MAXNGP]; // General parameters
+
 typedef long long int int64;// gcc's 64-bit type
 typedef unsigned char UC;
 
@@ -1080,7 +1084,8 @@ int stabletreeexhaust(int cv,int wid,int64*ntr){// Repeated tree exhausts until 
   n=0;d=randint(2);ph=ph0=randint(wid+1);r=randint(N);
   while(1){
     if(ntr)(*ntr)++;
-    if(wid==1)v=tree1exhaust(d,ph,r,1); else v=treestripexhaust(d,wid,ph,1,r);
+    if(wid==1)v=tree1exhaust(d,ph,r,1);//{tree1gibbs(d,ph,r,genp[0]);v=val();}
+    else v=treestripexhaust(d,wid,ph,1,r);
     if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
     r=(r+1)%N;
     ph=(ph+1)%(wid+1);if(ph==ph0)d=1-d;
@@ -2017,8 +2022,8 @@ int main(int ac,char**av){
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=7;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;
-  while((opt=getopt(ac,av,"m:n:N:o:O:p:s:S:t:T:v:w:x:X:"))!=-1){
+  weightmode=7;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;ngp=0;
+  while((opt=getopt(ac,av,"m:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
@@ -2026,6 +2031,16 @@ int main(int ac,char**av){
     case 'o': outprobfile=strdup(optarg);break;
     case 'O': outstatefile=strdup(optarg);break;
     case 'p': numpo=atoi(optarg);break;
+    case 'P':
+      {
+        char *l=optarg;
+        while(1){
+          assert(ngp<MAXNGP);genp[ngp++]=atof(l);
+          l=strchr(l,',');if(!l)break;
+          l++;
+        }
+      }
+      break;
     case 's': seed=atoi(optarg);break;
     case 'S': strat=atoi(optarg);break;
     case 't': mint=atof(optarg);break;
@@ -2048,6 +2063,7 @@ int main(int ac,char**av){
       fprintf(stderr,"       -o   output problem (weight) file\n");
       fprintf(stderr,"       -O   output state file\n");
       fprintf(stderr,"       -p   target number of presumed optima for -m1\n");
+      fprintf(stderr,"       -P   x[,y[,z,...]] general parameters for test code\n");
       fprintf(stderr,"       -s   seed\n");
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
       fprintf(stderr,"            0      Exhaust K44s repeatedly\n");
@@ -2086,6 +2102,7 @@ int main(int ac,char**av){
   printf("Mode: %d\n",mode);
   printf("Seed: %d\n",seed);
   printf("Search strategy: %d\n",strat);
+  if(ngp>0){int i;printf("General parameters:");for(i=0;i<ngp;i++)printf(" %g",genp[i]);printf("\n");}
 
   Q=(int(*)[4][7])malloc(NBV*4*7*sizeof(int));
   adj=(int(*)[4][7][2])malloc(NBV*4*7*2*sizeof(int));
@@ -2413,8 +2430,8 @@ int main(int ac,char**av){
       int sbuf[nb][NBV],btab[16];
       double q,x,t0,t1,beta,sp[9];
       for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
-      beta=1/.212;
-      burnin=20000;//(beta+1)*50;// burn-in guess
+      beta=0.1;
+      burnin=0;//(beta+1)*50;// burn-in guess
       if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
       printf("beta = %g\n",beta);
       printf("burn-in = %d\n",burnin);
@@ -2444,6 +2461,95 @@ int main(int ac,char**av){
           printf("Binder %12g\n",.5*(3-sp[0]*sp[4]/(sp[2]*sp[2])));
           printf("\n");
           fflush(stdout);
+        }
+      }
+    }
+    break;
+  case 15:// Exchange Monte-Carlo (1): find mean and variances of energy as a function of temperature
+    {
+      int i,j,jm,n,nc;
+      int nt=200;// Number of trial temperatures
+      double jp,vmin,be[nt],cb[nt],s0[nt],s1[nt],s2[nt],mu[nt],sd[nt];
+      if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+      for(i=0;i<nt;i++)be[i]=0.1*pow(2/.1,i/(nt-1.));// Interpolate geometrically for first guess
+      for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
+      //initweights(weightmode);
+      n=0;
+      while(1){
+        for(i=0;i<nt;i++){
+          init_state();
+          for(j=0;j<(be[i]+.1)*20;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+          v=val();
+          s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
+        }
+        n++;
+        if(n%50==0){
+          for(i=0;i<nt;i++){
+            mu[i]=s1[i]/s0[i];
+            sd[i]=sqrt((s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1));
+            printf("%12g %12g %12g\n",be[i],mu[i],sd[i]);
+          }
+          for(jp=1;jp<=2;jp+=1){
+            i=nt-1;nc=0;
+            while(i>0){
+              cb[nc++]=be[i];
+              vmin=1e9;jm=-1;
+              for(j=i-1;j>=0;j--){
+                v=fabs(mu[i]+jp*sd[i]-mu[j]);
+                if(v<vmin){vmin=v;jm=j;}
+              }
+              i=jm;
+            }
+            printf("beta set @ %gsd:",jp);
+            for(i=nc-1;i>=0;i--)printf(" %.3f",cb[i]);
+            printf("\n");
+          }
+          printf("\n");
+        }
+      }
+    }
+    break;
+  case 16:// Exchange Monte-Carlo
+    {
+      int i,j,n;
+      int nt;// Number of temperatures
+      double be[]={0.102,0.111,0.150,0.188,0.225,0.266,0.309,0.354,0.406,0.464,0.532,0.618,0.729,0.887,1.146,2.000};
+      nt=sizeof(be)/sizeof(double);
+      double del;
+      int en[nt],ex[nt-1],sbuf[nt][NBV];
+      if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+      //initweights(weightmode);
+      printf("nt=%d\n",nt);
+      for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
+      for(i=0;i<nt-1;i++)ex[i]=0;
+      n=0;
+      while(1){
+        for(i=0;i<nt;i++){
+          memcpy(XBa,sbuf[i],NBV*sizeof(int));
+          for(j=0;j<20;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+          en[i]=val();
+          memcpy(sbuf[i],XBa,NBV*sizeof(int));
+          printf("%5d ",en[i]);
+        }
+        printf("\n");
+        for(i=0;i<nt-1;i++){
+          printf("     ");
+          del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+          if(del<0||randfloat()<exp(-del)){
+            memcpy(XBa,sbuf[i],NBV*sizeof(int));
+            memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
+            memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
+            v=en[i];en[i]=en[i+1];en[i+1]=v;
+            printf("X");
+            ex[i]++;
+          } else printf(" ");
+        }
+        printf("\n");
+        n++;
+        if(n%10==0){
+          printf("\n  ");
+          for(i=0;i<nt-1;i++)printf(" %5.3f",ex[i]/(double)n);
+          printf("\n\n");
         }
       }
     }
