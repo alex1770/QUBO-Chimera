@@ -1290,6 +1290,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
 }
 
 int cmpint(const void*p,const void*q){return *(int*)p-*(int*)q;}
+int cmpd(const void*p,const void*q){double z=*(double*)p-*(double*)q;return (z>0)-(z<0);}
 
 int okinv(int c,int r,int o,int s){// aborts if s isn't on the OK list
   int i;
@@ -2552,23 +2553,27 @@ int main(int ac,char**av){
     break;
   case 16:// Exchange Monte-Carlo, example calculating Binder ratio 
     {
-      int i,j,k,r,n,eqb,nd,pr=genp[0],btab[16];
+      int h,i,j,k,m,n,r,eqb,nd,btab[16];
       double be0[]={0.108,0.137,0.166,0.196,0.226,0.258,0.291,0.326,0.364,0.405,0.451,0.500,0.557,0.624,0.704,0.808,0.944,1.131,1.438,2.000};
       // ^ N=8 -w0 -x-1
       double be2[]={0.133,0.170,0.209,0.248,0.288,0.329,0.370,0.413,0.458,0.507,0.557,0.612,0.672,0.744,0.830,0.941,1.084,1.268,1.543,1.967,2.821,5.000};
       // ^ N=8 -w2 -x-1
       int nt;// Number of temperatures
+      int nhist,maxhist=500;// Keep samples for the purposes of error-estimating
       double *be;
       if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
       if(weightmode==0){be=be0;nt=sizeof(be0)/sizeof(double);} else {be=be2;nt=sizeof(be2)/sizeof(double);}
-      double q,x,del,nex,maxerr,lsp[nt][5],sp[nt][3][3],est[nt][3],ex[nt-1];
+      double q,x,del,nex,maxerr,ex[nt-1];
+      typedef struct {double n,qq[nt][2];} qest;
+      qest lsp,sp,hist[maxhist];
       int en[nt],sbuf[2][nt][NBV];
       printf("nt=%d\n",nt);
       printf("beta_low=%g\n",be[0]);
       printf("beta_high=%g\n",be[nt-1]);
       printf("be[] =");for(i=0;i<nt;i++)printf(" %5.3f",be[i]);printf("\n");
       for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
-      for(i=0;i<nt;i++)for(j=0;j<3;j++)for(k=0;k<3;k++)sp[i][j][k]=0;
+      sp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)sp.qq[i][j]=0;
+      nhist=0;
       for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
       nd=0;// Number of disorder samples
       eqb=(ngp>1?genp[1]:100);
@@ -2578,7 +2583,7 @@ int main(int ac,char**av){
       while(1){// Loop over disorders
         initweights(weightmode);// Disorder (J_ij) sample
         for(r=0;r<2;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
-        for(i=0;i<nt;i++)for(k=0;k<=4;k++)lsp[i][k]=0;
+        lsp.n=0;for(i=0;i<nt;i++)for(k=0;k<2;k++)lsp.qq[i][k]=0;
         n=-eqb;
         while(n<eqb){// Thermal loop
           for(r=0;r<2;r++){// Replica loop
@@ -2604,39 +2609,59 @@ int main(int ac,char**av){
           if(n>=0){
             for(i=0;i<nt;i++){
               for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[0][i][k]^sbuf[1][i][k]];q/=NV;
-              for(k=0,x=1;k<=4;k++){lsp[i][k]+=x;x*=q;}
+              x=q*q;lsp.qq[i][0]+=x;lsp.qq[i][1]+=x*x;
             }
-            if(pr>=2&&n%100==0){
-              for(i=0;i<nt;i++)printf("%6.3f ",.5*(3-lsp[i][0]*lsp[i][4]/(lsp[i][2]*lsp[i][2])));
-              printf("\n");
-            }
+            lsp.n+=1;// Keep this as a variable in case decide to vary the equilibrium point for different disorders
           }
         }
         nd++;
         
+        if(nhist<maxhist)hist[nhist++]=lsp; else {
+          nhist++;
+          i=randint(nhist);
+          if(i<maxhist)hist[i]=lsp;
+        }
+        int nsamp=200;
+        double p0=0.16;// Error percentile p0 to 1-p0, roughly corresponding to +/-1sd of a normal.
+        double q0,q2,q4,samp[nt][nsamp];
+        double est[nt],err[nt];
+        sp.n+=lsp.n;
+        for(i=0;i<nt;i++)for(j=0;j<2;j++)sp.qq[i][j]+=lsp.qq[i][j];// lsp.qq[i][j] = <q_i^(2(j+1))>   <.> = thermal sum
         for(i=0;i<nt;i++){
-          double err[3];
-          for(j=0;j<3;j++){
-            x=lsp[i][j*2];sp[i][j][0]+=1;sp[i][j][1]+=x;sp[i][j][2]+=x*x;// x=<q^(2j)>   <.> = thermal sum
-            err[j]=sqrt((sp[i][j][2]-sp[i][j][1]*sp[i][j][1]/sp[i][j][0])/(sp[i][j][0]-1)*sp[i][j][0]);
-            // ^ scales as sqrt(nd) not 1/sqrt(nd) because keeping unnormalised quantities
+          q0=sp.n;
+          q2=sp.qq[i][0];
+          q4=sp.qq[i][1];
+          est[i]=.5*(3-q0*q4/(q2*q2));
+        }
+        n=MIN(nhist,maxhist);
+        for(k=0;k<nsamp;k++){
+          lsp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]=0;
+          for(m=0;m<n;m++){// Didn't have to choose 'n' for the multiplicity here
+            h=randint(n);
+            lsp.n+=hist[h].n;
+            for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]+=hist[h].qq[i][j];
           }
-          for(j=-1;j<=1;j++){
-            double q0,q2,q4;
-            q0=sp[i][0][1];
-            q2=sp[i][1][1]+(j?j*err[1]:0);
-            q4=sp[i][2][1]-(j?j*err[2]:0);// ?: to avoid nans on first estimate
-            est[i][j+1]=.5*(3-q0*q4/(q2*q2));
+          for(i=0;i<nt;i++){
+            q0=lsp.n;
+            q2=lsp.qq[i][0];
+            q4=lsp.qq[i][1];
+            samp[i][k]=.5*(3-q0*q4/(q2*q2));
           }
+        }
+        for(i=0;i<nt;i++){
+          double e0,e1;
+          qsort(samp[i],nsamp,sizeof(double),cmpd);
+          e0=samp[i][(int)floor(p0*nsamp)];
+          e1=samp[i][(int)floor((1-p0)*nsamp)];
+          err[i]=MAX(fabs(est[i]-e0),fabs(est[i]-e1));
         }
         printf("\n");
         printf("Number of disorders: %d\n",nd);
         for(i=0;i<nt;i++)printf("%6.3f ",be[i]);printf("  be[]\n");
-        for(i=0;i<nt;i++)printf("%6.3f ",est[i][1]);printf("  est[]\n");
+        for(i=0;i<nt;i++)printf("%6.3f ",est[i]);printf("  est[]\n");
         for(i=0,maxerr=0;i<nt;i++){
-          x=MAX(fabs(est[i][1]-est[i][0]),fabs(est[i][1]-est[i][2]));
-          printf("%6.3f ",x);
-          if(x>maxerr)maxerr=x;
+          printf("%6.3f ",err[i]);
+          if(err[i]>maxerr)maxerr=err[i];
         }
         printf("  err[]\n");
         printf("  ");
