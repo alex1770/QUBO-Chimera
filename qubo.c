@@ -2477,7 +2477,7 @@ int main(int ac,char**av){
       int en[nt],ex[nt-1],sbuf[nt][NBV];
       if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
       //initweights(weightmode);
-      be0=0.1;be1=5;// low and high beta
+      be0=0.5;be1=5;// low and high beta
       for(i=0;i<nt;i++)be[i]=be0*pow(be1/be0,i/(nt-1.));// Interpolate geometrically for first guess
       printf("nt=%d\n",nt);
       printf("be0=%g\n",be0);
@@ -2529,7 +2529,7 @@ int main(int ac,char**av){
             }
             printf("\n");
           }
-          tp=0.3;// Go for this transition prob
+          tp=0.6;// Go for this transition prob
           j=nt-1;nb=0;
           while(j>0){
             ben[nb++]=be[j];
@@ -2555,9 +2555,11 @@ int main(int ac,char**av){
     {
       int h,i,j,k,m,n,r,eqb,nd,btab[16];
       double be0[]={0.108,0.137,0.166,0.196,0.226,0.258,0.291,0.326,0.364,0.405,0.451,0.500,0.557,0.624,0.704,0.808,0.944,1.131,1.438,2.000};
-      // ^ N=8 -w0 -x-1
-      double be2[]={0.133,0.170,0.209,0.248,0.288,0.329,0.370,0.413,0.458,0.507,0.557,0.612,0.672,0.744,0.830,0.941,1.084,1.268,1.543,1.967,2.821,5.000};
-      // ^ N=8 -w2 -x-1
+      // ^ N=8 -w0 -x-1 p=0.3
+      //double be2[]={0.133,0.170,0.209,0.248,0.288,0.329,0.370,0.413,0.458,0.507,0.557,0.612,0.672,0.744,0.830,0.941,1.084,1.268,1.543,1.967,2.821,5.000};
+      // ^ N=8 -w2 -x-1 p=0.3
+      double be2[]={0.502,0.528,0.556,0.585,0.613,0.644,0.678,0.713,0.754,0.797,0.842,0.894,0.954,1.022,1.101,1.190,1.294,1.419,1.570,1.762,2.015,2.357,2.821,3.505,5.000};
+      // ^ N=8 -w2 -x-1 p=0.6
       int nt;// Number of temperatures
       int nhist,maxhist=500;// Keep samples for the purposes of error-estimating
       double *be;
@@ -2621,7 +2623,7 @@ int main(int ac,char**av){
           i=randint(nhist);
           if(i<maxhist)hist[i]=lsp;
         }
-        int nsamp=200;
+        int nsubsamp,nsamp=200;
         double p0=0.16;// Error percentile p0 to 1-p0, roughly corresponding to +/-1sd of a normal.
         double q0,q2,q4,samp[nt][nsamp];
         double est[nt],err[nt];
@@ -2634,9 +2636,10 @@ int main(int ac,char**av){
           est[i]=.5*(3-q0*q4/(q2*q2));
         }
         n=MIN(nhist,maxhist);
+        nsubsamp=n;// say
         for(k=0;k<nsamp;k++){
           lsp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]=0;
-          for(m=0;m<n;m++){// Didn't have to choose 'n' for the multiplicity here
+          for(m=0;m<nsubsamp;m++){
             h=randint(n);
             lsp.n+=hist[h].n;
             for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]+=hist[h].qq[i][j];
@@ -2653,7 +2656,7 @@ int main(int ac,char**av){
           qsort(samp[i],nsamp,sizeof(double),cmpd);
           e0=samp[i][(int)floor(p0*nsamp)];
           e1=samp[i][(int)floor((1-p0)*nsamp)];
-          err[i]=MAX(fabs(est[i]-e0),fabs(est[i]-e1));
+          err[i]=MAX(fabs(est[i]-e0),fabs(est[i]-e1))*sqrt(nsubsamp/(double)nhist);
         }
         printf("\n");
         printf("Number of disorders: %d\n",nd);
