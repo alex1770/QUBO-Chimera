@@ -20,9 +20,10 @@
 // x_i can take the values statemap[0] and statemap[1] (default 0,1).
 // This includes the case described in section 3.2 of http://www.cs.amherst.edu/ccm/cf14-mcgeoch.pdf
 //
-// This now includes the union of all historical test code. To illustrate any particular
-// techinque probably only requires a small subset of this program. In other words, it
-// could do with a clean out and separating into different programs.
+// This now includes the union of all historical test code and is rather sprawling. To
+// illustrate any particular technique probably only requires a small subset of this
+// program. In other words, it could do with a clean out and separating into different
+// programs.
 // 
 // Chimera graph, C_N:
 // Vertices are (x,y,o,i)  0<=x,y<N, 0<=o<2, 0<=i<4
@@ -3023,9 +3024,11 @@ int main(int ac,char**av){
             fflush(stdout);
           }
           // N(mu,se^2) is actually a very poor approximation to the posterior distribution of the energy of the top beta
-          if(nd>=15&&mu-vmin>eps+2*se)break;
-          if(nd>=50){//                  50, eps/4 are rough-and-ready parameters
-            if(mu-vmin<eps&&se<eps/4){// 
+          int ndmax=5/eps;     // 5/eps, 0.25 are rough-and-ready parameters. >=5/eps gives some degree of protection against
+          double epsacc=0.25;  // rare events that are not modelled well by normal distribution.
+          if(nd>=15&&(mu-vmin>eps+2*(1-nd/(double)ndmax)*se||se>eps*epsacc*sqrt(nd/(double)ndmax)))break;
+          if(nd>=ndmax){
+            if(mu-vmin<eps&&se<eps*epsacc){// 
               if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
               for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
               printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, method=%g, workproduct=%d\n",
