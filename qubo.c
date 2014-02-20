@@ -2915,12 +2915,12 @@ int main(int ac,char**av){
         {0},
         {0},
         {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,10.000},// 4, 0.25
-        //{0.203,0.285,0.411,0.541,0.679,0.820,0.975,1.149,1.344,1.597,1.898,2.327,3.037,4.460,10.000},// 4, 0.4
         {0},
-        {0},
+        {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000},// 6, 0.25
         {0},
         {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,10.000},// 8, 0.25
-        //{0.203,0.265,0.328,0.389,0.452,0.516,0.581,0.643,0.707,0.776,0.846,0.915,0.990,1.071,1.158,1.252,1.355,1.477,1.610,1.768,1.958,2.202,2.516,2.920,3.525,4.495,6.150,10.000}// 8, 0.4
+        {0},
+        {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,10.000}// 10, 0.25
       };
       double be0[2]={genp[3]};
       double *be;
@@ -2945,11 +2945,13 @@ int main(int ac,char**av){
       for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
       printf("Monte Carlo mode %g\n",genp[0]);
       for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
+      int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
+                       // protection against rare events
       eqb=1;vmin=1000000000;
       while(1){// Loop over equilibration lengths
         double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
         double lem[nt];
-        printf("\nEquilibration length %d\n",eqb);
+        printf("\nEquilibration length %d\n",eqb);fflush(stdout);
         for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
         for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
         nd=0;
@@ -3023,22 +3025,18 @@ int main(int ac,char**av){
             printf(", CPU=%.2fs\n",cpu());
             fflush(stdout);
           }
-          // N(mu,se^2) is actually a very poor approximation to the posterior distribution of the energy of the top beta
-          int ndmax=5/eps;     // 5/eps, 0.25 are rough-and-ready parameters. >=5/eps gives some degree of protection against
-          double epsacc=0.25;  // rare events that are not modelled well by normal distribution.
-          if(nd>=15&&(mu-vmin>eps+2*(1-nd/(double)ndmax)*se||se>eps*epsacc*sqrt(nd/(double)ndmax)))break;
+          // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
+          if(nd>=15&&mu-vmin>eps)break;
           if(nd>=ndmax){
-            if(mu-vmin<eps&&se<eps*epsacc){// 
-              if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
-              for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
-              printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, method=%g, workproduct=%d\n",
-                     e,eps,nd,eqb,N,genp[0],e*nt);
-              goto ok1;
-            }else break;
+            if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
+            for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
+            printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, method=%g, workproduct=%d\n",
+                   e,eps,nd,eqb,N,genp[0],e*nt);
+            goto ok1;
           }
-        }// Runs
+        }// Runs (nd)
         if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return 1;}
-        eqb*=2;
+        eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+15/ndmax)/log(r)
       }// Eqbn times
     ok1:;
     }
