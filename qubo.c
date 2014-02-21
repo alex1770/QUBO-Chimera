@@ -750,7 +750,7 @@ double tree1gibbs(int d,int p,int r0,double beta){
   return W3[0];
 }
 
-double bigvertexgibbs(int d,int x,int y,double beta){// Does Gibbs iteration to a single "bigvertex" (4 spins)
+void bigvertexgibbs(int d,int x,int y,double beta){// Does Gibbs iteration to a single "bigvertex" (4 spins)
   // If d=0 then v=the bigvertex (x,y,0)
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
@@ -758,17 +758,18 @@ double bigvertexgibbs(int d,int x,int y,double beta){// Does Gibbs iteration to 
   // Comments and variable names are as if in the horizontally-connected case d=0.
   // This is the basic unit of the simple Monte Carlo sweep
   int s;
-  double z,Z,pr[16];
-  for(s=0,Z=0;s<16;s++){
-    pr[s]=exp(-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
-                     QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
-                     QBI(d,x,y,0,2,s,XBI(d,x+1,y,0))));
-    Z+=pr[s];
+  double z,Z,max,lp[16],pr[16];
+  for(s=0,Z=0,max=-1e9;s<16;s++){
+    lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
+                 QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
+                 QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
+    if(lp[s]>max)max=lp[s];
   }
+  for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
   for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
   assert(s<16);
   XBI(d,x,y,0)=s;
-  return Z;
+  //return Z*exp(-max);
 }
 
 typedef int treestriptype;// Use int if range of values exceeds 16 bits, or use short to save memory on a very wide exhaust.
@@ -2505,9 +2506,10 @@ int main(int ac,char**av){
     break;
   case 15:// Exchange Monte-Carlo: try to work out optimal temperatures
     {
-      int i,j,n,ech,pr=0;
+      int i,j,n,prch,pr=0;
+      int maxn=100000;
       int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
-      double tp,del,be0,be1,be[nt],s0[nt],s1[nt],s2[nt];
+      double tp,del,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
       int en[nt],ex[nt-1],sbuf[nt][NBV];
       //if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
       //initweights(weightmode);
@@ -2519,12 +2521,12 @@ int main(int ac,char**av){
       printf("%s mode\n",genp[0]?"Single bigvertex":"Tree");
       tp=ngp>4?genp[4]:0.25;
       printf("Going for transition probability %g\n",tp);
-      ech=100*(genp[0]?16:1);// Equilibration chunksize
+      prch=100*(genp[0]?16:1);// Print chunksize
       for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
       for(i=0;i<nt-1;i++)ex[i]=0;
       for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
-      n=-ech;
-      while(1){
+      vhist=(double(*)[nt])malloc(maxn*nt*sizeof(double));assert(vhist);
+      for(n=0;n<maxn;){
         for(i=0;i<nt;i++){
           memcpy(XBa,sbuf[i],NBV*sizeof(int));
           switch((int)(genp[0])){
@@ -2536,10 +2538,11 @@ int main(int ac,char**av){
             for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i]);
             break;
           }
-          v=val();en[i]=v;
+          v=val();en[i]=v;vhist[n][i]=v;
           memcpy(sbuf[i],XBa,NBV*sizeof(int));
           if(pr>=2)printf("%5d ",en[i]);
-          if(n>=0){s0[i]+=1;s1[i]+=v;s2[i]+=v*v;}
+          s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
+          if(n&1){v=vhist[n>>1][i];s0[i]-=1;s1[i]-=v;s2[i]-=v*v;}
         }
         if(pr>=2)printf("\n");
         for(i=0;i<nt-1;i++){
@@ -2551,12 +2554,12 @@ int main(int ac,char**av){
             memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
             v=en[i];en[i]=en[i+1];en[i+1]=v;
             if(pr>=3)printf("X");
-            if(n>=0)ex[i]++;
+            ex[i]++;
           } else if(pr>=3)printf(" ");
         }
         if(pr>=3)printf("\n");
         n++;
-        if(n>0&&n%ech==0){
+        if(n%prch==0){
           int i0,nb;
           double p,err,minerr,mu1,sd1,mu[nt],sd[nt],ben[nt];
           for(i=0;i<nt;i++){mu[i]=s1[i]/s0[i];sd[i]=sqrt((s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1));}
@@ -2770,8 +2773,8 @@ int main(int ac,char**av){
         {0},
         {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,10.000},// 4, 0.25
         //{0.203,0.285,0.411,0.541,0.679,0.820,0.975,1.149,1.344,1.597,1.898,2.327,3.037,4.460,10.000},// 4, 0.4
-        {0},
-        {0},
+        {0}, 
+        {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000},// 6, 0.25
         {0},
         {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,10.000},// 8, 0.25
         //{0.203,0.265,0.328,0.389,0.452,0.516,0.581,0.643,0.707,0.776,0.846,0.915,0.990,1.071,1.158,1.252,1.355,1.477,1.610,1.768,1.958,2.202,2.516,2.920,3.525,4.495,6.150,10.000}// 8, 0.4
@@ -2893,7 +2896,7 @@ int main(int ac,char**av){
             printf(", CPU=%.2fs\n",cpu());
             fflush(stdout);
           }
-          if(nd>=15&&chi>=nt+4*sqrt(nt))break;//alter
+          if(nd>=15&&chi>=nt+4*sqrt(nt))break;
           if(nd>=(genp[5]==0?1000:genp[5]))goto ok0;
         }// Disorders
         if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return 1;}
@@ -2916,7 +2919,7 @@ int main(int ac,char**av){
         {0},
         {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,10.000},// 4, 0.25
         {0},
-        {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000},// 6, 0.25
+        {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000,30},// 6, 0.25
         {0},
         {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,10.000},// 8, 0.25
         {0},
@@ -2932,19 +2935,25 @@ int main(int ac,char**av){
         be=bew7[N]-(int)(genp[3]);
       }else be=be0;
       for(nt=0;be[nt]>0;nt++);
-      int vmin,en[nt],sbuf[nt][NBV];
+      typedef struct {
+        int X[NBV];// State
+        int t[nt];// t[i] = Time last visited temperature i (-1 = never)
+        int e;// Energy
+      } tstate; // Tempering state
+      tstate sbuf[nt],ts;
+      int vmin;
       double em[nt][3];// Energy moments over all disorders
       double een[nt],ven[nt];// Derived energy estimates and std errs
-      double x,y,del,nex,ex[nt-1];
+      double x,y,del,nex,ex[nt-1],ex2[nt][nt];
       int eqb;// Current upper bound on equilibration time
       double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-      int c,d,e,i,n,p,r;
+      int c,d,e,i,j,k,n,p,r;
       double mu,va,se,nit,nsol;
       
       printf("Number of temperatures %d\n",nt);
       for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
       printf("Monte Carlo mode %g\n",genp[0]);
-      for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
+      for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
       int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
                        // protection against rare events
       eqb=1;vmin=1000000000;
@@ -2956,12 +2965,16 @@ int main(int ac,char**av){
         for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
         nd=0;
         while(1){// Loop over runs
+          for(i=0;i<nt;i++)for(j=0;j<nt;j++)ex2[i][j]=0;// Count of long-range exchanges for a particular run
           nit=nsol=0;d=p=r=0;
-          for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
+          for(i=0;i<nt;i++){
+            init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+            for(j=0;j<nt;j++)sbuf[i].t[j]=-(j!=i);
+          }
           for(i=0;i<nt;i++)lem[i]=0;
           for(n=0;n<2*eqb;n++){// Thermal loop
             for(i=0;i<nt;i++){
-              memcpy(XBa,sbuf[i],NBV*sizeof(int));
+              memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
               switch((int)(genp[0])){
               case 0:
                 tree1gibbs(randint(2),randint(2),randint(N),be[i]);
@@ -2972,23 +2985,29 @@ int main(int ac,char**av){
                 nit+=1;
                 break;
               }
-              v=val();en[i]=v;if(v<vmin)vmin=v;
-              memcpy(sbuf[i],XBa,NBV*sizeof(int));
+              v=val();if(v<vmin)vmin=v;
+              sbuf[i].e=v;
+              memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
             }
             for(i=0;i<nt-1;i++){
-              del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+              del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
               if(del<0||randfloat()<exp(-del)){
-                memcpy(XBa,sbuf[i],NBV*sizeof(int));
-                memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
-                memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
-                v=en[i];en[i]=en[i+1];en[i+1]=v;
+                ts=sbuf[i];
+                sbuf[i]=sbuf[i+1];
+                sbuf[i+1]=ts;
                 ex[i]++;
+                for(k=i;k<=i+1;k++){
+                  if(n>=eqb)for(j=0;j<nt;j++){
+                    if(sbuf[k].t[j]>sbuf[k].t[k])ex2[j][k]+=1;// add j->k flux unit if more recently in j than in k
+                  }
+                }
               }
+              for(j=0;j<nt;j++)sbuf[j].t[j]=nt*n+i;
             }
             nex++;
-            ten[n]=en[nt-1];// Store top energy at each sample step (for equilibration detection)
-            if(n>=eqb)for(i=0;i<nt;i++)lem[i]+=en[i];// Store total energies at each temperature (for interest)
-            if(pr>=3&&n>=eqb){for(i=0;i<nt;i++)printf("%8d ",en[i]);printf("\n");}
+            ten[n]=sbuf[nt-1].e;// Store top beta's energy at each sample step (for equilibration detection)
+            if(n>=eqb)for(i=0;i<nt;i++)lem[i]+=sbuf[i].e;// Store total energies at each temperature (for interest)
+            if(pr>=4)printf("Top beta energy %12g\n",ten[n]);
           }// Thermal
           for(i=0;i<nt;i++)lem[i]/=eqb;
           nd++;
@@ -2997,6 +3016,12 @@ int main(int ac,char**av){
             for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
             printf("   ");
             for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/nex);printf("        exch[]\n");
+          }
+          if(pr>=3){
+            for(i=0;i<nt;i++){
+              for(j=0;j<nt;j++)printf("%8.3f ",ex2[i][j]/eqb);
+              printf("\n");
+            }
           }
           for(i=0;i<nt;i++){
             x=lem[i];if(pr>=2)printf("%8.3f ",x);
