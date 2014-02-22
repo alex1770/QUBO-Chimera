@@ -2926,14 +2926,39 @@ int main(int ac,char**av){
         {0},
         {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
       };
+      double bew11[][50]={// Weightmode 11, be[]
+        {0},
+        {0},
+        {0.084,0.179,0.296,0.484,1.043,20.000},// 2, 0.25
+        {0},
+        {0.056,0.094,0.134,0.174,0.222,0.278,0.350,0.461,0.669,1.148,2.446,20.000},// 4, 0.25
+        {0},
+        {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
+        {0},
+        {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,0.840,1.121,1.646,2.894,20.000},// 8, 0.25
+        {0},
+        {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,0.419,0.472,0.539,0.622,0.736,0.892,1.134,1.531,2.222,3.507,6.166,20.000},// 10, 0.25
+        {0},
+        {0.052,0.064,0.077,0.090,0.103,0.116,0.129,0.142,0.156,0.170,0.185,0.201,0.216,0.233,0.250,0.269,0.289,0.310,0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000}// 12, 0.25
+      };
       double be0[2]={genp[3]};
       double *be;
       int nt;// Number of temperatures
       int nd;// Number of disorders sampled
       int pr=genp[1];
       if(genp[3]<=0){
-        assert(weightmode==7);
-        be=bew7[N]-(int)(genp[3]);
+        switch(weightmode){
+        case 7:
+          be=bew7[N]-(int)(genp[3]);
+          break;
+        case 11:
+          be=bew11[N]-(int)(genp[3]);
+          break;
+        default:
+          fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 7's set.\n",weightmode);
+          be=bew7[N]-(int)(genp[3]);
+          break;
+        }
       }else be=be0;
       for(nt=0;be[nt]>0;nt++);assert(nt>0);
       typedef struct {
@@ -2957,9 +2982,10 @@ int main(int ac,char**av){
       for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
       int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
                        // protection against rare events
-      eqb=1;vmin=1000000000;
+      eqb=ngp>5?genp[5]:1;vmin=1000000000;
       while(1){// Loop over equilibration lengths
         double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
+        // ^ causes trouble for the standard stupidly low stacksize - alter
         double lem[nt];
         printf("\nEquilibration length %d\n",eqb);fflush(stdout);
         for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
