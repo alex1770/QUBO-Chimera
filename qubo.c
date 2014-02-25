@@ -2982,6 +2982,7 @@ int main(int ac,char**av){
       for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
       int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
                        // protection against rare events
+      int ndgu=0.4*ndmax; // Give-up point
       eqb=ngp>5?genp[5]:1;vmin=1000000000;
       while(1){// Loop over equilibration lengths
         double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
@@ -3078,7 +3079,7 @@ int main(int ac,char**av){
             fflush(stdout);
           }
           // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
-          if(nd>=15&&mu-vmin>eps)break;
+          if(nd>=ndgu&&mu-vmin>eps)break;
           if(nd>=ndmax){
             if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
             for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
@@ -3088,7 +3089,7 @@ int main(int ac,char**av){
           }
         }// Runs (nd)
         if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return 1;}
-        eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+15/ndmax)/log(r)
+        eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+ndgu/ndmax)/log(r)
       }// Eqbn times
     ok1:;
     }
