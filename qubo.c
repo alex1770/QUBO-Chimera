@@ -750,7 +750,7 @@ double tree1gibbs(int d,int p,int r0,double beta){
   return W3[0];
 }
 
-void bigvertexgibbs(int d,int x,int y,double beta){// Does Gibbs iteration to a single "bigvertex" (4 spins)
+void bigvertexgibbs(int d,int x,int y,double beta,double*etab){// Does Gibbs iteration to a single "bigvertex" (4 spins)
   // If d=0 then v=the bigvertex (x,y,0)
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
@@ -758,14 +758,26 @@ void bigvertexgibbs(int d,int x,int y,double beta){// Does Gibbs iteration to a 
   // Comments and variable names are as if in the horizontally-connected case d=0.
   // This is the basic unit of the simple Monte Carlo sweep
   int s;
-  double z,Z,max,lp[16],pr[16];
-  for(s=0,Z=0,max=-1e9;s<16;s++){
-    lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
-                 QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
-                 QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
-    if(lp[s]>max)max=lp[s];
+  double z,Z,pr[16];
+  if(etab){// etab[i] = exp(-beta*i) for i=0,1,2,...
+    int max,lp[16];
+    for(s=0,Z=0,max=-1e9;s<16;s++){
+      lp[s]=-(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
+              QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
+              QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
+      if(lp[s]>max)max=lp[s];
+    }
+    for(s=0,Z=0;s<16;s++){pr[s]=etab[max-lp[s]];Z+=pr[s];}
+  }else{
+    double max,lp[16];
+    for(s=0,Z=0,max=-1e9;s<16;s++){
+      lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
+                   QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
+                   QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
+      if(lp[s]>max)max=lp[s];
+    }
+    for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
   }
-  for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
   for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
   assert(s<16);
   XBI(d,x,y,0)=s;
@@ -2047,6 +2059,27 @@ int linLB(int w){
   return vmin;
 }
 
+double*initetab(double beta){
+  int d,n,s0,s1,maxrange,maxr,min,max;
+  double *etab;
+  maxrange=0;
+  for(n=0;n<NBV;n++){
+    maxr=0;
+    for(d=0;d<3;d++){
+      min=1000000000;max=-min;
+      for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++){
+        if(QBa[n][d][s0][s1]>max)max=QBa[n][d][s0][s1];
+        if(QBa[n][d][s0][s1]<min)min=QBa[n][d][s0][s1];
+      }
+      maxr+=max-min;
+    }
+    if(maxr>maxrange)maxrange=maxr;
+  }
+  etab=(double*)malloc((maxrange+1)*sizeof(double));
+  for(n=0;n<=maxrange;n++)etab[n]=exp(-beta*n);
+  return etab;
+}
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,numpo;
   double mint,maxt;
@@ -2535,7 +2568,7 @@ int main(int ac,char**av){
             tree1gibbs(randint(2),randint(2),randint(N),be[i]);
             break;
           case 1:
-            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i]);
+            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],0);
             break;
           }
           v=val();en[i]=v;vhist[n][i]=v;
@@ -2833,7 +2866,7 @@ int main(int ac,char**av){
                   nit+=1;
                   break;
                 case 1:
-                  for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i]);
+                  for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],0);
                   nit+=1;
                   break;
                 }
@@ -2987,7 +3020,7 @@ int main(int ac,char**av){
       while(1){// Loop over equilibration lengths
         double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
         // ^ causes trouble for the standard stupidly low stacksize - alter
-        double lem[nt];
+        double lem[nt],*(etab[nt]);
         printf("\nEquilibration length %d\n",eqb);fflush(stdout);
         for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
         for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
@@ -2998,6 +3031,7 @@ int main(int ac,char**av){
           for(i=0;i<nt;i++){
             init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
             for(j=0;j<nt;j++)sbuf[i].t[j]=-(j!=i);
+            etab[i]=initetab(be[i]);
           }
           for(i=0;i<nt;i++)lem[i]=0;
           for(n=0;n<2*eqb;n++){// Thermal loop
@@ -3009,7 +3043,7 @@ int main(int ac,char**av){
                 nit+=1;
                 break;
               case 1:
-                for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i]);
+                for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],etab[i]);
                 nit+=1;
                 break;
               }
@@ -3087,6 +3121,7 @@ int main(int ac,char**av){
                    e,eps,nd,eqb,N,genp[0],e*nt);
             goto ok1;
           }
+          for(i=0;i<nt;i++)free(etab[i]);
         }// Runs (nd)
         if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return 1;}
         eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+ndgu/ndmax)/log(r)
