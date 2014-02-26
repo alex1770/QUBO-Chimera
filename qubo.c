@@ -3113,7 +3113,7 @@ int main(int ac,char**av){
             fflush(stdout);
           }
           // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
-          if(nd>=ndgu&&mu-vmin>eps)break;
+          if((mu-vmin)*MIN(nd,ndgu)/(double)ndgu>eps)break;
           if(nd>=ndmax){
             if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
             for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
