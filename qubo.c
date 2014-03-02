@@ -2060,21 +2060,28 @@ int linLB(int w){
 }
 
 double*initetab(double beta){
-  int d,n,s0,s1,maxrange,maxr,min,max;
+  int d,n,s0,s1,maxrange,maxd,maxr,min,max;
   double *etab;
   maxrange=0;
   for(n=0;n<NBV;n++){
     maxr=0;
     for(d=0;d<3;d++){
-      min=1000000000;max=-min;
-      for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++){
-        if(QBa[n][d][s0][s1]>max)max=QBa[n][d][s0][s1];
-        if(QBa[n][d][s0][s1]<min)min=QBa[n][d][s0][s1];
+      maxd=0;
+      for(s0=0;s0<16;s0++){
+        min=1000000000;max=-min;
+        for(s1=0;s1<16;s1++){
+          if(QBa[n][d][s0][s1]>max)max=QBa[n][d][s0][s1];
+          if(QBa[n][d][s0][s1]<min)min=QBa[n][d][s0][s1];
+        }
+        if(max-min>maxd)maxd=max-min;
       }
-      maxr+=max-min;
+      //printf("MAXD %d %d\n",d,maxd);
+      maxr+=maxd;
     }
+    //printf("MAXR %d %d\n",d,maxr);
     if(maxr>maxrange)maxrange=maxr;
   }
+  //printf("maxrange %d\n",maxrange);
   etab=(double*)malloc((maxrange+1)*sizeof(double));
   for(n=0;n<=maxrange;n++)etab[n]=exp(-beta*n);
   return etab;
@@ -3117,8 +3124,8 @@ int main(int ac,char**av){
           if(nd>=ndmax){
             if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
             for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
-            printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, method=%g, workproduct=%d\n",
-                   e,eps,nd,eqb,N,genp[0],e*nt);
+            printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, vmin=%d, method=%g, workproduct=%d\n",
+                   e,eps,nd,eqb,N,vmin,genp[0],e*nt);
             goto ok1;
           }
           for(i=0;i<nt;i++)free(etab[i]);
