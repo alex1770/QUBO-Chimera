@@ -107,6 +107,7 @@ void initrand(int seed){srandom(seed);}
 int randbit(void){return (random()>>16)&1;}
 int randsign(void){return randbit()*2-1;}
 int randnib(void){return (random()>>16)&15;}
+int randnum(void){return random();}
 int randint(int n){return random()%n;}
 double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
 
@@ -653,7 +654,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
   return v3[0];
 }
 
-double tree1gibbs(int d,int p,int r0,double beta){
+double tree1gibbs_slow(int d,int p,int r0,double beta){
   // If d=0 sample the (induced) tree consisting of all verts of columns of parity p,
   //               the o=1 (vertically connected) verts of the other columns, and row r0.
   // If d=1 then same with rows <-> columns.
@@ -750,38 +751,143 @@ double tree1gibbs(int d,int p,int r0,double beta){
   return W3[0];
 }
 
-void bigvertexgibbs(int d,int x,int y,double beta,double*etab){// Does Gibbs iteration to a single "bigvertex" (4 spins)
+double tree1gibbs(int d,int p,int r0,double beta,long double*etab){
+  // If d=0 sample the (induced) tree consisting of all verts of columns of parity p,
+  //               the o=1 (vertically connected) verts of the other columns, and row r0.
+  // If d=1 then same with rows <-> columns.
+  // Comments and variable names are as if in the column case (d=0)
+  // Updates tree to new sample and returns Z of tree
+  int b,c,f,r,s,dir,hc[N][N][16],hs[N][N][16],hr[N][16];
+  long double z,Z,max,pr[16],Z0[16],Z1[16],Z2[16],Z3[16],Z4[16];
+  // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
+  // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
+  // Z3[s] = const*(Z of tree to left of column c given that (c,r0,0) = s)
+
+  for(s=0;s<16;s++)Z3[s]=1;
+  for(c=0;c<N;c++){
+
+    for(s=0;s<16;s++)Z2[s]=1;
+    for(dir=0;dir<2;dir++){// dir=0 <-> increasing r, dir=1 <-> decreasing r
+      for(s=0;s<16;s++)Z0[s]=1;
+      for(r=dir*(N-1);r!=r0;r+=1-2*dir){
+        // Here Z0[b] = const*(Z of (c,previous,*) given that (c,r,1)=b)
+        if((c-p)&1){
+          for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
+            Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
+            if(Z1[b]>max)max=Z1[b];
+          }
+          for(b=0;b<16;b++)Z1[b]/=max;
+        } else {
+          for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
+            for(s=0,Z=0;s<16;s++){// s = state of (c,r,0)
+              pr[s]=etab[QBI(d,c,r,0,0,s,b)+
+                         QBI(d,c,r,0,1,s,XBI(d,c-1,r,0))+
+                         QBI(d,c,r,0,2,s,XBI(d,c+1,r,0))];
+              Z+=pr[s];
+            }
+            for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+            assert(s<16);
+            Z1[b]=Z0[b]*Z;
+            if(Z1[b]>max)max=Z1[b];
+            hc[c][r][b]=s;
+          }
+          for(b=0;b<16;b++)Z1[b]/=max;
+        }
+        for(b=0,max=0;b<16;b++){// b = state of (c,r+1-2*dir,1)
+          for(s=0,Z=0;s<16;s++){// s = state of (c,r,1)
+            pr[s]=Z1[s]*etab[QBI(d,c,r,1,2-dir,s,b)];
+            Z+=pr[s];
+          }
+          for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+          assert(s<16);
+          Z0[b]=Z;
+          if(Z>max)max=Z;
+          hs[c][r][b]=s;
+        }
+        for(b=0;b<16;b++)Z0[b]/=max;
+      }//r
+      for(s=0;s<16;s++)Z2[s]*=Z0[s];
+    }//dir
+    for(b=0,max=0;b<16;b++)if(Z2[b]>max)max=Z2[b];
+    for(b=0;b<16;b++)Z2[b]/=max;
+
+    for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
+      for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
+        pr[s]=Z2[s]*etab[QBI(d,c,r0,1,0,s,b)];
+        Z+=pr[s];
+      }
+      for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+      assert(s<16);
+      Z4[b]=Z3[b]*Z;
+      if(Z4[b]>max)max=Z4[b];
+      hc[c][r0][b]=s;
+    }
+    for(b=0;b<16;b++)Z4[b]/=max;
+
+    for(b=0;b<16;b++){// b = state of (c+1,r0,0)
+      for(s=0,Z=0;s<16;s++){// s = state of (c,r0,0)
+        pr[s]=Z4[s]*etab[QBI(d,c,r0,0,2,s,b)];
+        Z+=pr[s];
+      }
+      for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+      assert(s<16);
+      Z3[b]=Z;
+      if(Z>max)max=Z;
+      hr[c][b]=s;
+    }
+    for(b=0;b<16;b++)Z3[b]/=max;
+  }//c
+
+  for(c=N-1;c>=0;c--){
+    f=!((c-p)&1);
+    XBI(d,c,r0,0)=hr[c][c==N-1?0:XBI(d,c+1,r0,0)];
+    XBI(d,c,r0,1)=hc[c][r0][XBI(d,c,r0,0)];
+    for(r=r0+1;r<N;r++){
+      XBI(d,c,r,1)=hs[c][r][XBI(d,c,r-1,1)];
+      if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+    }
+    for(r=r0-1;r>=0;r--){
+      XBI(d,c,r,1)=hs[c][r][XBI(d,c,r+1,1)];
+      if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+    }
+  }
+
+  return Z3[0];
+}
+
+void bigvertexgibbs_slow(int d,int x,int y,double beta){// Does Gibbs iteration to a single "bigvertex" (4 spins)
   // If d=0 then v=the bigvertex (x,y,0)
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
   // distribution at inverse temperature beta conditioned on the rest of the graph.
-  // Comments and variable names are as if in the horizontally-connected case d=0.
   // This is the basic unit of the simple Monte Carlo sweep
   int s;
   double z,Z,pr[16];
-  if(etab){// etab[i] = exp(-beta*i) for i=0,1,2,...
-    int max,lp[16];
-    for(s=0,Z=0,max=-1e9;s<16;s++){
-      lp[s]=-(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
-              QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
-              QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
-      if(lp[s]>max)max=lp[s];
-    }
-    for(s=0,Z=0;s<16;s++){pr[s]=etab[max-lp[s]];Z+=pr[s];}
-  }else{
-    double max,lp[16];
-    for(s=0,Z=0,max=-1e9;s<16;s++){
-      lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
-                   QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
-                   QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
-      if(lp[s]>max)max=lp[s];
-    }
-    for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
+  double max,lp[16];
+  for(s=0,Z=0,max=-1e9;s<16;s++){
+    lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
+                 QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
+                 QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
+    if(lp[s]>max)max=lp[s];
   }
+  for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
   for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
   assert(s<16);
   XBI(d,x,y,0)=s;
-  //return Z*exp(-max);
+}
+
+void bigvertexgibbs(int d,int x,int y,double beta,unsigned int(*bigtab)[16][16][16][16]){// Does Gibbs iteration to a single "bigvertex" (4 spins)
+  // If d=0 then v=the bigvertex (x,y,0)
+  // If d=1 then v=the bigvertex (y,x,1)
+  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+  // distribution at inverse temperature beta conditioned on the rest of the graph.
+  // This is the basic unit of the simple Monte Carlo sweep
+  int s,p;
+  unsigned int z,*cp;
+  cp=bigtab[encI(d,x,y,0)][XBI(d,x,y,1)][XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+  z=randnum();
+  for(p=8,s=0;p>0;p>>=1)if(z>=cp[s+p])s+=p;
+  XBI(d,x,y,0)=s;
 }
 
 typedef int treestriptype;// Use int if range of values exceeds 16 bits, or use short to save memory on a very wide exhaust.
@@ -1126,7 +1232,7 @@ int stabletreeexhaust(int cv,int wid,int64*ntr){// Repeated tree exhausts until 
   n=0;d=randint(2);ph=ph0=randint(wid+1);r=randint(N);
   while(1){
     if(ntr)(*ntr)++;
-    if(wid==1)v=tree1exhaust(d,ph,r,1);//{tree1gibbs(d,ph,r,genp[0]);v=val();}
+    if(wid==1)v=tree1exhaust(d,ph,r,1);//{tree1gibbs_slow(d,ph,r,genp[0]);v=val();}
     else v=treestripexhaust(d,wid,ph,1,r);
     if(v<cv){cv=v;n=0;}else{n+=1;if(n==(wid+1)*2)return cv;}
     r=(r+1)%N;
@@ -2059,32 +2165,384 @@ int linLB(int w){
   return vmin;
 }
 
-double*initetab(double beta){
-  int d,n,s0,s1,maxrange,maxd,maxr,min,max;
-  double *etab;
-  maxrange=0;
+long double*initetab(double beta,int *offset){
+  int d,n,s0,s1,min0,max0,min1,max1,min2,max2;
+  long double *etab;
+  min0=max0=0;
   for(n=0;n<NBV;n++){
-    maxr=0;
-    for(d=0;d<3;d++){
-      maxd=0;
-      for(s0=0;s0<16;s0++){
-        min=1000000000;max=-min;
+    for(s0=0;s0<16;s0++){
+      min1=max1=0;
+      for(d=0;d<3;d++){
+        min2=max2=0;
         for(s1=0;s1<16;s1++){
-          if(QBa[n][d][s0][s1]>max)max=QBa[n][d][s0][s1];
-          if(QBa[n][d][s0][s1]<min)min=QBa[n][d][s0][s1];
+          if(QBa[n][d][s0][s1]>max2)max2=QBa[n][d][s0][s1];
+          if(QBa[n][d][s0][s1]<min2)min2=QBa[n][d][s0][s1];
         }
-        if(max-min>maxd)maxd=max-min;
+        min1+=min2;max1+=max2;
       }
-      //printf("MAXD %d %d\n",d,maxd);
-      maxr+=maxd;
+      if(min1<min0)min0=min1;
+      if(max1>max0)max0=max1;
     }
-    //printf("MAXR %d %d\n",d,maxr);
-    if(maxr>maxrange)maxrange=maxr;
   }
-  //printf("maxrange %d\n",maxrange);
-  etab=(double*)malloc((maxrange+1)*sizeof(double));
-  for(n=0;n<=maxrange;n++)etab[n]=exp(-beta*n);
+  //printf("Range %d to %d\n",min0,max0);
+  etab=(long double*)malloc((max0-min0+1)*sizeof(long double));
+  for(n=min0;n<=max0;n++)etab[n-min0]=expl(-beta*n);
+  *offset=-min0;
   return etab;
+}
+
+int findeqbmusingchisq(int weightmode){
+  // Compare equilibration times of exchange Monte-Carlo by measuring <E>. Use chi^2 method on all temps to determine eqbn.
+  // Currently configured to use only a particular disorder (specified by the input seed).
+  //if(weightmode!=2||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=2, statemap[0]=-1\n");
+  double bew7[][50]={// Weightmode 7, be[]
+    {0},
+    {0},
+    {0},
+    {0},
+    {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,10.000},// 4, 0.25
+    //{0.203,0.285,0.411,0.541,0.679,0.820,0.975,1.149,1.344,1.597,1.898,2.327,3.037,4.460,10.000},// 4, 0.4
+    {0}, 
+    {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000},// 6, 0.25
+    {0},
+    {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,10.000},// 8, 0.25
+    //{0.203,0.265,0.328,0.389,0.452,0.516,0.581,0.643,0.707,0.776,0.846,0.915,0.990,1.071,1.158,1.252,1.355,1.477,1.610,1.768,1.958,2.202,2.516,2.920,3.525,4.495,6.150,10.000}// 8, 0.4
+  };
+  double be0[2]={genp[3]};
+  double *be;
+  //double be[]={0.507,0.548,0.590,0.639,0.691,0.750,0.819,0.898,0.999,1.121,1.282,1.506,1.854,2.502,5.000};
+  // ^ N=8 -w2 -x-1 p=0.4
+  //double be[]={0.108,0.137,0.167,0.199,0.237,0.278,0.325,0.388,0.482,0.635,0.886,1.366,2.369,5.000};
+  // ^ N=4 -w11 p=0.4
+  //double be[]={0.108,0.122,0.137,0.151,0.167,0.184,0.199,0.215,0.233,0.252,0.273,0.295,0.319,0.345,0.381,0.420,0.463,0.521,0.598,0.700,0.852,1.058,1.366,1.835,2.718,5.000};
+  // ^ N=8 -w11 p=0.4
+  int nt;// Number of temperatures
+  int nd;// Number of disorders sampled
+  int pr=2;
+  if(genp[3]<=0){
+    assert(weightmode==7);
+    be=bew7[N]-(int)(genp[3]);
+  }else be=be0;
+  for(nt=0;be[nt]>0;nt++);
+  int en[nt],sbuf[nt][NBV];
+  double lem[2][nt];// Total energies for a given disorder
+  double em[2][nt][3];// Energy moments over all disorders
+  double een[2][nt],ven[2][nt];// Derived energy estimates and std errs
+  double x,del,nex,ex[nt-1];
+  int eqb,leqb;// Equilibration time
+  double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
+  double chi;
+  int c,d,e,i,n,p,r,v;
+  double nit,nsol;
+      
+  printf("Number of temperatures %d\n",nt);
+  for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+  printf("Monte Carlo mode %g (%g)\n",genp[0],genp[1]);
+  for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
+  eqb=1;
+  while(1){// Loop over equilibration times
+    printf("\nEquilibration times %d and %d\n",eqb,eqb*2);
+    for(e=0;e<2;e++)for(i=0;i<nt;i++)em[e][i][0]=em[e][i][1]=em[e][i][2]=0;
+    nd=0;
+    while(1){// Loop over disorders and runs
+      //if(genp[1]==0)initweights(weightmode);// Disorder (J_ij) sample
+      for(e=0;e<2;e++){// Loop over two equilibrations being compared
+        leqb=eqb<<e;
+        nit=nsol=0;d=p=r=0;
+      lp0:
+        for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
+        for(i=0;i<nt;i++)lem[e][i]=0;
+        for(n=0;n<2*leqb||genp[1]<0;n++){// Thermal loop
+          for(i=0;i<nt;i++){
+            memcpy(XBa,sbuf[i],NBV*sizeof(int));
+            switch((int)(genp[0])){
+            case 0:
+              tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
+              nit+=1;
+              break;
+            case 1:
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_slow(d,c,r,be[i]);
+              nit+=1;
+              break;
+            }
+            v=val();en[i]=v;
+            memcpy(sbuf[i],XBa,NBV*sizeof(int));
+            if(genp[1]<0&&v==genp[1]){nsol+=1;printf("IT %g   SOL %g    IT/SOL %g\n",nit,nsol,nit/nsol);goto lp0;}
+          }
+          for(i=0;i<nt-1;i++){
+            del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+            if(del<0||randfloat()<exp(-del)){
+              memcpy(XBa,sbuf[i],NBV*sizeof(int));
+              memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
+              memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
+              v=en[i];en[i]=en[i+1];en[i+1]=v;
+              ex[i]++;
+            }
+          }
+          nex++;
+          if(n>=leqb)for(i=0;i<nt;i++)lem[e][i]+=en[i];// Add energies deemed to have been equilibrated
+          if(pr>=3&&n>=leqb){for(i=0;i<nt;i++)printf("%8d ",en[i]);printf("  e=%d\n",e);}
+        }// Thermal
+        for(i=0;i<nt;i++)lem[e][i]/=leqb;
+      }// e
+      nd++;
+      if(pr>=1){
+        printf("\n");
+        for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+        printf("   ");
+        for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/nex);printf("        exch[]\n");
+      }
+      for(e=0;e<2;e++){
+        for(i=0;i<nt;i++){
+          x=lem[e][i];if(pr>=2)printf("%8.3f ",x);
+          em[e][i][0]+=1;em[e][i][1]+=x;em[e][i][2]+=x*x;
+          een[e][i]=em[e][i][1]/em[e][i][0];
+          ven[e][i]=(em[e][i][2]-em[e][i][1]*em[e][i][1]/em[e][i][0])/(em[e][i][0]-1)/em[e][i][0];
+        }
+        if(pr>=2)printf("  sample_%d\n",eqb<<e);
+      }
+      if(pr>=1){
+        for(e=0;e<2;e++){
+          for(i=0;i<nt;i++)printf("%8.3f ",een[e][i]);printf("  een[%d][]\n",eqb<<e);
+          for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[e][i]));printf("  err[%d][]\n",eqb<<e);
+        }
+      }
+      for(i=0;i<nt;i++){
+        x=een[0][i]-een[1][i];
+        x=x*x/(ven[0][i]+ven[1][i]);if(pr>=1)printf("%8.2f ",x);
+      }
+      if(pr>=1)printf("  chi^2 (raw)\n");
+      chi=0;
+      for(i=0;i<nt;i++){
+        x=fabs(een[0][i]-een[1][i])-eps;x=MAX(x,0);
+        x=x*x/(ven[0][i]+ven[1][i]);if(pr>=1)printf("%8.2f ",x);
+        chi+=x;
+      }
+      if(pr>=1){
+        printf("  chi^2 (reduced)\n");
+        printf("Error %g cf chi^2_%d, N=%d, nd=%d, genp[]=",chi,nt,N,nd);
+        for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
+        printf(", CPU=%.2fs\n",cpu());
+        fflush(stdout);
+      }
+      if(nd>=15&&chi>=nt+4*sqrt(nt))break;
+      if(nd>=(genp[5]==0?1000:genp[5]))goto ok0;
+    }// Disorders
+    if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return -1;}
+    eqb*=2;
+  }// Eqbn times
+ ok0:
+  printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, N=%d, method=%g\n",eqb,eps,nd,N,genp[0]);
+  return eqb;
+}
+
+int findeqbmusingtopbeta(int weightmode){
+  // Compare equilibration times of exchange Monte-Carlo by measuring <E>. Determine eqbn
+  // by assuming top beta is enough to essentially force groundstate.  Currently
+  // configured to use only a particular disorder (specified by the input seed).
+  double bew7[][50]={// Weightmode 7, be[]
+    {0},
+    {0},
+    {0.202,0.485,0.911,1.549,3.042,50.000},// 2, 0.25
+    {0},
+    {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,50.000},// 4, 0.25
+    {0},
+    {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,50.000},// 6, 0.25
+    {0},
+    {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,
+     2.920,3.783,5.511,50.000},// 8, 0.25
+    {0},
+    {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,
+     1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
+  };
+  double bew11[][50]={// Weightmode 11, be[]
+    {0},
+    {0},
+    {0.084,0.179,0.296,0.484,1.043,20.000},// 2, 0.25
+    {0},
+    {0.056,0.094,0.134,0.174,0.222,0.278,0.350,0.461,0.669,1.148,2.446,20.000},// 4, 0.25
+    {0},
+    {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
+    {0},
+    {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,
+     0.840,1.121,1.646,2.894,20.000},// 8, 0.25
+    {0},
+    {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,
+     0.419,0.472,0.539,0.622,0.736,0.892,1.134,1.531,2.222,3.507,6.166,20.000},// 10, 0.25
+    {0},
+    {0.052,0.064,0.077,0.090,0.103,0.116,0.129,0.142,0.156,0.170,0.185,0.201,0.216,0.233,0.250,0.269,0.289,0.310,
+     0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000}// 12, 0.25
+  };
+  double be0[2]={genp[3]};
+  double *be;
+  int nt;// Number of temperatures
+  int nd;// Number of disorders sampled
+  int pr=genp[1];
+  if(genp[3]<=0){
+    switch(weightmode){
+    case 7:
+      be=bew7[N]-(int)(genp[3]);
+      break;
+    case 11:
+      be=bew11[N]-(int)(genp[3]);
+      break;
+    default:
+      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 7's set.\n",weightmode);
+      be=bew7[N]-(int)(genp[3]);
+      break;
+    }
+  }else be=be0;
+  for(nt=0;be[nt]>0;nt++);assert(nt>0);
+  typedef struct {
+    int X[NBV];// State
+    int t[nt];// t[i] = Time last visited temperature i (-1 = never)
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate sbuf[nt],ts;
+  int vmin;
+  double em[nt][3];// Energy moments over all disorders
+  double een[nt],ven[nt];// Derived energy estimates and std errs
+  double x,y,del,nex,ex[nt-1],ex2[nt][nt];
+  int eqb;// Current upper bound on equilibration time
+  int offset[nt];// Zero point of etab[i] table
+  double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
+  int c,d,e,i,j,k,n,p,r,v;
+  double mu,va,se,nit,nsol;
+  long double *(etab[nt]);
+  unsigned int bigtab[nt][NBV][16][16][16][16];
+  // ^ causes trouble for the standard stupidly low stacksize
+
+  printf("Number of temperatures %d\n",nt);
+  for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+  printf("Monte Carlo mode %g\n",genp[0]);
+  for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
+  int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
+  // protection against rare events
+  int ndgu=0.4*ndmax; // Give-up point
+  eqb=ngp>5?genp[5]:1;vmin=1000000000;
+
+  for(i=0;i<nt;i++)etab[i]=initetab(be[i],&offset[i]);
+  if(genp[0]==1){
+    int p,s,x0,x1,x2;
+    long double z,Z,pr[16];
+    for(i=0;i<nt;i++){
+      for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
+        for(s=0,Z=0;s<16;s++){pr[s]=etab[i][offset[i]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
+        for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
+      }
+    }
+  }
+  while(1){// Loop over equilibration lengths
+    double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
+    // ^ causes trouble for the standard stupidly low stacksize
+    double lem[nt];
+    printf("\nEquilibration length %d\n",eqb);fflush(stdout);
+    for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
+    for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
+    nd=0;
+    while(1){// Loop over runs
+      for(i=0;i<nt;i++)for(j=0;j<nt;j++)ex2[i][j]=0;// Count of long-range exchanges for a particular run
+      nit=nsol=0;d=p=r=0;
+      for(i=0;i<nt;i++){
+        init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+        for(j=0;j<nt;j++)sbuf[i].t[j]=-(j!=i);
+      }
+      for(i=0;i<nt;i++)lem[i]=0;
+      for(n=0;n<2*eqb;n++){// Thermal loop
+        for(i=0;i<nt;i++){
+          memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+          switch((int)(genp[0])){
+          case 0:
+            //tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
+            tree1gibbs(randint(2),randint(2),randint(N),be[i],etab[i]+offset[i]);
+            nit+=1;
+            break;
+          case 1:
+            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],bigtab[i]);
+            nit+=1;
+            break;
+          }
+          v=val();if(v<vmin)vmin=v;
+          sbuf[i].e=v;
+          memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+        }
+        for(i=0;i<nt-1;i++){
+          del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
+          if(del<0||randfloat()<exp(-del)){
+            ts=sbuf[i];
+            sbuf[i]=sbuf[i+1];
+            sbuf[i+1]=ts;
+            ex[i]++;
+            for(k=i;k<=i+1;k++){
+              if(n>=eqb)for(j=0;j<nt;j++){
+                if(sbuf[k].t[j]>sbuf[k].t[k])ex2[j][k]+=1;// add j->k flux unit if more recently in j than in k
+              }
+            }
+          }
+          for(j=0;j<nt;j++)sbuf[j].t[j]=nt*n+i;
+        }
+        nex++;
+        ten[n]=sbuf[nt-1].e;// Store top beta's energy at each sample step (for equilibration detection)
+        if(n>=eqb)for(i=0;i<nt;i++)lem[i]+=sbuf[i].e;// Store total energies at each temperature (for interest)
+        if(pr>=4)printf("Top beta energy %12g\n",ten[n]);
+      }// Thermal
+      for(i=0;i<nt;i++)lem[i]/=eqb;
+      nd++;
+      if(pr>=1){
+        printf("\n");
+        for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+        printf("   ");
+        for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/nex);printf("        exch[]\n");
+      }
+      if(pr>=3){
+        for(i=0;i<nt;i++){
+          for(j=0;j<nt;j++)printf("%8.3f ",ex2[i][j]/eqb);
+          printf("\n");
+        }
+      }
+      for(i=0;i<nt;i++){
+        x=lem[i];if(pr>=2)printf("%8.3f ",x);
+        em[i][0]+=1;em[i][1]+=x;em[i][2]+=x*x;
+        een[i]=em[i][1]/em[i][0];
+        ven[i]=(em[i][2]-em[i][1]*em[i][1]/em[i][0])/(em[i][0]-1)/em[i][0];
+      }
+      if(pr>=2)printf("  sample_%d\n",eqb);
+      if(pr>=1){
+        for(i=0;i<nt;i++)printf("%8.3f ",een[i]);printf("  een[%d][]\n",eqb);
+        for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf("  err[%d][]\n",eqb);
+      }
+      for(n=1,x=0;n<=eqb;n++){
+        x+=ten[2*n-2]+ten[2*n-1]-ten[n-1];
+        // x = sum of ten[n],...,ten[2n-1] = the top-energy terms that would be used at eqb=n
+        y=x/n;
+        sten0[n]+=1;sten1[n]+=y;sten2[n]+=y*y;
+      }
+      mu=sten1[eqb]/sten0[eqb];
+      va=(sten2[eqb]-sten1[eqb]*sten1[eqb]/sten0[eqb])/(sten0[eqb]-1);
+      se=sqrt(va/sten0[eqb]);
+      assert(mu>=vmin);
+      if(pr>=1){
+        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, genp[]=",mu-vmin,se,vmin,N,nd);
+        for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
+        printf(", CPU=%.2fs\n",cpu());
+        fflush(stdout);
+      }
+      // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
+      if((mu-vmin)*MIN(nd,ndgu)/(double)ndgu>eps)break;
+      if(nd>=ndmax){
+        if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
+        for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
+        printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, vmin=%d, method=%g, workproduct=%d\n",
+               e,eps,nd,eqb,N,vmin,genp[0],e*nt);
+        goto ok1;
+      }
+    }// Runs (nd)
+    if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return -1;}
+    eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+ndgu/ndmax)/log(r)
+  }// Eqbn times
+ ok1:;
+  for(i=0;i<nt;i++)free(etab[i]);
+  return eqb;
 }
 
 int main(int ac,char**av){
@@ -2457,7 +2915,7 @@ int main(int ac,char**av){
         for(n=0;n<10000;n++){
           init_state();
           for(i=0;i<nn;i++){
-            tree1gibbs(randint(2),randint(2),randint(N),beta);
+            tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
             v=val();assert(isfinite(v));
             s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
           }
@@ -2475,12 +2933,12 @@ int main(int ac,char**av){
         if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
         beta=.8;rep=10000;
         init_state();
-        for(i=0;i<(beta+1)*20;i++)tree1gibbs(randint(2),randint(2),randint(N),beta);// burn-in guess
+        for(i=0;i<(beta+1)*20;i++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);// burn-in guess
         for(i=0;i<nb;i++)s0[i]=s1[i]=s2[i]=0;
         bp=0;it=-nb;
         for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
         while(1){
-          for(i=0;i<rep;i++)tree1gibbs(randint(2),randint(2),randint(N),beta);
+          for(i=0;i<rep;i++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
           memcpy(sbuf[bp],XBa,NBV*sizeof(int));
           if(it>=0){
             for(i=0;i<nb;i++){// Correlate current with "i" ago
@@ -2521,7 +2979,7 @@ int main(int ac,char**av){
         initweights(weightmode);
         for(i=0;i<nb;i++){// State samples
           init_state();
-          for(j=0;j<burnin;j++)tree1gibbs(randint(2),randint(2),randint(N),beta);
+          for(j=0;j<burnin;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
           memcpy(sbuf[i],XBa,NBV*sizeof(int));
         }
         for(i=0;i<nb-1;i++)for(j=i+1;j<nb;j++){
@@ -2572,10 +3030,10 @@ int main(int ac,char**av){
           switch((int)(genp[0])){
             int d,r,c;
           case 0:
-            tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+            tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
             break;
           case 1:
-            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],0);
+            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_slow(d,c,r,be[i]);
             break;
           }
           v=val();en[i]=v;vhist[n][i]=v;
@@ -2683,7 +3141,7 @@ int main(int ac,char**av){
           r=0;
           for(i=0;i<nt;i++){
             memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
-            for(j=0;j<1;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+            for(j=0;j<1;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
             v=val();en[i]=v;
             if(v<vmin){vmin=v;printf("min = %d\n",vmin);}
             memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
@@ -2717,7 +3175,7 @@ int main(int ac,char**av){
           for(r=0;r<2;r++){// Replica loop
             for(i=0;i<nt;i++){
               memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
-              for(j=0;j<1;j++)tree1gibbs(randint(2),randint(2),randint(N),be[i]);
+              for(j=0;j<1;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
               v=val();en[i]=v;
               memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
             }
@@ -2803,338 +3261,11 @@ int main(int ac,char**av){
     break;
 
   case 17:
-    // Compare equilibration times of exchange Monte-Carlo by measuring <E>. Use chi^2 method on all temps to determine eqbn.
-    // Currently configured to use only a particular disorder (specified by the input seed).
-    {
-      //if(weightmode!=2||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=2, statemap[0]=-1\n");
-      double bew7[][50]={// Weightmode 7, be[]
-        {0},
-        {0},
-        {0},
-        {0},
-        {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,10.000},// 4, 0.25
-        //{0.203,0.285,0.411,0.541,0.679,0.820,0.975,1.149,1.344,1.597,1.898,2.327,3.037,4.460,10.000},// 4, 0.4
-        {0}, 
-        {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000},// 6, 0.25
-        {0},
-        {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,10.000},// 8, 0.25
-        //{0.203,0.265,0.328,0.389,0.452,0.516,0.581,0.643,0.707,0.776,0.846,0.915,0.990,1.071,1.158,1.252,1.355,1.477,1.610,1.768,1.958,2.202,2.516,2.920,3.525,4.495,6.150,10.000}// 8, 0.4
-      };
-      double be0[2]={genp[3]};
-      double *be;
-      //double be[]={0.507,0.548,0.590,0.639,0.691,0.750,0.819,0.898,0.999,1.121,1.282,1.506,1.854,2.502,5.000};
-      // ^ N=8 -w2 -x-1 p=0.4
-      //double be[]={0.108,0.137,0.167,0.199,0.237,0.278,0.325,0.388,0.482,0.635,0.886,1.366,2.369,5.000};
-      // ^ N=4 -w11 p=0.4
-      //double be[]={0.108,0.122,0.137,0.151,0.167,0.184,0.199,0.215,0.233,0.252,0.273,0.295,0.319,0.345,0.381,0.420,0.463,0.521,0.598,0.700,0.852,1.058,1.366,1.835,2.718,5.000};
-      // ^ N=8 -w11 p=0.4
-      int nt;// Number of temperatures
-      int nd;// Number of disorders sampled
-      int pr=2;
-      if(genp[3]<=0){
-        assert(weightmode==7);
-        be=bew7[N]-(int)(genp[3]);
-      }else be=be0;
-      for(nt=0;be[nt]>0;nt++);
-      int en[nt],sbuf[nt][NBV];
-      double lem[2][nt];// Total energies for a given disorder
-      double em[2][nt][3];// Energy moments over all disorders
-      double een[2][nt],ven[2][nt];// Derived energy estimates and std errs
-      double x,del,nex,ex[nt-1];
-      int eqb,leqb;// Equilibration time
-      double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-      double chi;
-      int c,d,e,i,n,p,r;
-      double nit,nsol;
-      
-      printf("Number of temperatures %d\n",nt);
-      for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
-      printf("Monte Carlo mode %g (%g)\n",genp[0],genp[1]);
-      for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
-      eqb=1;
-      while(1){// Loop over equilibration times
-        printf("\nEquilibration times %d and %d\n",eqb,eqb*2);
-        for(e=0;e<2;e++)for(i=0;i<nt;i++)em[e][i][0]=em[e][i][1]=em[e][i][2]=0;
-        nd=0;
-        while(1){// Loop over disorders and runs
-          //if(genp[1]==0)initweights(weightmode);// Disorder (J_ij) sample
-          for(e=0;e<2;e++){// Loop over two equilibrations being compared
-            leqb=eqb<<e;
-            nit=nsol=0;d=p=r=0;
-          lp0:
-            for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
-            for(i=0;i<nt;i++)lem[e][i]=0;
-            for(n=0;n<2*leqb||genp[1]<0;n++){// Thermal loop
-              for(i=0;i<nt;i++){
-                memcpy(XBa,sbuf[i],NBV*sizeof(int));
-                switch((int)(genp[0])){
-                case 0:
-                  tree1gibbs(randint(2),randint(2),randint(N),be[i]);
-                  nit+=1;
-                  break;
-                case 1:
-                  for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],0);
-                  nit+=1;
-                  break;
-                }
-                v=val();en[i]=v;
-                memcpy(sbuf[i],XBa,NBV*sizeof(int));
-                if(genp[1]<0&&v==genp[1]){nsol+=1;printf("IT %g   SOL %g    IT/SOL %g\n",nit,nsol,nit/nsol);goto lp0;}
-              }
-              for(i=0;i<nt-1;i++){
-                del=(be[i+1]-be[i])*(en[i]-en[i+1]);
-                if(del<0||randfloat()<exp(-del)){
-                  memcpy(XBa,sbuf[i],NBV*sizeof(int));
-                  memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
-                  memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
-                  v=en[i];en[i]=en[i+1];en[i+1]=v;
-                  ex[i]++;
-                }
-              }
-              nex++;
-              if(n>=leqb)for(i=0;i<nt;i++)lem[e][i]+=en[i];// Add energies deemed to have been equilibrated
-              if(pr>=3&&n>=leqb){for(i=0;i<nt;i++)printf("%8d ",en[i]);printf("  e=%d\n",e);}
-            }// Thermal
-            for(i=0;i<nt;i++)lem[e][i]/=leqb;
-          }// e
-          nd++;
-          if(pr>=1){
-            printf("\n");
-            for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
-            printf("   ");
-            for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/nex);printf("        exch[]\n");
-          }
-          for(e=0;e<2;e++){
-            for(i=0;i<nt;i++){
-              x=lem[e][i];if(pr>=2)printf("%8.3f ",x);
-              em[e][i][0]+=1;em[e][i][1]+=x;em[e][i][2]+=x*x;
-              een[e][i]=em[e][i][1]/em[e][i][0];
-              ven[e][i]=(em[e][i][2]-em[e][i][1]*em[e][i][1]/em[e][i][0])/(em[e][i][0]-1)/em[e][i][0];
-            }
-            if(pr>=2)printf("  sample_%d\n",eqb<<e);
-          }
-          if(pr>=1){
-            for(e=0;e<2;e++){
-              for(i=0;i<nt;i++)printf("%8.3f ",een[e][i]);printf("  een[%d][]\n",eqb<<e);
-              for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[e][i]));printf("  err[%d][]\n",eqb<<e);
-            }
-          }
-          for(i=0;i<nt;i++){
-            x=een[0][i]-een[1][i];
-            x=x*x/(ven[0][i]+ven[1][i]);if(pr>=1)printf("%8.2f ",x);
-          }
-          if(pr>=1)printf("  chi^2 (raw)\n");
-          chi=0;
-          for(i=0;i<nt;i++){
-            x=fabs(een[0][i]-een[1][i])-eps;x=MAX(x,0);
-            x=x*x/(ven[0][i]+ven[1][i]);if(pr>=1)printf("%8.2f ",x);
-            chi+=x;
-          }
-          if(pr>=1){
-            printf("  chi^2 (reduced)\n");
-            printf("Error %g cf chi^2_%d, N=%d, nd=%d, genp[]=",chi,nt,N,nd);
-            for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-            printf(", CPU=%.2fs\n",cpu());
-            fflush(stdout);
-          }
-          if(nd>=15&&chi>=nt+4*sqrt(nt))break;
-          if(nd>=(genp[5]==0?1000:genp[5]))goto ok0;
-        }// Disorders
-        if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return 1;}
-        eqb*=2;
-      }// Eqbn times
-    ok0:;
-      printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, N=%d, method=%g\n",eqb,eps,nd,N,genp[0]);
-    }
+    findeqbmusingchisq(weightmode);
     break;
 
   case 18:
-    // Compare equilibration times of exchange Monte-Carlo by measuring <E>. Determine eqbn by assuming top beta is enough to essentially force groundstate.
-    // Currently configured to use only a particular disorder (specified by the input seed).
-    {
-      //if(weightmode!=2||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=2, statemap[0]=-1\n");
-      double bew7[][50]={// Weightmode 7, be[]
-        {0},
-        {0},
-        {0.202,0.485,0.911,1.549,3.042,50.000},// 2, 0.25
-        {0},
-        {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,50.000},// 4, 0.25
-        {0},
-        {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,50.000},// 6, 0.25
-        {0},
-        {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,50.000},// 8, 0.25
-        {0},
-        {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
-      };
-      double bew11[][50]={// Weightmode 11, be[]
-        {0},
-        {0},
-        {0.084,0.179,0.296,0.484,1.043,20.000},// 2, 0.25
-        {0},
-        {0.056,0.094,0.134,0.174,0.222,0.278,0.350,0.461,0.669,1.148,2.446,20.000},// 4, 0.25
-        {0},
-        {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
-        {0},
-        {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,0.840,1.121,1.646,2.894,20.000},// 8, 0.25
-        {0},
-        {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,0.419,0.472,0.539,0.622,0.736,0.892,1.134,1.531,2.222,3.507,6.166,20.000},// 10, 0.25
-        {0},
-        {0.052,0.064,0.077,0.090,0.103,0.116,0.129,0.142,0.156,0.170,0.185,0.201,0.216,0.233,0.250,0.269,0.289,0.310,0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000}// 12, 0.25
-      };
-      double be0[2]={genp[3]};
-      double *be;
-      int nt;// Number of temperatures
-      int nd;// Number of disorders sampled
-      int pr=genp[1];
-      if(genp[3]<=0){
-        switch(weightmode){
-        case 7:
-          be=bew7[N]-(int)(genp[3]);
-          break;
-        case 11:
-          be=bew11[N]-(int)(genp[3]);
-          break;
-        default:
-          fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 7's set.\n",weightmode);
-          be=bew7[N]-(int)(genp[3]);
-          break;
-        }
-      }else be=be0;
-      for(nt=0;be[nt]>0;nt++);assert(nt>0);
-      typedef struct {
-        int X[NBV];// State
-        int t[nt];// t[i] = Time last visited temperature i (-1 = never)
-        int e;// Energy
-      } tstate; // Tempering state
-      tstate sbuf[nt],ts;
-      int vmin;
-      double em[nt][3];// Energy moments over all disorders
-      double een[nt],ven[nt];// Derived energy estimates and std errs
-      double x,y,del,nex,ex[nt-1],ex2[nt][nt];
-      int eqb;// Current upper bound on equilibration time
-      double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-      int c,d,e,i,j,k,n,p,r;
-      double mu,va,se,nit,nsol;
-      
-      printf("Number of temperatures %d\n",nt);
-      for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
-      printf("Monte Carlo mode %g\n",genp[0]);
-      for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
-      int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
-                       // protection against rare events
-      int ndgu=0.4*ndmax; // Give-up point
-      eqb=ngp>5?genp[5]:1;vmin=1000000000;
-      while(1){// Loop over equilibration lengths
-        double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
-        // ^ causes trouble for the standard stupidly low stacksize - alter
-        double lem[nt],*(etab[nt]);
-        printf("\nEquilibration length %d\n",eqb);fflush(stdout);
-        for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
-        for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
-        nd=0;
-        while(1){// Loop over runs
-          for(i=0;i<nt;i++)for(j=0;j<nt;j++)ex2[i][j]=0;// Count of long-range exchanges for a particular run
-          nit=nsol=0;d=p=r=0;
-          for(i=0;i<nt;i++){
-            init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
-            for(j=0;j<nt;j++)sbuf[i].t[j]=-(j!=i);
-            etab[i]=initetab(be[i]);
-          }
-          for(i=0;i<nt;i++)lem[i]=0;
-          for(n=0;n<2*eqb;n++){// Thermal loop
-            for(i=0;i<nt;i++){
-              memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
-              switch((int)(genp[0])){
-              case 0:
-                tree1gibbs(randint(2),randint(2),randint(N),be[i]);
-                nit+=1;
-                break;
-              case 1:
-                for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],etab[i]);
-                nit+=1;
-                break;
-              }
-              v=val();if(v<vmin)vmin=v;
-              sbuf[i].e=v;
-              memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
-            }
-            for(i=0;i<nt-1;i++){
-              del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
-              if(del<0||randfloat()<exp(-del)){
-                ts=sbuf[i];
-                sbuf[i]=sbuf[i+1];
-                sbuf[i+1]=ts;
-                ex[i]++;
-                for(k=i;k<=i+1;k++){
-                  if(n>=eqb)for(j=0;j<nt;j++){
-                    if(sbuf[k].t[j]>sbuf[k].t[k])ex2[j][k]+=1;// add j->k flux unit if more recently in j than in k
-                  }
-                }
-              }
-              for(j=0;j<nt;j++)sbuf[j].t[j]=nt*n+i;
-            }
-            nex++;
-            ten[n]=sbuf[nt-1].e;// Store top beta's energy at each sample step (for equilibration detection)
-            if(n>=eqb)for(i=0;i<nt;i++)lem[i]+=sbuf[i].e;// Store total energies at each temperature (for interest)
-            if(pr>=4)printf("Top beta energy %12g\n",ten[n]);
-          }// Thermal
-          for(i=0;i<nt;i++)lem[i]/=eqb;
-          nd++;
-          if(pr>=1){
-            printf("\n");
-            for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
-            printf("   ");
-            for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/nex);printf("        exch[]\n");
-          }
-          if(pr>=3){
-            for(i=0;i<nt;i++){
-              for(j=0;j<nt;j++)printf("%8.3f ",ex2[i][j]/eqb);
-              printf("\n");
-            }
-          }
-          for(i=0;i<nt;i++){
-            x=lem[i];if(pr>=2)printf("%8.3f ",x);
-            em[i][0]+=1;em[i][1]+=x;em[i][2]+=x*x;
-            een[i]=em[i][1]/em[i][0];
-            ven[i]=(em[i][2]-em[i][1]*em[i][1]/em[i][0])/(em[i][0]-1)/em[i][0];
-          }
-          if(pr>=2)printf("  sample_%d\n",eqb);
-          if(pr>=1){
-            for(i=0;i<nt;i++)printf("%8.3f ",een[i]);printf("  een[%d][]\n",eqb);
-            for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf("  err[%d][]\n",eqb);
-          }
-          for(n=1,x=0;n<=eqb;n++){
-            x+=ten[2*n-2]+ten[2*n-1]-ten[n-1];
-            // x = sum of ten[n],...,ten[2n-1] = the top-energy terms that would be used at eqb=n
-            y=x/n;
-            sten0[n]+=1;sten1[n]+=y;sten2[n]+=y*y;
-          }
-          mu=sten1[eqb]/sten0[eqb];
-          va=(sten2[eqb]-sten1[eqb]*sten1[eqb]/sten0[eqb])/(sten0[eqb]-1);
-          se=sqrt(va/sten0[eqb]);
-          assert(mu>=vmin);
-          if(pr>=1){
-            printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, genp[]=",mu-vmin,se,vmin,N,nd);
-            for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-            printf(", CPU=%.2fs\n",cpu());
-            fflush(stdout);
-          }
-          // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
-          if((mu-vmin)*MIN(nd,ndgu)/(double)ndgu>eps)break;
-          if(nd>=ndmax){
-            if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
-            for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
-            printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, vmin=%d, method=%g, workproduct=%d\n",
-                   e,eps,nd,eqb,N,vmin,genp[0],e*nt);
-            goto ok1;
-          }
-          for(i=0;i<nt;i++)free(etab[i]);
-        }// Runs (nd)
-        if(genp[4]>0&&eqb>=genp[4]){printf("Giving up. Equilibration time %d deemed insufficient for target error %g at nd=%d, N=%d, method=%g.\n",eqb,eps,nd,N,genp[0]);return 1;}
-        eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+ndgu/ndmax)/log(r)
-      }// Eqbn times
-    ok1:;
-    }
+    findeqbmusingtopbeta(weightmode);
     break;
   }// switch(mode)
   if(outstatefile)writestate(outstatefile);
