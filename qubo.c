@@ -876,13 +876,53 @@ void bigvertexgibbs_slow(int d,int x,int y,double beta){// Does Gibbs iteration 
   XBI(d,x,y,0)=s;
 }
 
-void bigvertexgibbs(int d,int x,int y,double beta,unsigned int(*bigtab)[16][16][16][16]){// Does Gibbs iteration to a single "bigvertex" (4 spins)
+void bigvertexgibbs_smalltab(int d,int x,int y,long double*etab){
+  // Does Gibbs iteration to a single "bigvertex" (4 spins)
   // If d=0 then v=the bigvertex (x,y,0)
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
   // distribution at inverse temperature beta conditioned on the rest of the graph.
   // This is the basic unit of the simple Monte Carlo sweep
-  int s,p;
+  int p,s;
+  long double z,Z,pr[16];
+  for(s=0,Z=0;s<16;s++){
+    pr[s]=Z;
+    Z+=etab[QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
+            QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
+            QBI(d,x,y,0,2,s,XBI(d,x+1,y,0))];
+  }
+  z=randfloat()*Z;
+  for(p=8,s=0;p>0;p>>=1)if(z>=pr[s+p])s+=p;
+  XBI(d,x,y,0)=s;
+}
+
+void bigvertexgibbs_medtab(int d,int x,int y,int(*medtab)[16][16][16][16],long double*etab){
+  // Does Gibbs iteration to a single "bigvertex" (4 spins)
+  // If d=0 then v=the bigvertex (x,y,0)
+  // If d=1 then v=the bigvertex (y,x,1)
+  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+  // distribution at inverse temperature beta conditioned on the rest of the graph.
+  // This is the basic unit of the simple Monte Carlo sweep
+  int p,s,*cp;
+  long double z,Z,pr[16];
+  cp=medtab[encI(d,x,y,0)][XBI(d,x,y,1)][XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+  for(s=0,Z=0;s<16;s++){
+    pr[s]=Z;
+    Z+=etab[cp[s]];
+  }
+  z=randfloat()*Z;
+  for(p=8,s=0;p>0;p>>=1)if(z>=pr[s+p])s+=p;
+  XBI(d,x,y,0)=s;
+}
+
+void bigvertexgibbs_bigtab(int d,int x,int y,unsigned int(*bigtab)[16][16][16][16]){
+  // Does Gibbs iteration to a single "bigvertex" (4 spins)
+  // If d=0 then v=the bigvertex (x,y,0)
+  // If d=1 then v=the bigvertex (y,x,1)
+  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+  // distribution at inverse temperature beta conditioned on the rest of the graph.
+  // This is the basic unit of the simple Monte Carlo sweep
+  int p,s;
   unsigned int z,*cp;
   cp=bigtab[encI(d,x,y,0)][XBI(d,x,y,1)][XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
   z=randnum();
@@ -2409,6 +2449,7 @@ int findeqbmusingtopbeta(int weightmode){
   int c,d,e,i,j,k,n,p,r,v;
   double mu,va,se,nit,nsol;
   long double *(etab[nt]);
+  int medtab[NBV][16][16][16][16];
   unsigned int bigtab[nt][NBV][16][16][16][16];
   // ^ causes trouble for the standard stupidly low stacksize
 
@@ -2430,6 +2471,9 @@ int findeqbmusingtopbeta(int weightmode){
         for(s=0,Z=0;s<16;s++){pr[s]=etab[i][offset[i]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
         for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
       }
+    }
+    for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
+      for(s=0;s<16;s++)medtab[p][x0][x1][x2][s]=QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2];
     }
   }
   while(1){// Loop over equilibration lengths
@@ -2458,7 +2502,17 @@ int findeqbmusingtopbeta(int weightmode){
             nit+=1;
             break;
           case 1:
-            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,be[i],bigtab[i]);
+            switch((int)(genp[6])){
+            case 0:
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_smalltab(d,c,r,etab[i]+offset[i]);
+              break;
+            case 1:
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_medtab(d,c,r,medtab,etab[i]+offset[i]);
+              break;
+            case 2:
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_bigtab(d,c,r,bigtab[i]);
+              break;
+            }
             nit+=1;
             break;
           }
