@@ -2334,7 +2334,7 @@ int findeqbmusingchisq(int weightmode){
       }
       for(e=0;e<2;e++){
         for(i=0;i<nt;i++){
-          x=lem[e][i];if(pr>=2)printf("%8.3f ",x);
+          x=lem[e][i];if(pr>=2)printf("%8.2f ",x);
           em[e][i][0]+=1;em[e][i][1]+=x;em[e][i][2]+=x*x;
           een[e][i]=em[e][i][1]/em[e][i][0];
           ven[e][i]=(em[e][i][2]-em[e][i][1]*em[e][i][1]/em[e][i][0])/(em[e][i][0]-1)/em[e][i][0];
@@ -2343,7 +2343,7 @@ int findeqbmusingchisq(int weightmode){
       }
       if(pr>=1){
         for(e=0;e<2;e++){
-          for(i=0;i<nt;i++)printf("%8.3f ",een[e][i]);printf("  een[%d][]\n",eqb<<e);
+          for(i=0;i<nt;i++)printf("%8.2f ",een[e][i]);printf("  een[%d][]\n",eqb<<e);
           for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[e][i]));printf("  err[%d][]\n",eqb<<e);
         }
       }
@@ -2449,6 +2449,7 @@ int findeqbmusingtopbeta(int weightmode){
   int c,d,e,i,j,k,n,p,r,v;
   double mu,va,se,nit,nsol;
   long double *(etab[nt]);
+  int tabsize;
   int medtab[NBV][16][16][16][16];
   unsigned int bigtab[nt][NBV][16][16][16][16];
   // ^ causes trouble for the standard stupidly low stacksize
@@ -2456,6 +2457,8 @@ int findeqbmusingtopbeta(int weightmode){
   printf("Number of temperatures %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
   printf("Monte Carlo mode %g\n",genp[0]);
+  tabsize=ngp>6?genp[6]:2;
+  printf("Table size (for MC mode 1) %d\n",tabsize);
   for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
   int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
   // protection against rare events
@@ -2502,7 +2505,7 @@ int findeqbmusingtopbeta(int weightmode){
             nit+=1;
             break;
           case 1:
-            switch((int)(genp[6])){
+            switch(tabsize){
             case 0:
               for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_smalltab(d,c,r,etab[i]+offset[i]);
               break;
@@ -2555,14 +2558,14 @@ int findeqbmusingtopbeta(int weightmode){
         }
       }
       for(i=0;i<nt;i++){
-        x=lem[i];if(pr>=2)printf("%8.3f ",x);
+        x=lem[i];if(pr>=2)printf("%8.2f ",x);
         em[i][0]+=1;em[i][1]+=x;em[i][2]+=x*x;
         een[i]=em[i][1]/em[i][0];
         ven[i]=(em[i][2]-em[i][1]*em[i][1]/em[i][0])/(em[i][0]-1)/em[i][0];
       }
       if(pr>=2)printf("  sample_%d\n",eqb);
       if(pr>=1){
-        for(i=0;i<nt;i++)printf("%8.3f ",een[i]);printf("  een[%d][]\n",eqb);
+        for(i=0;i<nt;i++)printf("%8.2f ",een[i]);printf("  een[%d][]\n",eqb);
         for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf("  err[%d][]\n",eqb);
       }
       for(n=1,x=0;n<=eqb;n++){
