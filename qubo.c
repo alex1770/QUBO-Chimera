@@ -2205,6 +2205,102 @@ int linLB(int w){
   return vmin;
 }
 
+
+void timingtests(int strat,double mint,double maxt){
+  int d,n,r,c0,c1,ph,wid,v0,upd;
+  double t0;
+  opt1(mint,maxt,1,1,0,strat);
+  init_state();
+  printf("val=%d\n",val());
+  upd=0;
+  wid=5;
+  for(d=0;d<2;d++)for(ph=0;ph<=wid;ph++)for(r=0;r<N;r++){
+    for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=treestripexhaust(d,wid,ph,upd,r);
+    printf("treestripexh %d %d %d %2d   %6d   %gs\n",d,wid,ph,r,v0,(cpu()-t0)/n);
+    fflush(stdout);
+  }
+  for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
+    v0=1000000000;
+    for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=tree1exhaust(d,ph,r,0);
+    printf("tree1 %d %d %2d   %6d   %gs\n",d,ph,r,v0,(cpu()-t0)/n);
+    fflush(stdout);
+  }
+  for(d=0;d<2;d++)for(c0=0;c0<N-wid+1;c0++){
+    c1=c0+wid;v0=0;
+    for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=stripexhaust(d,c0,c1,upd);
+    v0+=stripval(d,0,c0)+stripval(d,c1,N);
+    printf("Strip %d %2d %2d   %6d   %gs\n",d,c0,c1,v0,(cpu()-t0)/n);
+    if(upd)assert(v0==val());
+    fflush(stdout);
+  }
+}
+
+void consistencychecks2(int weightmode,int strat,double mint,double maxt){
+  int c,d,o,w,lw,ph,phl,r,v0,v1;
+  //opt1(mint,maxt,1,1,0,strat);
+  printf("val=%d\n",val());
+  if(0){
+    writeweights("prob");
+    v0=treestripexhaust(0,1,0,1,0);
+    v1=val();
+    printf("%6d %6d\n",v0,v1);
+    assert(v0==v1);
+    exit(0);
+  }
+  while(1){
+    initweights(weightmode);
+    init_state();
+    for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
+      v0=treestripexhaust(d,1,ph,0,r);
+      v1=tree1exhaust(d,ph,r,0);
+      printf("tree1 %d %d %2d   %6d   %6d\n",d,ph,r,v0,v1);
+      assert(v0==v1);
+    }
+    for(w=1;w<=3;w++){
+      for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=-1;r<N;r++){
+        init_state();
+        opt1(0,maxt,0,1,0,strat);
+        v0=treestripexhaust(d,w,ph,0,r);
+        for(c=0;c<N;){
+          phl=(c+ph)%(w+1);
+          if(phl==w){c++;continue;}
+          lw=MIN(w-phl,N-c);
+          stripexhaust(d,c,c+lw,1);
+          c+=lw;
+        }
+        v1=val();
+        printf("stripexhcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
+        assert(v0<=v1);
+      }
+    }
+    for(w=1;w<=3;w++){
+      for(d=0;d<2;d++)for(ph=0;ph<=w;ph++){
+        init_state();
+        opt1(mint,maxt,0,1,0,strat);
+        v0=val();
+        for(c=0;c<N;c++){
+          phl=(c+ph)%(w+1);
+          for(o=0;o<2;o++){
+            if(!(phl==w&&o==0))for(r=0;r<N;r++)XBI(d,c,r,o)=randnib();
+          }
+        }
+        v1=treestripexhaust(d,w,ph,0,-1);
+        printf("stripexhspiketest %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
+        assert(v1<=v0);
+      }
+    }
+    for(w=1;w<=3;w++){
+      for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=0;r<N;r++){
+        init_state();
+        v0=treestripexhaust(d,w,ph,1,r);
+        v1=val();
+        printf("updcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
+        assert(v0==v1);
+      }
+    }            
+  }
+}
+
 long double*initetab(double beta,int *offset){
   int d,n,s0,s1,min0,max0,min1,max1,min2,max2;
   long double *etab;
@@ -2229,6 +2325,356 @@ long double*initetab(double beta,int *offset){
   for(n=min0;n<=max0;n++)etab[n-min0]=expl(-beta*n);
   *offset=-min0;
   return etab;
+}
+
+void gibbstests(int weightmode){
+  if(1){// Burn-in test
+    int i,n,v,nn=20;
+    double mu,va,beta,s0[nn],s1[nn],s2[nn];
+    beta=3.0;
+    for(i=0;i<nn;i++)s0[i]=s1[i]=s2[i]=0;
+    for(n=0;n<10000;n++){
+      init_state();
+      for(i=0;i<nn;i++){
+        tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
+        v=val();assert(isfinite(v));
+        s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
+      }
+    }
+    for(i=0;i<nn;i++){
+      mu=s1[i]/s0[i];
+      va=(s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1);
+      printf("%5d %12g %12g\n",i,mu,sqrt(va/s0[i]));
+    }
+  }
+  if(0){// Autocorrelation test; assumes weightmode 0, statemap[0]=-1 (Ising form, uniform +/-1, no fields)
+    int i,j,k,it,bp,nb=20,rep;
+    int sbuf[nb][NBV],btab[16];
+    double t,mu,va,beta,s0[nb],s1[nb],s2[nb];
+    if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+    beta=.8;rep=10000;
+    init_state();
+    for(i=0;i<(beta+1)*20;i++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);// burn-in guess
+    for(i=0;i<nb;i++)s0[i]=s1[i]=s2[i]=0;
+    bp=0;it=-nb;
+    for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
+    while(1){
+      for(i=0;i<rep;i++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
+      memcpy(sbuf[bp],XBa,NBV*sizeof(int));
+      if(it>=0){
+        for(i=0;i<nb;i++){// Correlate current with "i" ago
+          j=bp-i;if(j<0)j+=nb;
+          for(k=0,t=0;k<NBV;k++)t+=btab[XBa[k]^sbuf[j][k]];
+          s0[i]+=1;s1[i]+=t;s2[i]+=t*t;
+        }
+        if(it%100==0){
+          printf("it=%d\n",it);
+          for(i=0;i<nb;i++){
+            mu=s1[i]/s0[i];
+            va=(s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1);
+            printf("%6d   %12g %12g\n",i*rep,mu,sqrt(va/s0[i]));
+          }
+          printf("\n");
+        }
+      }
+      it++;bp++;if(bp==nb)bp=0;
+    }
+  }
+}
+
+void binderparamestimate(int weightmode){
+  int i,j,k,n,nd,nb=6,burnin;
+  int sbuf[nb][NBV],btab[16];
+  double q,x,t0,t1,beta,sp[9];
+  for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
+  beta=0.1;
+  burnin=0;//(beta+1)*50;// burn-in guess
+  if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
+  printf("beta = %g\n",beta);
+  printf("burn-in = %d\n",burnin);
+  nd=-1;//5964;
+  for(i=0;i<=8;i++)sp[i]=0;// sp[i] = sum of i^th powers of q
+  t0=cpu();
+  for(n=0;n<nd||nd<0;){// Disorder samples
+    initweights(weightmode);
+    for(i=0;i<nb;i++){// State samples
+      init_state();
+      for(j=0;j<burnin;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
+      memcpy(sbuf[i],XBa,NBV*sizeof(int));
+    }
+    for(i=0;i<nb-1;i++)for(j=i+1;j<nb;j++){
+      for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[i][k]^sbuf[j][k]];q/=NV;
+      for(k=0,x=1;k<=8;k++){sp[k]+=x;x*=q;}
+    }
+    n++;
+    t1=cpu();
+    if(t1-t0>5||n==nd){
+      t0=t1;
+      printf("n=%d\n",n);
+      printf("beta %g\n",beta);
+      printf("burn-in %d\n",burnin);
+      printf("nb %d\n",nb);
+      for(j=1;j<=8;j++)printf("%3d %12g\n",j,sp[j]/sp[0]);
+      printf("Binder %12g\n",.5*(3-sp[0]*sp[4]/(sp[2]*sp[2])));
+      printf("\n");
+      fflush(stdout);
+    }
+  }
+}
+
+void findexchangemontecarlotemperatureset(int weightmode){
+  int i,j,n,v,prch,pr=0;
+  int maxn=100000;
+  int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
+  double tp,del,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
+  int en[nt],ex[nt-1],sbuf[nt][NBV];
+  //if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
+  //initweights(weightmode);
+  be0=ngp>2?genp[2]:0.5;be1=ngp>3?genp[3]:5;// low and high beta
+  for(i=0;i<nt;i++)be[i]=be0*pow(be1/be0,i/(nt-1.));// Interpolate geometrically for first guess
+  printf("nt=%d\n",nt);
+  printf("be0=%g\n",be0);
+  printf("be1=%g\n",be1);
+  printf("%s mode\n",genp[0]?"Single bigvertex":"Tree");
+  tp=ngp>4?genp[4]:0.25;
+  printf("Going for transition probability %g\n",tp);
+  prch=100*(genp[0]?16:1);// Print chunksize
+  for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
+  for(i=0;i<nt-1;i++)ex[i]=0;
+  for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
+  vhist=(double(*)[nt])malloc(maxn*nt*sizeof(double));assert(vhist);
+  for(n=0;n<maxn;){
+    for(i=0;i<nt;i++){
+      memcpy(XBa,sbuf[i],NBV*sizeof(int));
+      switch((int)(genp[0])){
+        int d,r,c;
+      case 0:
+        tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
+        break;
+      case 1:
+        for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_slow(d,c,r,be[i]);
+        break;
+      }
+      v=val();en[i]=v;vhist[n][i]=v;
+      memcpy(sbuf[i],XBa,NBV*sizeof(int));
+      if(pr>=2)printf("%5d ",en[i]);
+      s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
+      if(n&1){v=vhist[n>>1][i];s0[i]-=1;s1[i]-=v;s2[i]-=v*v;}
+    }
+    if(pr>=2)printf("\n");
+    for(i=0;i<nt-1;i++){
+      if(pr>=3)printf("     ");
+      del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+      if(del<0||randfloat()<exp(-del)){
+        memcpy(XBa,sbuf[i],NBV*sizeof(int));
+        memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
+        memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
+        v=en[i];en[i]=en[i+1];en[i+1]=v;
+        if(pr>=3)printf("X");
+        ex[i]++;
+      } else if(pr>=3)printf(" ");
+    }
+    if(pr>=3)printf("\n");
+    n++;
+    if(n%prch==0){
+      int i0,nb;
+      double p,err,minerr,mu1,sd1,mu[nt],sd[nt],ben[nt];
+      for(i=0;i<nt;i++){mu[i]=s1[i]/s0[i];sd[i]=sqrt((s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1));}
+      printf("\n");
+      if(pr>=1){
+        printf("  ");for(i=0;i<nt-1;i++)printf(" %5.3f",ex[i]/(double)n);printf("\n");
+        //for(i=0;i<nt;i++)printf("%5.3f ",s1[i]/s0[i]);printf("\n");
+        //for(i=0;i<nt;i++)printf("%5.3f ",mu[i]);printf(" mu[]\n");
+        //for(i=0;i<nt;i++)printf("%5.3f ",sd[i]);printf(" sd[]\n");
+        printf("  ");
+        for(i=0;i<nt-1;i++){
+          mu1=-(be[i+1]-be[i])*(mu[i+1]-mu[i]);
+          sd1=(be[i+1]-be[i])*sqrt(sd[i]*sd[i]+sd[i+1]*sd[i+1]);
+          if(sd1>1e-6)p=Phi(-mu1/sd1)+exp(sd1*sd1/2-mu1)*Phi(mu1/sd1-sd1); else p=exp(-mu1);
+          printf(" %5.3f",p);
+        }
+        printf("\n");
+      }
+      j=nt-1;nb=0;
+      while(j>0){
+        ben[nb++]=be[j];
+        minerr=1e9;i0=-1;
+        for(i=j-1;i>=0;i--){
+          mu1=-(be[j]-be[i])*(mu[j]-mu[i]);
+          sd1=(be[j]-be[i])*sqrt(sd[i]*sd[i]+sd[j]*sd[j]);
+          // Stable version of Phi(-mu1/sd1)+exp(sd1*sd1/2-mu1)*Phi(mu1/sd1-sd1):
+          if(sd1<1e-6)p=exp(-mu1); else p=Phi(-mu1/sd1)+phi(mu1/sd1)/Rphi(mu1/sd1-sd1);
+          err=log(p/tp);
+          if(fabs(err)<minerr){minerr=fabs(err);i0=i;}
+          if(err<0)break;
+        }
+        j=i0;
+      }
+      printf("%d steps\n",n);
+      printf("p=%.3f choice of be[]:",tp);
+      for(i=nb-1;i>=0;i--)printf(" %5.3f",ben[i]);printf("\n");
+      fflush(stdout);
+    }
+  }// while(1)
+}
+
+void calcbinderratio(int weightmode){
+  int h,i,j,k,m,n,r,v,eqb,nd,btab[16];
+  double be0[]={0.108,0.137,0.166,0.196,0.226,0.258,0.291,0.326,0.364,0.405,0.451,0.500,0.557,0.624,0.704,0.808,0.944,1.131,1.438,2.000};
+  // ^ N=8 -w0 -x-1 p=0.3
+  //double be2[]={0.133,0.170,0.209,0.248,0.288,0.329,0.370,0.413,0.458,0.507,0.557,0.612,0.672,0.744,0.830,0.941,1.084,1.268,1.543,1.967,2.821,5.000};
+  // ^ N=8 -w2 -x-1 p=0.3
+  double be2[]={0.502,0.528,0.556,0.585,0.613,0.644,0.678,0.713,0.754,0.797,0.842,0.894,0.954,1.022,1.101,1.190,1.294,1.419,1.570,1.762,2.015,2.357,2.821,3.505,5.000};
+  // ^ N=8 -w2 -x-1 p=0.6
+  double be2_15[]={0.530,0.561,0.595,0.630,0.668,0.699,0.732,0.767,0.804,0.842,0.881,0.923,0.967,1.013,1.061,1.111,1.164,1.219,1.276,1.337,1.400,1.467,1.536,1.609,1.685,1.785,1.892,2.004,2.124,2.276,2.440,2.616,2.836,3.111,3.453,3.832,4.352,5.000};
+  //double be2_15[]={2};//check
+  // ^ N=15 -w7 p=0.4
+  int nt;// Number of temperatures
+  int nhist,maxhist=500;// Keep samples for the purposes of error-estimating
+  double *be;
+  if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
+  if(weightmode==0){be=be0;nt=sizeof(be0)/sizeof(double);} else {be=be2;nt=sizeof(be2)/sizeof(double);}
+  if(weightmode==7&&N==15){be=be2_15;nt=sizeof(be2_15)/sizeof(double);}
+  double q,x,del,nex,maxerr,ex[nt-1];
+  typedef struct {double n,qq[nt][2];} qest;
+  qest lsp,sp,hist[maxhist];
+  int en[nt],sbuf[2][nt][NBV];
+  printf("nt=%d\n",nt);
+  printf("beta_low=%g\n",be[0]);
+  printf("beta_high=%g\n",be[nt-1]);
+  printf("be[] =");for(i=0;i<nt;i++)printf(" %5.3f",be[i]);printf("\n");
+  for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
+  sp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)sp.qq[i][j]=0;
+  nhist=0;
+  for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
+  nd=0;// Number of disorder samples
+  eqb=(ngp>1?genp[1]:100);
+  printf("Equilibration time %d\n",eqb);
+  fflush(stdout);
+
+  if(ngp>0&&genp[0]==-1){// optimise
+    for(r=0;r<1;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
+    int vmin=1000000000;
+    while(1){// Thermal loop
+      r=0;
+      for(i=0;i<nt;i++){
+        memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
+        for(j=0;j<1;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
+        v=val();en[i]=v;
+        if(v<vmin){vmin=v;printf("min = %d\n",vmin);}
+        memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
+      }
+      for(i=0;i<nt-1;i++){
+        del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+        if(del<0||randfloat()<exp(-del)){
+          memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
+          memcpy(sbuf[r][i],sbuf[r][i+1],NBV*sizeof(int));
+          memcpy(sbuf[r][i+1],XBa,NBV*sizeof(int));
+          v=en[i];en[i]=en[i+1];en[i+1]=v;
+          ex[i]++;
+        }
+      }
+      nex++;
+      if((int)nex%100==0){
+        for(i=0;i<nt;i++)printf("%6.3f ",be[i]);printf("  be[]\n");
+        printf("  ");
+        for(i=0;i<nt-1;i++)printf(" %6.3f",ex[i]/nex);printf("       exch[]\n");
+        fflush(stdout);
+      }
+    }
+  }
+
+  while(1){// Loop over disorders
+    initweights(weightmode);// Disorder (J_ij) sample
+    for(r=0;r<2;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
+    lsp.n=0;for(i=0;i<nt;i++)for(k=0;k<2;k++)lsp.qq[i][k]=0;
+    n=-eqb;
+    while(n<eqb){// Thermal loop
+      for(r=0;r<2;r++){// Replica loop
+        for(i=0;i<nt;i++){
+          memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
+          for(j=0;j<1;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
+          v=val();en[i]=v;
+          memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
+        }
+        for(i=0;i<nt-1;i++){
+          del=(be[i+1]-be[i])*(en[i]-en[i+1]);
+          if(del<0||randfloat()<exp(-del)){
+            memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
+            memcpy(sbuf[r][i],sbuf[r][i+1],NBV*sizeof(int));
+            memcpy(sbuf[r][i+1],XBa,NBV*sizeof(int));
+            v=en[i];en[i]=en[i+1];en[i+1]=v;
+            ex[i]++;
+          }
+        }
+        nex++;
+      }//r
+      n++;
+      if(n>=0){
+        for(i=0;i<nt;i++){
+          for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[0][i][k]^sbuf[1][i][k]];q/=NV;
+          x=q*q;lsp.qq[i][0]+=x;lsp.qq[i][1]+=x*x;
+        }
+        lsp.n+=1;// Keep this as a variable in case decide to vary the equilibrium point for different disorders
+      }
+    }
+    nd++;
+        
+    if(nhist<maxhist)hist[nhist++]=lsp; else {
+      nhist++;
+      i=randint(nhist);
+      if(i<maxhist)hist[i]=lsp;
+    }
+    int nsubsamp,nsamp=200;
+    double p0=0.16;// Error percentile p0 to 1-p0, roughly corresponding to +/-1sd of a normal.
+    double q0,q2,q4,samp[nt][nsamp];
+    double est[nt],err[nt];
+    sp.n+=lsp.n;
+    for(i=0;i<nt;i++)for(j=0;j<2;j++)sp.qq[i][j]+=lsp.qq[i][j];// lsp.qq[i][j] = <q_i^(2(j+1))>   <.> = thermal sum
+    for(i=0;i<nt;i++){
+      q0=sp.n;
+      q2=sp.qq[i][0];
+      q4=sp.qq[i][1];
+      est[i]=.5*(3-q0*q4/(q2*q2));
+    }
+    n=MIN(nhist,maxhist);
+    nsubsamp=n;// say
+    for(k=0;k<nsamp;k++){
+      lsp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]=0;
+      for(m=0;m<nsubsamp;m++){
+        h=randint(n);
+        lsp.n+=hist[h].n;
+        for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]+=hist[h].qq[i][j];
+      }
+      for(i=0;i<nt;i++){
+        q0=lsp.n;
+        q2=lsp.qq[i][0];
+        q4=lsp.qq[i][1];
+        samp[i][k]=.5*(3-q0*q4/(q2*q2));
+      }
+    }
+    for(i=0;i<nt;i++){
+      double e0,e1;
+      qsort(samp[i],nsamp,sizeof(double),cmpd);
+      e0=samp[i][(int)floor(p0*nsamp)];
+      e1=samp[i][(int)floor((1-p0)*nsamp)];
+      err[i]=MAX(fabs(est[i]-e0),fabs(est[i]-e1))*sqrt(nsubsamp/(double)nhist);
+    }
+    printf("\n");
+    printf("Number of disorders: %d\n",nd);
+    for(i=0;i<nt;i++)printf("%6.3f ",be[i]);printf("  be[]\n");
+    for(i=0;i<nt;i++)printf("%6.3f ",est[i]);printf("  est[]\n");
+    for(i=0,maxerr=0;i<nt;i++){
+      printf("%6.3f ",err[i]);
+      if(err[i]>maxerr)maxerr=err[i];
+    }
+    printf("  err[]\n");
+    printf("  ");
+    for(i=0;i<nt-1;i++)printf(" %6.3f",ex[i]/nex);printf("       exch[]\n");
+    fflush(stdout);
+    if(nd>=2&&maxerr<1e-3)break;
+  }
+      
 }
 
 int findeqbmusingchisq(int weightmode){
@@ -2450,9 +2896,8 @@ int findeqbmusingtopbeta(int weightmode){
   double mu,va,se,nit,nsol;
   long double *(etab[nt]);
   int tabsize;
-  int medtab[NBV][16][16][16][16];
-  unsigned int bigtab[nt][NBV][16][16][16][16];
-  // ^ causes trouble for the standard stupidly low stacksize
+  int (*medtab)[16][16][16][16]=0;
+  unsigned int (*bigtab)[NBV][16][16][16][16]=0;
 
   printf("Number of temperatures %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
@@ -2469,19 +2914,27 @@ int findeqbmusingtopbeta(int weightmode){
   if(genp[0]==1){
     int p,s,x0,x1,x2;
     long double z,Z,pr[16];
-    for(i=0;i<nt;i++){
+    if(tabsize==1){
+      medtab=(int(*)[16][16][16][16])malloc(NBV*16ULL*16*16*16*sizeof(int));
+      if(!medtab){fprintf(stderr,"Couldn't allocate medtab\n");exit(1);}
       for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
-        for(s=0,Z=0;s<16;s++){pr[s]=etab[i][offset[i]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
-        for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
+        for(s=0;s<16;s++)medtab[p][x0][x1][x2][s]=QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2];
       }
     }
-    for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
-      for(s=0;s<16;s++)medtab[p][x0][x1][x2][s]=QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2];
+    if(tabsize==2){
+      bigtab=(unsigned int(*)[NBV][16][16][16][16])malloc(nt*NBV*16ULL*16*16*16*sizeof(unsigned int));
+      if(!bigtab){fprintf(stderr,"Couldn't allocate bigtab\n");exit(1);}
+      for(i=0;i<nt;i++){
+        for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
+          for(s=0,Z=0;s<16;s++){pr[s]=etab[i][offset[i]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
+          for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
+        }
+      }
     }
   }
   while(1){// Loop over equilibration lengths
     double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
-    // ^ causes trouble for the standard stupidly low stacksize
+    // ^ grr - causes trouble for the standard stupidly low stacksize
     double lem[nt];
     printf("\nEquilibration length %d\n",eqb);fflush(stdout);
     for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
@@ -2717,14 +3170,13 @@ int main(int ac,char**av){
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   printf("Weight-choosing mode: %d\n",weightmode);
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
-  int v;
-  double t0;
   switch(mode){
   case 0:// Find minimum value using heuristic strategy strat, not worrying about independence of subsequent minima
     opt1(mint,maxt,deb,1,0,strat);
     break;
   case 1:;// Find rate of solution generation, ensuring that minima are independent
     {
+      int v;
       double tts;
       v=opt1(0.5,maxt,deb,numpo,&tts,strat);
       printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
@@ -2732,6 +3184,7 @@ int main(int ac,char**av){
     }
   case 2:;// Find average minimum value
     {
+      int v;
       double s0,s1,s2,va;
       s0=s1=s2=0;
       while(1){
@@ -2742,11 +3195,11 @@ int main(int ac,char**av){
       }
     }
     break;
-  case 4:;// Checks
+  case 4:;// Consistency checks
     {
       opt1(mint,maxt,1,1,0,strat);
       printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
-      int o,c0,c1;
+      int o,v,c0,c1;
       for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
         v=stripexhaust(o,c0,c1,0)+stripval(o,0,c0)+stripval(o,c1,N);
         printf("Strip %2d %2d %2d   %6d\n",o,c0,c1,v);
@@ -2755,6 +3208,8 @@ int main(int ac,char**av){
     }
   case 5:// Prove using subset method v2
     {
+      int v;
+      double t0;
       printf("Restricted set exhaust\n");
       t0=cpu();
       v=fullexhaust();
@@ -2762,103 +3217,14 @@ int main(int ac,char**av){
       break;
     }
   case 6:
-    readstate("state");printf("state = %d\n",val());break;
-  case 8:// timing tests
-    {
-      int d,n,r,c0,c1,ph,wid,v0,upd;
-      double t0;
-      opt1(mint,maxt,1,1,0,strat);
-      init_state();
-      printf("val=%d\n",val());
-      upd=0;
-      wid=5;
-      for(d=0;d<2;d++)for(ph=0;ph<=wid;ph++)for(r=0;r<N;r++){
-        for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=treestripexhaust(d,wid,ph,upd,r);
-        printf("treestripexh %d %d %d %2d   %6d   %gs\n",d,wid,ph,r,v0,(cpu()-t0)/n);
-        fflush(stdout);
-      }
-      for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
-        v0=1000000000;
-        for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=tree1exhaust(d,ph,r,0);
-        printf("tree1 %d %d %2d   %6d   %gs\n",d,ph,r,v0,(cpu()-t0)/n);
-        fflush(stdout);
-      }
-      for(d=0;d<2;d++)for(c0=0;c0<N-wid+1;c0++){
-        c1=c0+wid;v0=0;
-        for(n=0,t0=cpu();(n&(n-1))||cpu()-t0<.5;n++)v0=stripexhaust(d,c0,c1,upd);
-        v0+=stripval(d,0,c0)+stripval(d,c1,N);
-        printf("Strip %d %2d %2d   %6d   %gs\n",d,c0,c1,v0,(cpu()-t0)/n);
-        if(upd)assert(v0==val());
-        fflush(stdout);
-      }
-    }
+    readstate("state");printf("state = %d\n",val());
     break;
-  case 9:// consistency checks
-    {
-      int c,d,o,w,lw,ph,phl,r,v0,v1;
-      //opt1(mint,maxt,1,1,0,strat);
-      printf("val=%d\n",val());
-      if(0){
-        writeweights("prob");
-        v0=treestripexhaust(0,1,0,1,0);
-        v1=val();
-        printf("%6d %6d\n",v0,v1);
-        assert(v0==v1);
-        exit(0);
-      }
-      while(1){
-        initweights(weightmode);
-        init_state();
-        for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
-          v0=treestripexhaust(d,1,ph,0,r);
-          v1=tree1exhaust(d,ph,r,0);
-          printf("tree1 %d %d %2d   %6d   %6d\n",d,ph,r,v0,v1);
-          assert(v0==v1);
-        }
-        for(w=1;w<=3;w++){
-          for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=-1;r<N;r++){
-            init_state();
-            opt1(0,maxt,0,1,0,strat);
-            v0=treestripexhaust(d,w,ph,0,r);
-            for(c=0;c<N;){
-              phl=(c+ph)%(w+1);
-              if(phl==w){c++;continue;}
-              lw=MIN(w-phl,N-c);
-              stripexhaust(d,c,c+lw,1);
-              c+=lw;
-            }
-            v1=val();
-            printf("stripexhcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
-            assert(v0<=v1);
-          }
-        }
-        for(w=1;w<=3;w++){
-          for(d=0;d<2;d++)for(ph=0;ph<=w;ph++){
-            init_state();
-            opt1(mint,maxt,0,1,0,strat);
-            v0=val();
-            for(c=0;c<N;c++){
-              phl=(c+ph)%(w+1);
-              for(o=0;o<2;o++){
-                if(!(phl==w&&o==0))for(r=0;r<N;r++)XBI(d,c,r,o)=randnib();
-              }
-            }
-            v1=treestripexhaust(d,w,ph,0,-1);
-            printf("stripexhspiketest %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
-            assert(v1<=v0);
-          }
-        }
-        for(w=1;w<=3;w++){
-          for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=0;r<N;r++){
-            init_state();
-            v0=treestripexhaust(d,w,ph,1,r);
-            v1=val();
-            printf("updcomp %d %d %d %2d   %6d %6d\n",w,d,ph,r,v0,v1);
-            assert(v0==v1);
-          }
-        }            
-      }
-    }
+  case 8:// timing tests
+    timingtests(strat,mint,maxt);
+    break;
+  case 9:
+    consistencychecks2(weightmode,strat,mint,maxt);
+    break;
   case 10:
     {
       int c,r,f[N-1][16][16],g[N-1][16][16];
@@ -2900,7 +3266,7 @@ int main(int ac,char**av){
     break;
   case 11:
     {
-      int d,i,m,r,w,dmax;
+      int d,i,m,r,v,w,dmax;
       int64 b,n;
       double s1;
       init_state();
@@ -2962,365 +3328,21 @@ int main(int ac,char**av){
       }
     }
     break;
-  case 13:// Gibbs tests
-    {
-      if(1){// Burn-in test
-        int i,n,v,nn=20;
-        double mu,va,beta,s0[nn],s1[nn],s2[nn];
-        beta=3.0;
-        for(i=0;i<nn;i++)s0[i]=s1[i]=s2[i]=0;
-        for(n=0;n<10000;n++){
-          init_state();
-          for(i=0;i<nn;i++){
-            tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
-            v=val();assert(isfinite(v));
-            s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
-          }
-        }
-        for(i=0;i<nn;i++){
-          mu=s1[i]/s0[i];
-          va=(s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1);
-          printf("%5d %12g %12g\n",i,mu,sqrt(va/s0[i]));
-        }
-      }
-      if(0){// Autocorrelation test; assumes weightmode 0, statemap[0]=-1 (Ising form, uniform +/-1, no fields)
-        int i,j,k,it,bp,nb=20,rep;
-        int sbuf[nb][NBV],btab[16];
-        double t,mu,va,beta,s0[nb],s1[nb],s2[nb];
-        if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
-        beta=.8;rep=10000;
-        init_state();
-        for(i=0;i<(beta+1)*20;i++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);// burn-in guess
-        for(i=0;i<nb;i++)s0[i]=s1[i]=s2[i]=0;
-        bp=0;it=-nb;
-        for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
-        while(1){
-          for(i=0;i<rep;i++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
-          memcpy(sbuf[bp],XBa,NBV*sizeof(int));
-          if(it>=0){
-            for(i=0;i<nb;i++){// Correlate current with "i" ago
-              j=bp-i;if(j<0)j+=nb;
-              for(k=0,t=0;k<NBV;k++)t+=btab[XBa[k]^sbuf[j][k]];
-              s0[i]+=1;s1[i]+=t;s2[i]+=t*t;
-            }
-            if(it%100==0){
-              printf("it=%d\n",it);
-              for(i=0;i<nb;i++){
-                mu=s1[i]/s0[i];
-                va=(s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1);
-                printf("%6d   %12g %12g\n",i*rep,mu,sqrt(va/s0[i]));
-              }
-              printf("\n");
-            }
-          }
-          it++;bp++;if(bp==nb)bp=0;
-        }
-      }
-    }
+  case 13:
+    gibbstests(weightmode);
     break;
-  case 14:// Binder parameter estimate
-    {
-      int i,j,k,n,nd,nb=6,burnin;
-      int sbuf[nb][NBV],btab[16];
-      double q,x,t0,t1,beta,sp[9];
-      for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
-      beta=0.1;
-      burnin=0;//(beta+1)*50;// burn-in guess
-      if(weightmode!=0||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0, statemap[0]=-1\n");
-      printf("beta = %g\n",beta);
-      printf("burn-in = %d\n",burnin);
-      nd=-1;//5964;
-      for(i=0;i<=8;i++)sp[i]=0;// sp[i] = sum of i^th powers of q
-      t0=cpu();
-      for(n=0;n<nd||nd<0;){// Disorder samples
-        initweights(weightmode);
-        for(i=0;i<nb;i++){// State samples
-          init_state();
-          for(j=0;j<burnin;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
-          memcpy(sbuf[i],XBa,NBV*sizeof(int));
-        }
-        for(i=0;i<nb-1;i++)for(j=i+1;j<nb;j++){
-          for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[i][k]^sbuf[j][k]];q/=NV;
-          for(k=0,x=1;k<=8;k++){sp[k]+=x;x*=q;}
-        }
-        n++;
-        t1=cpu();
-        if(t1-t0>5||n==nd){
-          t0=t1;
-          printf("n=%d\n",n);
-          printf("beta %g\n",beta);
-          printf("burn-in %d\n",burnin);
-          printf("nb %d\n",nb);
-          for(j=1;j<=8;j++)printf("%3d %12g\n",j,sp[j]/sp[0]);
-          printf("Binder %12g\n",.5*(3-sp[0]*sp[4]/(sp[2]*sp[2])));
-          printf("\n");
-          fflush(stdout);
-        }
-      }
-    }
+  case 14:
+    binderparamestimate(weightmode);
     break;
-  case 15:// Exchange Monte-Carlo: try to work out optimal temperatures
-    {
-      int i,j,n,prch,pr=0;
-      int maxn=100000;
-      int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
-      double tp,del,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
-      int en[nt],ex[nt-1],sbuf[nt][NBV];
-      //if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
-      //initweights(weightmode);
-      be0=ngp>2?genp[2]:0.5;be1=ngp>3?genp[3]:5;// low and high beta
-      for(i=0;i<nt;i++)be[i]=be0*pow(be1/be0,i/(nt-1.));// Interpolate geometrically for first guess
-      printf("nt=%d\n",nt);
-      printf("be0=%g\n",be0);
-      printf("be1=%g\n",be1);
-      printf("%s mode\n",genp[0]?"Single bigvertex":"Tree");
-      tp=ngp>4?genp[4]:0.25;
-      printf("Going for transition probability %g\n",tp);
-      prch=100*(genp[0]?16:1);// Print chunksize
-      for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
-      for(i=0;i<nt-1;i++)ex[i]=0;
-      for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
-      vhist=(double(*)[nt])malloc(maxn*nt*sizeof(double));assert(vhist);
-      for(n=0;n<maxn;){
-        for(i=0;i<nt;i++){
-          memcpy(XBa,sbuf[i],NBV*sizeof(int));
-          switch((int)(genp[0])){
-            int d,r,c;
-          case 0:
-            tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-            break;
-          case 1:
-            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_slow(d,c,r,be[i]);
-            break;
-          }
-          v=val();en[i]=v;vhist[n][i]=v;
-          memcpy(sbuf[i],XBa,NBV*sizeof(int));
-          if(pr>=2)printf("%5d ",en[i]);
-          s0[i]+=1;s1[i]+=v;s2[i]+=v*v;
-          if(n&1){v=vhist[n>>1][i];s0[i]-=1;s1[i]-=v;s2[i]-=v*v;}
-        }
-        if(pr>=2)printf("\n");
-        for(i=0;i<nt-1;i++){
-          if(pr>=3)printf("     ");
-          del=(be[i+1]-be[i])*(en[i]-en[i+1]);
-          if(del<0||randfloat()<exp(-del)){
-            memcpy(XBa,sbuf[i],NBV*sizeof(int));
-            memcpy(sbuf[i],sbuf[i+1],NBV*sizeof(int));
-            memcpy(sbuf[i+1],XBa,NBV*sizeof(int));
-            v=en[i];en[i]=en[i+1];en[i+1]=v;
-            if(pr>=3)printf("X");
-            ex[i]++;
-          } else if(pr>=3)printf(" ");
-        }
-        if(pr>=3)printf("\n");
-        n++;
-        if(n%prch==0){
-          int i0,nb;
-          double p,err,minerr,mu1,sd1,mu[nt],sd[nt],ben[nt];
-          for(i=0;i<nt;i++){mu[i]=s1[i]/s0[i];sd[i]=sqrt((s2[i]-s1[i]*s1[i]/s0[i])/(s0[i]-1));}
-          printf("\n");
-          if(pr>=1){
-            printf("  ");for(i=0;i<nt-1;i++)printf(" %5.3f",ex[i]/(double)n);printf("\n");
-            //for(i=0;i<nt;i++)printf("%5.3f ",s1[i]/s0[i]);printf("\n");
-            //for(i=0;i<nt;i++)printf("%5.3f ",mu[i]);printf(" mu[]\n");
-            //for(i=0;i<nt;i++)printf("%5.3f ",sd[i]);printf(" sd[]\n");
-            printf("  ");
-            for(i=0;i<nt-1;i++){
-              mu1=-(be[i+1]-be[i])*(mu[i+1]-mu[i]);
-              sd1=(be[i+1]-be[i])*sqrt(sd[i]*sd[i]+sd[i+1]*sd[i+1]);
-              if(sd1>1e-6)p=Phi(-mu1/sd1)+exp(sd1*sd1/2-mu1)*Phi(mu1/sd1-sd1); else p=exp(-mu1);
-              printf(" %5.3f",p);
-            }
-            printf("\n");
-          }
-          j=nt-1;nb=0;
-          while(j>0){
-            ben[nb++]=be[j];
-            minerr=1e9;i0=-1;
-            for(i=j-1;i>=0;i--){
-              mu1=-(be[j]-be[i])*(mu[j]-mu[i]);
-              sd1=(be[j]-be[i])*sqrt(sd[i]*sd[i]+sd[j]*sd[j]);
-              // Stable version of Phi(-mu1/sd1)+exp(sd1*sd1/2-mu1)*Phi(mu1/sd1-sd1):
-              if(sd1<1e-6)p=exp(-mu1); else p=Phi(-mu1/sd1)+phi(mu1/sd1)/Rphi(mu1/sd1-sd1);
-              err=log(p/tp);
-              if(fabs(err)<minerr){minerr=fabs(err);i0=i;}
-              if(err<0)break;
-            }
-            j=i0;
-          }
-          printf("%d steps\n",n);
-          printf("p=%.3f choice of be[]:",tp);
-          for(i=nb-1;i>=0;i--)printf(" %5.3f",ben[i]);printf("\n");
-          fflush(stdout);
-        }
-      }// while(1)
-    }
+  case 15:
+    findexchangemontecarlotemperatureset(weightmode);
     break;
-  case 16:// Exchange Monte-Carlo, example calculating Binder ratio 
-    {
-      int h,i,j,k,m,n,r,eqb,nd,btab[16];
-      double be0[]={0.108,0.137,0.166,0.196,0.226,0.258,0.291,0.326,0.364,0.405,0.451,0.500,0.557,0.624,0.704,0.808,0.944,1.131,1.438,2.000};
-      // ^ N=8 -w0 -x-1 p=0.3
-      //double be2[]={0.133,0.170,0.209,0.248,0.288,0.329,0.370,0.413,0.458,0.507,0.557,0.612,0.672,0.744,0.830,0.941,1.084,1.268,1.543,1.967,2.821,5.000};
-      // ^ N=8 -w2 -x-1 p=0.3
-      double be2[]={0.502,0.528,0.556,0.585,0.613,0.644,0.678,0.713,0.754,0.797,0.842,0.894,0.954,1.022,1.101,1.190,1.294,1.419,1.570,1.762,2.015,2.357,2.821,3.505,5.000};
-      // ^ N=8 -w2 -x-1 p=0.6
-      double be2_15[]={0.530,0.561,0.595,0.630,0.668,0.699,0.732,0.767,0.804,0.842,0.881,0.923,0.967,1.013,1.061,1.111,1.164,1.219,1.276,1.337,1.400,1.467,1.536,1.609,1.685,1.785,1.892,2.004,2.124,2.276,2.440,2.616,2.836,3.111,3.453,3.832,4.352,5.000};
-      //double be2_15[]={2};//check
-      // ^ N=15 -w7 p=0.4
-      int nt;// Number of temperatures
-      int nhist,maxhist=500;// Keep samples for the purposes of error-estimating
-      double *be;
-      if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
-      if(weightmode==0){be=be0;nt=sizeof(be0)/sizeof(double);} else {be=be2;nt=sizeof(be2)/sizeof(double);}
-      if(weightmode==7&&N==15){be=be2_15;nt=sizeof(be2_15)/sizeof(double);}
-      double q,x,del,nex,maxerr,ex[nt-1];
-      typedef struct {double n,qq[nt][2];} qest;
-      qest lsp,sp,hist[maxhist];
-      int en[nt],sbuf[2][nt][NBV];
-      printf("nt=%d\n",nt);
-      printf("beta_low=%g\n",be[0]);
-      printf("beta_high=%g\n",be[nt-1]);
-      printf("be[] =");for(i=0;i<nt;i++)printf(" %5.3f",be[i]);printf("\n");
-      for(i=1,btab[0]=4;i<16;i++)btab[i]=btab[i>>1]-2*(i&1);// (# 0 bits) - (# 1 bits)
-      sp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)sp.qq[i][j]=0;
-      nhist=0;
-      for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of exchanges
-      nd=0;// Number of disorder samples
-      eqb=(ngp>1?genp[1]:100);
-      printf("Equilibration time %d\n",eqb);
-      fflush(stdout);
-
-      if(ngp>0&&genp[0]==-1){// optimise
-        for(r=0;r<1;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
-        int vmin=1000000000;
-        while(1){// Thermal loop
-          r=0;
-          for(i=0;i<nt;i++){
-            memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
-            for(j=0;j<1;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-            v=val();en[i]=v;
-            if(v<vmin){vmin=v;printf("min = %d\n",vmin);}
-            memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
-          }
-          for(i=0;i<nt-1;i++){
-            del=(be[i+1]-be[i])*(en[i]-en[i+1]);
-            if(del<0||randfloat()<exp(-del)){
-              memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
-              memcpy(sbuf[r][i],sbuf[r][i+1],NBV*sizeof(int));
-              memcpy(sbuf[r][i+1],XBa,NBV*sizeof(int));
-              v=en[i];en[i]=en[i+1];en[i+1]=v;
-              ex[i]++;
-            }
-          }
-          nex++;
-          if((int)nex%100==0){
-            for(i=0;i<nt;i++)printf("%6.3f ",be[i]);printf("  be[]\n");
-            printf("  ");
-            for(i=0;i<nt-1;i++)printf(" %6.3f",ex[i]/nex);printf("       exch[]\n");
-            fflush(stdout);
-          }
-        }
-      }
-
-      while(1){// Loop over disorders
-        initweights(weightmode);// Disorder (J_ij) sample
-        for(r=0;r<2;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
-        lsp.n=0;for(i=0;i<nt;i++)for(k=0;k<2;k++)lsp.qq[i][k]=0;
-        n=-eqb;
-        while(n<eqb){// Thermal loop
-          for(r=0;r<2;r++){// Replica loop
-            for(i=0;i<nt;i++){
-              memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
-              for(j=0;j<1;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-              v=val();en[i]=v;
-              memcpy(sbuf[r][i],XBa,NBV*sizeof(int));
-            }
-            for(i=0;i<nt-1;i++){
-              del=(be[i+1]-be[i])*(en[i]-en[i+1]);
-              if(del<0||randfloat()<exp(-del)){
-                memcpy(XBa,sbuf[r][i],NBV*sizeof(int));
-                memcpy(sbuf[r][i],sbuf[r][i+1],NBV*sizeof(int));
-                memcpy(sbuf[r][i+1],XBa,NBV*sizeof(int));
-                v=en[i];en[i]=en[i+1];en[i+1]=v;
-                ex[i]++;
-              }
-            }
-            nex++;
-          }//r
-          n++;
-          if(n>=0){
-            for(i=0;i<nt;i++){
-              for(k=0,q=0;k<NBV;k++)q+=btab[sbuf[0][i][k]^sbuf[1][i][k]];q/=NV;
-              x=q*q;lsp.qq[i][0]+=x;lsp.qq[i][1]+=x*x;
-            }
-            lsp.n+=1;// Keep this as a variable in case decide to vary the equilibrium point for different disorders
-          }
-        }
-        nd++;
-        
-        if(nhist<maxhist)hist[nhist++]=lsp; else {
-          nhist++;
-          i=randint(nhist);
-          if(i<maxhist)hist[i]=lsp;
-        }
-        int nsubsamp,nsamp=200;
-        double p0=0.16;// Error percentile p0 to 1-p0, roughly corresponding to +/-1sd of a normal.
-        double q0,q2,q4,samp[nt][nsamp];
-        double est[nt],err[nt];
-        sp.n+=lsp.n;
-        for(i=0;i<nt;i++)for(j=0;j<2;j++)sp.qq[i][j]+=lsp.qq[i][j];// lsp.qq[i][j] = <q_i^(2(j+1))>   <.> = thermal sum
-        for(i=0;i<nt;i++){
-          q0=sp.n;
-          q2=sp.qq[i][0];
-          q4=sp.qq[i][1];
-          est[i]=.5*(3-q0*q4/(q2*q2));
-        }
-        n=MIN(nhist,maxhist);
-        nsubsamp=n;// say
-        for(k=0;k<nsamp;k++){
-          lsp.n=0;for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]=0;
-          for(m=0;m<nsubsamp;m++){
-            h=randint(n);
-            lsp.n+=hist[h].n;
-            for(i=0;i<nt;i++)for(j=0;j<2;j++)lsp.qq[i][j]+=hist[h].qq[i][j];
-          }
-          for(i=0;i<nt;i++){
-            q0=lsp.n;
-            q2=lsp.qq[i][0];
-            q4=lsp.qq[i][1];
-            samp[i][k]=.5*(3-q0*q4/(q2*q2));
-          }
-        }
-        for(i=0;i<nt;i++){
-          double e0,e1;
-          qsort(samp[i],nsamp,sizeof(double),cmpd);
-          e0=samp[i][(int)floor(p0*nsamp)];
-          e1=samp[i][(int)floor((1-p0)*nsamp)];
-          err[i]=MAX(fabs(est[i]-e0),fabs(est[i]-e1))*sqrt(nsubsamp/(double)nhist);
-        }
-        printf("\n");
-        printf("Number of disorders: %d\n",nd);
-        for(i=0;i<nt;i++)printf("%6.3f ",be[i]);printf("  be[]\n");
-        for(i=0;i<nt;i++)printf("%6.3f ",est[i]);printf("  est[]\n");
-        for(i=0,maxerr=0;i<nt;i++){
-          printf("%6.3f ",err[i]);
-          if(err[i]>maxerr)maxerr=err[i];
-        }
-        printf("  err[]\n");
-        printf("  ");
-        for(i=0;i<nt-1;i++)printf(" %6.3f",ex[i]/nex);printf("       exch[]\n");
-        fflush(stdout);
-        if(nd>=2&&maxerr<1e-3)break;
-      }
-      
-    }
+  case 16:
+    calcbinderratio(weightmode);
     break;
-
   case 17:
     findeqbmusingchisq(weightmode);
     break;
-
   case 18:
     findeqbmusingtopbeta(weightmode);
     break;
