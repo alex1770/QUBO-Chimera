@@ -20,10 +20,9 @@
 // x_i can take the values statemap[0] and statemap[1] (default 0,1).
 // This includes the case described in section 3.2 of http://www.cs.amherst.edu/ccm/cf14-mcgeoch.pdf
 //
-// This now includes the union of all historical test code and is rather sprawling. To
-// illustrate any particular technique probably only requires a small subset of this
-// program. In other words, it could do with a clean out and separating into different
-// programs.
+// This now includes the union of all historical test code and is rather sprawling. Any
+// particular technique probably only requires a small subset of this program. In other
+// words, it could do with a clean out and separating into different programs.
 // 
 // Chimera graph, C_N:
 // Vertices are (x,y,o,i)  0<=x,y<N, 0<=o<2, 0<=i<4
@@ -277,6 +276,8 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
       break;
       // mode 11 is uniform on {-n,...,-1,1,...,n} (converted to QUBO form) to mimic "range" of http://arxiv.org/abs/1401.2910
     case 11:if((d<4&&deco(p)==0)||d==5){int n=7;r=randint(2*n)-n;r+=(r>=0);Q[p][i][d]=2*r;Q[p][i][6]-=r;Q[q][j][6]-=r;}
+      break;
+    case 12:if((d<4&&deco(p)==0)||d==5){int n=7;r=randint(2*n)-n;r+=(r>=0);Q[p][i][d]=r;}// same as mode 11, for Ising form
       break;
     }
   }
@@ -751,17 +752,28 @@ double tree1gibbs_slow(int d,int p,int r0,double beta){
   return W3[0];
 }
 
-double tree1gibbs(int d,int p,int r0,double beta,long double*etab){
+double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double m1,
+                  long double max0,long double max1,long double max2,long double max3,long double max4,long double max5
+                  ){
   // If d=0 sample the (induced) tree consisting of all verts of columns of parity p,
   //               the o=1 (vertically connected) verts of the other columns, and row r0.
   // If d=1 then same with rows <-> columns.
   // Comments and variable names are as if in the column case (d=0)
   // Updates tree to new sample and returns Z of tree
+  // etab[r]=expl(-beta*r)  (r can be negative)
   int b,c,f,r,s,dir,hc[N][N][16],hs[N][N][16],hr[N][16];
-  long double z,Z,max,pr[16],Z0[16],Z1[16],Z2[16],Z3[16],Z4[16];
+  long double z,Z,max,ff,pr[16],Z0[16],Z1[16],Z2[16],Z3[16],Z4[16];
   // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
+  // Z1[s] = const*(Z of current column fragment, including (c,r,0), given that (c,r,1) = s)
   // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
-  // Z3[s] = const*(Z of tree to left of column c given that (c,r0,0) = s)
+  // Z3[s] = const*(Z of tree at columns <c given that (c,r0,0) = s)
+  // Z4[s] = const*(Z of tree at columns <=c given that (c,r0,0) = s)
+  // If |Z|<=m is abuse of notation for m^{-1}<=Z<=m, then
+  // |Z0|<=m1
+  // |Z1|<=m0.m1
+  // |Z2|<=m1^2
+  // |Z3|<=m1
+  // |Z4|<=m0.m1
 
   for(s=0;s<16;s++)Z3[s]=1;
   for(c=0;c<N;c++){
@@ -776,7 +788,9 @@ double tree1gibbs(int d,int p,int r0,double beta,long double*etab){
             Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
             if(Z1[b]>max)max=Z1[b];
           }
-          for(b=0;b<16;b++)Z1[b]/=max;
+          assert(max<=max0);for(b=0;b<16;b++)assert(1/Z1[b]<=max0);//alter
+          ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
+          for(b=0;b<16;b++)assert(Z1[b]>=1/(m0*m1));//alter
         } else {
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
             for(s=0,Z=0;s<16;s++){// s = state of (c,r,0)
@@ -791,7 +805,9 @@ double tree1gibbs(int d,int p,int r0,double beta,long double*etab){
             if(Z1[b]>max)max=Z1[b];
             hc[c][r][b]=s;
           }
-          for(b=0;b<16;b++)Z1[b]/=max;
+          assert(max<=max1);for(b=0;b<16;b++)assert(1/Z1[b]<=max1);//alter
+          ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
+          for(b=0;b<16;b++)assert(Z1[b]>=1/(m0*m1));//alter
         }
         for(b=0,max=0;b<16;b++){// b = state of (c,r+1-2*dir,1)
           for(s=0,Z=0;s<16;s++){// s = state of (c,r,1)
@@ -804,12 +820,16 @@ double tree1gibbs(int d,int p,int r0,double beta,long double*etab){
           if(Z>max)max=Z;
           hs[c][r][b]=s;
         }
-        for(b=0;b<16;b++)Z0[b]/=max;
+        assert(max<=max2);for(b=0;b<16;b++)assert(1/Z0[b]<=max2);//alter
+        ff=m1/max;for(b=0;b<16;b++)Z0[b]*=ff;
+        for(b=0;b<16;b++)assert(Z0[b]>=1/m1);//alter
       }//r
       for(s=0;s<16;s++)Z2[s]*=Z0[s];
     }//dir
     for(b=0,max=0;b<16;b++)if(Z2[b]>max)max=Z2[b];
-    for(b=0;b<16;b++)Z2[b]/=max;
+    assert(max<=max3);for(b=0;b<16;b++)assert(1/Z2[b]<=max3);//alter
+    ff=m1*m1/max;for(b=0;b<16;b++)Z2[b]*=ff;// This normalisation maybe not necessary
+    for(b=0;b<16;b++)assert(Z2[b]>=1/(m1*m1));//alter
 
     for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
@@ -822,20 +842,29 @@ double tree1gibbs(int d,int p,int r0,double beta,long double*etab){
       if(Z4[b]>max)max=Z4[b];
       hc[c][r0][b]=s;
     }
-    for(b=0;b<16;b++)Z4[b]/=max;
+    if(max>max4)fprintf(stderr,"max=%Lg max4=%Lg\n",max,max4);//alter
+    assert(max<=max4);for(b=0;b<16;b++)assert(1/Z4[b]<=max4);//alter
+    ff=m0*m1/max;for(b=0;b<16;b++)Z4[b]*=ff;
+    for(b=0;b<16;b++)assert(Z4[b]>=1/(m0*m1));//alter
 
-    for(b=0;b<16;b++){// b = state of (c+1,r0,0)
+    //printf("\n");
+    for(b=0,max=0;b<16;b++){// b = state of (c+1,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,0)
         pr[s]=Z4[s]*etab[QBI(d,c,r0,0,2,s,b)];
+        //printf("%2d %2d : %6d %12Lg\n",b,s,QBI(d,c,r0,0,2,s,b),etab[QBI(d,c,r0,0,2,s,b)]);
         Z+=pr[s];
       }
+      //printf("\n");
       for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
       assert(s<16);
       Z3[b]=Z;
       if(Z>max)max=Z;
       hr[c][b]=s;
     }
-    for(b=0;b<16;b++)Z3[b]/=max;
+    assert(max<=max5);for(b=0;b<16;b++)assert(1/Z3[b]<=max5);//alter
+    ff=m1/max;for(b=0;b<16;b++)Z3[b]*=ff;
+    //printf("%Lg\n",m1);
+    for(b=0;b<16;b++)assert(Z3[b]>=1/m1);//alter
   }//c
 
   for(c=N-1;c>=0;c--){
@@ -2301,29 +2330,44 @@ void consistencychecks2(int weightmode,int strat,double mint,double maxt){
   }
 }
 
-long double*initetab(double beta,int *offset){
-  int d,n,s0,s1,min0,max0,min1,max1,min2,max2;
-  long double *etab;
-  min0=max0=0;
+void qbounds(int qq[3],int rr[2],int mm[2]){
+  // Return bounds rr[] such that accesses, etab[i], to centred etab satisfy rr[0]<=i<=rr[1],
+  //    and bounds mm[0], mm[1] controlling the maximum variation in Q(d,b,s) over s.
+  //               mm[0] corresponds to d=0 (intra-K44) and mm[1] to d=1,2 (inter-K44).
+  //            so mm[0] = max_{n,b}(max_s Q(n,0,b,s) - min_s Q(n,0,b,s))
+  //               mm[1] = max_{n,b,d=1,2}(max_s Q(n,d,b,s) - min_s Q(n,d,b,s))
+  //               qq[0] = max_{n,b,s} |Q(n,0,b,s)|
+  //               qq[1] = max_{n,d=1,2,b,s} |Q(n,d,b,s)|
+  //               qq[2] = max_{n,b} MAX(sum_d max_s Q(n,d,b,s), sum_d max_s -Q(n,d,b,s)) = MAX(-rr[0],rr[1])
+  int d,n,q,v,s0,s1,min1,max1,min2,max2;
+  qq[0]=qq[1]=qq[2]=rr[0]=rr[1]=mm[0]=mm[1]=0;
   for(n=0;n<NBV;n++){
     for(s0=0;s0<16;s0++){
       min1=max1=0;
       for(d=0;d<3;d++){
-        min2=max2=0;
+        min2=max2=0;// These zeros mean that etab[Q0] and etab[Q1] type accesses will be in bounds
+        //             though in general we're ensuring that etab[Q0+Q1+Q2] type accesses are OK.
         for(s1=0;s1<16;s1++){
-          if(QBa[n][d][s0][s1]>max2)max2=QBa[n][d][s0][s1];
-          if(QBa[n][d][s0][s1]<min2)min2=QBa[n][d][s0][s1];
+          q=QBa[n][d][s0][s1];
+          if(q>max2)max2=q;
+          if(q<min2)min2=q;
+          if(abs(q)>qq[MIN(d,1)])qq[MIN(d,1)]=abs(q);
         }
+        v=max2-min2;if(v>mm[MIN(d,1)])mm[MIN(d,1)]=v;
         min1+=min2;max1+=max2;
       }
-      if(min1<min0)min0=min1;
-      if(max1>max0)max0=max1;
+      if(min1<rr[0])rr[0]=min1;
+      if(max1>rr[1])rr[1]=max1;
     }
   }
-  //printf("Range %d to %d\n",min0,max0);
-  etab=(long double*)malloc((max0-min0+1)*sizeof(long double));
-  for(n=min0;n<=max0;n++)etab[n-min0]=expl(-beta*n);
-  *offset=-min0;
+  qq[2]=MAX(-rr[0],rr[1]);
+}
+
+long double*initetab(double beta,int rr[2]){
+  int n;
+  long double *etab;
+  etab=(long double*)malloc((rr[1]-rr[0]+1)*sizeof(long double));
+  for(n=rr[0];n<=rr[1];n++)etab[n-rr[0]]=expl(-beta*n);
   return etab;
 }
 
@@ -2866,15 +2910,13 @@ int findeqbmusingtopbeta(int weightmode){
   int pr=genp[1];
   if(genp[3]<=0){
     switch(weightmode){
+    default:
+      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 7's set.\n",weightmode);
     case 7:
       be=bew7[N]-(int)(genp[3]);
       break;
     case 11:
       be=bew11[N]-(int)(genp[3]);
-      break;
-    default:
-      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 7's set.\n",weightmode);
-      be=bew7[N]-(int)(genp[3]);
       break;
     }
   }else be=be0;
@@ -2890,11 +2932,11 @@ int findeqbmusingtopbeta(int weightmode){
   double een[nt],ven[nt];// Derived energy estimates and std errs
   double x,y,del,nex,ex[nt-1],ex2[nt][nt];
   int eqb;// Current upper bound on equilibration time
-  int offset[nt];// Zero point of etab[i] table
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-  int c,d,e,i,j,k,n,p,r,v;
+  int c,d,e,i,j,k,n,p,r,v,mm[2],qq[3],rr[2];
   double mu,va,se,nit,nsol;
-  long double *(etab[nt]);
+  long double *(etab[nt]),m0[nt],m1[nt];
+  long double Q0[nt],Q1[nt],Q2[nt];//alter
   int tabsize;
   int (*medtab)[16][16][16][16]=0;
   unsigned int (*bigtab)[NBV][16][16][16][16]=0;
@@ -2910,7 +2952,17 @@ int findeqbmusingtopbeta(int weightmode){
   int ndgu=0.4*ndmax; // Give-up point
   eqb=ngp>5?genp[5]:1;vmin=1000000000;
 
-  for(i=0;i<nt;i++)etab[i]=initetab(be[i],&offset[i]);
+  qbounds(qq,rr,mm);
+  printf("qbounds %d %d %d %d\n",rr[0],rr[1],mm[0],mm[1]);//alter
+  for(i=0;i<nt;i++){
+    etab[i]=initetab(be[i],rr);
+    m0[i]=expl(be[i]*mm[0]/2.);
+    m1[i]=expl(be[i]*mm[1]/2.);
+    Q0[i]=expl(be[i]*qq[0]);
+    Q1[i]=expl(be[i]*qq[1]);
+    Q2[i]=expl(be[i]*qq[2]);
+    if(i==nt-1)printf("m0=%Lg m1=%Lg\n",m0[i],m1[i]);//alter
+  }
   if(genp[0]==1){
     int p,s,x0,x1,x2;
     long double z,Z,pr[16];
@@ -2926,7 +2978,7 @@ int findeqbmusingtopbeta(int weightmode){
       if(!bigtab){fprintf(stderr,"Couldn't allocate bigtab\n");exit(1);}
       for(i=0;i<nt;i++){
         for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
-          for(s=0,Z=0;s<16;s++){pr[s]=etab[i][offset[i]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
+          for(s=0,Z=0;s<16;s++){pr[s]=etab[i][-rr[0]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
           for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
         }
       }
@@ -2952,18 +3004,25 @@ int findeqbmusingtopbeta(int weightmode){
         for(i=0;i<nt;i++){
           memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
           switch((int)(genp[0])){
+            long double max0,max1,max2,max3,max4,max5;
           case 0:
             //tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-            tree1gibbs(randint(2),randint(2),randint(N),be[i],etab[i]+offset[i]);
+            max0=16*Q0[i]*m1[i]*(1+1e-10);
+            max1=16*Q2[i]*m1[i]*(1+1e-10);
+            max2=16*Q1[i]*m0[i]*m1[i]*(1+1e-10);
+            max3=m1[i]*m1[i]*(1+1e-10);
+            max4=16*Q0[i]*Q1[i]*m1[i]*m1[i]*(1+1e-10);
+            max5=16*Q1[i]*m0[i]*m1[i]*(1+1e-10);
+            tree1gibbs(randint(2),randint(2),randint(N),etab[i]-rr[0],m0[i],m1[i],max0,max1,max2,max3,max4,max5);
             nit+=1;
             break;
           case 1:
             switch(tabsize){
             case 0:
-              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_smalltab(d,c,r,etab[i]+offset[i]);
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_smalltab(d,c,r,etab[i]-rr[0]);
               break;
             case 1:
-              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_medtab(d,c,r,medtab,etab[i]+offset[i]);
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_medtab(d,c,r,medtab,etab[i]-rr[0]);
               break;
             case 2:
               for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_bigtab(d,c,r,bigtab[i]);
