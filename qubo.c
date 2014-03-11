@@ -752,8 +752,12 @@ double tree1gibbs_slow(int d,int p,int r0,double beta){
   return W3[0];
 }
 
+long double gap0=1e4900L,gap1=1e4900L,gap2=1e4900L,gap3=1e4900L,gap4=1e4900L,gap5=1e4900L;//alter
+#define MINE(x,y) {if(m1>=1e200L&&(y)<(x))(x)=(y);}
+
 double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double m1,
-                  long double max0,long double max1,long double max2,long double max3,long double max4,long double max5
+                  long double max0,long double max1,long double max2,
+                  long double max3,long double max4,long double max5
                   ){
   // If d=0 sample the (induced) tree consisting of all verts of columns of parity p,
   //               the o=1 (vertically connected) verts of the other columns, and row r0.
@@ -762,7 +766,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
   // Updates tree to new sample and returns Z of tree
   // etab[r]=expl(-beta*r)  (r can be negative)
   int b,c,f,r,s,dir,hc[N][N][16],hs[N][N][16],hr[N][16];
-  long double z,Z,max,ff,pr[16],Z0[16],Z1[16],Z2[16],Z3[16],Z4[16];
+  long double z,Z,max,ff,pr[16],Z0[16],Z0a[16],Z1[16],Z2[16],Z3a[16],Z3[16],Z4[16];
   // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
   // Z1[s] = const*(Z of current column fragment, including (c,r,0), given that (c,r,1) = s)
   // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
@@ -788,7 +792,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
             Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
             if(Z1[b]>max)max=Z1[b];
           }
-          assert(max<=max0);for(b=0;b<16;b++)assert(1/Z1[b]<=max0);//alter
+          MINE(gap0,max0/max);for(b=0;b<16;b++)MINE(gap0,max0*Z1[b]);assert(gap0>1-1e-9);//alter
           ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
           for(b=0;b<16;b++)assert(Z1[b]>=1/(m0*m1));//alter
         } else {
@@ -801,13 +805,15 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
             }
             for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
             assert(s<16);
-            Z1[b]=Z0[b]*Z;
-            if(Z1[b]>max)max=Z1[b];
             hc[c][r][b]=s;
+            if(Z>max)max=Z;
+            Z0a[b]=Z;
           }
-          assert(max<=max1);for(b=0;b<16;b++)assert(1/Z1[b]<=max1);//alter
-          ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
-          for(b=0;b<16;b++)assert(Z1[b]>=1/(m0*m1));//alter
+          MINE(gap1,max1/max);for(b=0;b<16;b++)MINE(gap1,max1*Z0a[b]);assert(gap1>1-1e-9);//alter
+          ff=m0/max;for(b=0;b<16;b++)Z0a[b]*=ff;
+          for(b=0;b<16;b++)assert(Z0a[b]>=1/m0);//alter
+          for(b=0;b<16;b++)Z1[b]=Z0[b]*Z0a[b];// b = state of (c,r,1)
+          for(b=0;b<16;b++)assert(Z1[b]<=m0*m1*(1+1e-9)&&Z1[b]>=1/(m0*m1));//alter
         }
         for(b=0,max=0;b<16;b++){// b = state of (c,r+1-2*dir,1)
           for(s=0,Z=0;s<16;s++){// s = state of (c,r,1)
@@ -820,15 +826,14 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
           if(Z>max)max=Z;
           hs[c][r][b]=s;
         }
-        assert(max<=max2);for(b=0;b<16;b++)assert(1/Z0[b]<=max2);//alter
+        MINE(gap2,max2/max);for(b=0;b<16;b++)MINE(gap2,max2*Z0[b]);assert(gap2>1-1e-9);//alter
         ff=m1/max;for(b=0;b<16;b++)Z0[b]*=ff;
-        for(b=0;b<16;b++)assert(Z0[b]>=1/m1);//alter
+        for(b=0;b<16;b++)assert(Z0[b]>=1/m1*(1-1e-9));//alter
       }//r
       for(s=0;s<16;s++)Z2[s]*=Z0[s];
     }//dir
     for(b=0,max=0;b<16;b++)if(Z2[b]>max)max=Z2[b];
-    assert(max<=max3);for(b=0;b<16;b++)assert(1/Z2[b]<=max3);//alter
-    ff=m1*m1/max;for(b=0;b<16;b++)Z2[b]*=ff;// This normalisation maybe not necessary
+    MINE(gap3,max3/max);for(b=0;b<16;b++)MINE(gap3,max3*Z2[b]);assert(gap3>1-1e-9);//alter
     for(b=0;b<16;b++)assert(Z2[b]>=1/(m1*m1));//alter
 
     for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
@@ -838,14 +843,15 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
       }
       for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
       assert(s<16);
-      Z4[b]=Z3[b]*Z;
-      if(Z4[b]>max)max=Z4[b];
       hc[c][r0][b]=s;
+      if(Z>max)max=Z;
+      Z3a[b]=Z;
     }
-    if(max>max4)fprintf(stderr,"max=%Lg max4=%Lg\n",max,max4);//alter
-    assert(max<=max4);for(b=0;b<16;b++)assert(1/Z4[b]<=max4);//alter
-    ff=m0*m1/max;for(b=0;b<16;b++)Z4[b]*=ff;
-    for(b=0;b<16;b++)assert(Z4[b]>=1/(m0*m1));//alter
+    MINE(gap4,max4/max);for(b=0;b<16;b++)MINE(gap4,max4*Z3a[b]);assert(gap4>1-1e-9);//alter
+    ff=m0/max;for(b=0;b<16;b++)Z3a[b]*=ff;
+    for(b=0;b<16;b++)assert(Z3a[b]>=1/m0);//alter
+    for(b=0;b<16;b++)Z4[b]=Z3[b]*Z3a[b];// b = state of (c,r0,0)
+    for(b=0;b<16;b++)assert(Z4[b]<=m0*m1*(1+1e-9)&&Z4[b]>=1/(m0*m1));//alter
 
     //printf("\n");
     for(b=0,max=0;b<16;b++){// b = state of (c+1,r0,0)
@@ -861,7 +867,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
       if(Z>max)max=Z;
       hr[c][b]=s;
     }
-    assert(max<=max5);for(b=0;b<16;b++)assert(1/Z3[b]<=max5);//alter
+    MINE(gap5,max5/max);for(b=0;b<16;b++)MINE(gap5,max5*Z3[b]);assert(gap5>1-1e-9);//alter
     ff=m1/max;for(b=0;b<16;b++)Z3[b]*=ff;
     //printf("%Lg\n",m1);
     for(b=0;b<16;b++)assert(Z3[b]>=1/m1);//alter
@@ -2910,11 +2916,11 @@ int findeqbmusingtopbeta(int weightmode){
   int pr=genp[1];
   if(genp[3]<=0){
     switch(weightmode){
-    default:
-      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 7's set.\n",weightmode);
     case 7:
       be=bew7[N]-(int)(genp[3]);
       break;
+    default:
+      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 11's set.\n",weightmode);
     case 11:
       be=bew11[N]-(int)(genp[3]);
       break;
@@ -2953,7 +2959,7 @@ int findeqbmusingtopbeta(int weightmode){
   eqb=ngp>5?genp[5]:1;vmin=1000000000;
 
   qbounds(qq,rr,mm);
-  printf("qbounds %d %d %d %d\n",rr[0],rr[1],mm[0],mm[1]);//alter
+  printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",rr[0],rr[1],mm[0],mm[1],qq[0],qq[1],qq[2]);//alter
   for(i=0;i<nt;i++){
     etab[i]=initetab(be[i],rr);
     m0[i]=expl(be[i]*mm[0]/2.);
@@ -3007,12 +3013,16 @@ int findeqbmusingtopbeta(int weightmode){
             long double max0,max1,max2,max3,max4,max5;
           case 0:
             //tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-            max0=16*Q0[i]*m1[i]*(1+1e-10);
-            max1=16*Q2[i]*m1[i]*(1+1e-10);
-            max2=16*Q1[i]*m0[i]*m1[i]*(1+1e-10);
-            max3=m1[i]*m1[i]*(1+1e-10);
-            max4=16*Q0[i]*Q1[i]*m1[i]*m1[i]*(1+1e-10);
-            max5=16*Q1[i]*m0[i]*m1[i]*(1+1e-10);
+            max0=16*Q0[i]*m1[i];
+            max1=16*Q2[i];
+            max2=16*Q1[i]*m0[i]*m1[i];
+            max3=m1[i]*m1[i];
+            max4=16*Q0[i]*m1[i]*m1[i];
+            max5=16*Q1[i]*m0[i]*m1[i];
+            if(n==0&&i==nt-1){//alter
+              printf("MAX %14Lg %14Lg %14Lg %14Lg %14Lg %14Lg\n",max0,max1,max2,max3,max4,max5);
+              printf("MMM %14Lg %14Lg    %14Lg %14Lg %14Lg\n",m0[i],m1[i],Q0[i],Q1[i],Q2[i]);
+            }
             tree1gibbs(randint(2),randint(2),randint(N),etab[i]-rr[0],m0[i],m1[i],max0,max1,max2,max3,max4,max5);
             nit+=1;
             break;
@@ -3056,6 +3066,7 @@ int findeqbmusingtopbeta(int weightmode){
         if(pr>=4)printf("Top beta energy %12g\n",ten[n]);
       }// Thermal
       for(i=0;i<nt;i++)lem[i]/=eqb;
+      printf("GAPs %14Lg %14Lg %14Lg %14Lg %14Lg %14Lg\n",gap0,gap1,gap2,gap3,gap4,gap5);
       nd++;
       if(pr>=1){
         printf("\n");
