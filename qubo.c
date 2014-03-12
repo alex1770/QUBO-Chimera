@@ -2340,9 +2340,12 @@ void qbounds(int qq[3],int rr[2],int mm[2]){
   //               mm[0] corresponds to d=0 (intra-K44) and mm[1] to d=1,2 (inter-K44).
   //            so mm[0] = max_{n,b}(max_s Q(n,0,b,s) - min_s Q(n,0,b,s))
   //               mm[1] = max_{n,b,d=1,2}(max_s Q(n,d,b,s) - min_s Q(n,d,b,s))
+  //               rr[0] = min_{n,b} sum_d min_s Q(n,d,b,s)
+  //               rr[1] = max_{n,b} sum_d max_s Q(n,d,b,s)
   //               qq[0] = max_{n,b,s} |Q(n,0,b,s)|
   //               qq[1] = max_{n,d=1,2,b,s} |Q(n,d,b,s)|
   //               qq[2] = max_{n,b} MAX(sum_d max_s Q(n,d,b,s), sum_d max_s -Q(n,d,b,s)) = MAX(-rr[0],rr[1])
+  //               mm[i]/2 <= qq[i], i=0,1
   int d,n,q,v,s0,s1,min1,max1,min2,max2;
   qq[0]=qq[1]=qq[2]=rr[0]=rr[1]=mm[0]=mm[1]=0;
   for(n=0;n<NBV;n++){
@@ -2934,13 +2937,12 @@ int findeqbmusingtopbeta(int weightmode){
   int vmin;
   double em[nt][3];// Energy moments over all disorders
   double een[nt],ven[nt];// Derived energy estimates and std errs
-  double x,y,del,nex,ex[nt-1],ex2[nt][nt];
+  double x,y,del,nex,bemax,ex[nt-1],ex2[nt][nt];
   int eqb;// Current upper bound on equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
   int c,d,e,i,j,k,n,p,r,v,mm[2],qq[3],rr[2];
   double mu,va,se,nit,nsol;
-  long double *(etab[nt]),m0[nt],m1[nt];
-  long double Q0[nt],Q1[nt],Q2[nt];
+  long double tx,*(etab[nt]),m0[nt],m1[nt],Q0[nt],Q1[nt],Q2[nt];
   int tabsize;
   int (*medtab)[16][16][16][16]=0;
   unsigned int (*bigtab)[NBV][16][16][16][16]=0;
@@ -2958,6 +2960,21 @@ int findeqbmusingtopbeta(int weightmode){
 
   qbounds(qq,rr,mm);
   printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",rr[0],rr[1],mm[0],mm[1],qq[0],qq[1],qq[2]);
+  
+  if(genp[0]==0){
+    // Determine whether the floating point type used in tree1gibbs has enough range to
+    // support the fast method.
+    x=qq[2];
+    y=qq[1]+(mm[0]+mm[1])/2.;if(y>x)x=y;
+    y=qq[0]+mm[1];if(y>x)x=y;
+    // x = MAX(q2,q1*m0*m1,q0*m1*m1)
+    for(i=0,tx=1;isfinite(tx);i++,tx*=2);
+    // tx = exponent of floating point type used in tree1gibbs
+    bemax=(i-64)*log(2)/x;
+    printf("Maximum beta: %g\n",bemax);
+    if(be[nt-1]>bemax){fprintf(stderr,"Top beta of %g exceeds maximum beta %g for tree1gibbs()\n",be[nt-1],bemax);exit(1);}
+  }
+
   for(i=0;i<nt;i++){
     etab[i]=initetab(be[i],rr);
     m0[i]=expl(be[i]*mm[0]/2.);
