@@ -784,7 +784,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
   // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
   // Z3[s] = const*(Z of tree at columns <c given that (c,r0,0) = s)
   // Z4[s] = const*(Z of tree at columns <=c given that (c,r0,0) = s)
-  // If |Z|<=m is abuse of notation for m^{-1}<=Z<=m, then
+  // If |Z|<=m is abuse of notation for m^{-1}<=Z<=m, then after centring
   // |Z0|<=m1
   // |Z1|<=m0.m1
   // |Z2|<=m1^2
@@ -808,6 +808,9 @@ double tree1gibbs(int d,int p,int r0,long double*etab,long double m0,long double
           ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
           if(check)assert(checkbound(Z1,m0*m1));
         } else {
+          // Could use med LUT + binary search to reduce from 16x16 to 16x4
+          // Or 4 small LUTs treating each bit independently
+          // Z[abcd]=Z0[a]Z1[b]Z2[c]Z3[d] a,b,c,d=0,1 are the bits of s
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
             for(s=0,Z=0;s<16;s++){// s = state of (c,r,0)
               pr[s]=etab[QBI(d,c,r,0,0,s,b)+
@@ -931,7 +934,7 @@ void bigvertexgibbs(int d,int x,int y,unsigned char septab0[16][16][4],unsigned 
   unsigned char *p0;
   unsigned int *p1;
   p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
-  // p0[i] = aabc, aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+  // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
   p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
   for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
   XBI(d,x,y,0)=s;
@@ -2915,7 +2918,7 @@ int findeqbmusingtopbeta(int weightmode){
   int eqb;// Current upper bound on equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
   int c,d,e,i,j,k,n,p,r,v,mm[2],qq[3],rr[2];
-  double mu,va,se,nit,nsol;
+  double mu,va,se,nit,nsol,tim0,tim1;
   long double tx,*(etab[nt]),m0[nt],m1[nt],Q0[nt],Q1[nt],Q2[nt];
   unsigned char septab0[16][16][4];
   unsigned int (*septab1)[NBV][16][16]=0;
@@ -2973,6 +2976,7 @@ int findeqbmusingtopbeta(int weightmode){
     for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
     for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
     nd=0;
+    tim0=cpu();
     while(1){// Loop over runs
       for(i=0;i<nt;i++)for(j=0;j<nt;j++)ex2[i][j]=0;// Count of long-range exchanges for a particular run
       nit=nsol=0;d=p=r=0;
@@ -3058,7 +3062,7 @@ int findeqbmusingtopbeta(int weightmode){
       if(pr>=1){
         printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, genp[]=",mu-vmin,se,vmin,N,nd);
         for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-        printf(", CPU=%.2fs\n",cpu());
+        tim1=cpu();printf(", CPU=%.2fs, CPU_this=%.2fs, CPU/run=%.3fs\n",tim1,tim1-tim0,(tim1-tim0)/nd);
         fflush(stdout);
       }
       // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
