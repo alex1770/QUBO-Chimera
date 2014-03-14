@@ -110,7 +110,18 @@ int randnum(void){return random();}
 int randint(int n){return random()%n;}
 double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
 
+unsigned int *randtab;
+int randptr,randlength;
+
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
+
+void initrandtab(int length){
+  int i;
+  randtab=(unsigned int*)malloc(length*sizeof(unsigned int));
+  if(!randtab){fprintf(stderr,"Couldn't allocate randtab of length %d\n",length);exit(1);}
+  randptr=0;randlength=length;
+  for(i=0;i<length;i++)randtab[i]=randnum();
+}
 
 void initgraph(int wn){
   int d,i,j,o,p,t,u,x,y,z;
@@ -960,6 +971,23 @@ void bigvertexgibbs_bigtab(int d,int x,int y,unsigned int(*bigtab)[16][16][16][1
   cp=bigtab[encI(d,x,y,0)][XBI(d,x,y,1)][XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
   z=randnum();
   for(p=8,s=0;p>0;p>>=1)if(z>=cp[s+p])s+=p;
+  XBI(d,x,y,0)=s;
+}
+
+void bigvertexgibbs_sep(int d,int x,int y,unsigned char septab0[16][16][4],unsigned int(*septab1)[16][16]){
+  // Does Gibbs iteration to a single "bigvertex" (4 spins)
+  // If d=0 then v=the bigvertex (x,y,0)
+  // If d=1 then v=the bigvertex (y,x,1)
+  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+  // distribution at inverse temperature beta conditioned on the rest of the graph.
+  // This is the basic unit of the simple Monte Carlo sweep
+  int i,s;
+  unsigned char *p0;
+  unsigned int *p1;
+  p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+  // p0[i] = aabc, aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+  p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
+  for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
   XBI(d,x,y,0)=s;
 }
 
@@ -2946,6 +2974,8 @@ int findeqbmusingtopbeta(int weightmode){
   int tabsize;
   int (*medtab)[16][16][16][16]=0;
   unsigned int (*bigtab)[NBV][16][16][16][16]=0;
+  unsigned char septab0[16][16][4];
+  unsigned int (*septab1)[NBV][16][16]=0;
 
   printf("Number of temperatures %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
@@ -2957,7 +2987,7 @@ int findeqbmusingtopbeta(int weightmode){
   // protection against rare events
   int ndgu=0.4*ndmax; // Give-up point
   eqb=ngp>5?genp[5]:1;vmin=1000000000;
-
+  initrandtab(100000);
   qbounds(qq,rr,mm);
   printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",rr[0],rr[1],mm[0],mm[1],qq[0],qq[1],qq[2]);
   
@@ -2996,11 +3026,18 @@ int findeqbmusingtopbeta(int weightmode){
     if(tabsize==2){
       bigtab=(unsigned int(*)[NBV][16][16][16][16])malloc(nt*NBV*16ULL*16*16*16*sizeof(unsigned int));
       if(!bigtab){fprintf(stderr,"Couldn't allocate bigtab\n");exit(1);}
-      for(i=0;i<nt;i++){
-        for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
-          for(s=0,Z=0;s<16;s++){pr[s]=etab[i][-rr[0]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
-          for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
-        }
+      for(i=0;i<nt;i++)for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(x1=0;x1<16;x1++)for(x2=0;x2<16;x2++){
+        for(s=0,Z=0;s<16;s++){pr[s]=etab[i][-rr[0]+QBa[p][0][s][x0]+QBa[p][1][s][x1]+QBa[p][2][s][x2]];Z+=pr[s];}
+        for(s=0,z=0;s<16;s++){bigtab[i][p][x0][x1][x2][s]=(unsigned int)floor(z/Z*(RAND_MAX+1.)+.5);z+=pr[s];}
+      }
+    }
+    if(tabsize==3){
+      septab1=(unsigned int(*)[NBV][16][16])malloc(nt*NBV*16ULL*16*sizeof(unsigned int));
+      if(!septab1){fprintf(stderr,"Couldn't allocate septab1\n");exit(1);}
+      for(i=0;i<16;i++)for(j=0;j<16;j++)for(k=0;k<4;k++)septab0[i][j][k]=(k<<2)|(((i>>k)&1)<<1)|((j>>k)&1);
+      for(i=0;i<nt;i++)for(p=0;p<NBV;p++)for(x0=0;x0<16;x0++)for(j=0;j<4;j++)for(x1=0;x1<2;x1++)for(x2=0;x2<2;x2++){
+        for(s=0;s<2;s++){pr[s]=etab[i][-rr[0]+QBa[p][0][s<<j][x0]+QBa[p][1][s<<j][x1<<j]+QBa[p][2][s<<j][x2<<j]];}
+        septab1[i][p][x0][(j<<2)|(x1<<1)|x2]=(unsigned int)floor(pr[0]/(pr[0]+pr[1])*(RAND_MAX+1.)+.5);
       }
     }
   }
@@ -3039,6 +3076,10 @@ int findeqbmusingtopbeta(int weightmode){
               break;
             case 2:
               for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_bigtab(d,c,r,bigtab[i]);
+              break;
+            case 3:
+              randptr=randint(randlength-2*N*N*4+1);
+              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_sep(d,c,r,septab0,septab1[i]);
               break;
             }
             nit+=1;
