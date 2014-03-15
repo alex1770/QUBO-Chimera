@@ -3010,7 +3010,7 @@ int findeqbmusingtopbeta(int weightmode){
           q=enc(x,y,1-o);
           for(d=0;d<4;d++){
             v=(Q[p][i][d]+Q[q][d][i])*x0*x1;
-            if(d==i)v+=Q[q][i][6]*x1*x1;
+            if(d==i)v+=Q[p][i][6]*x0*x0+Q[q][i][6]*x1*x1;
             e0[l][m][d]=v;
           }
           if(z>0){q=enc(x-1+o,y-o,o);x1=statemap[m];e0[l][m][4]=(Q[p][i][4]+Q[q][i][5])*x0*x1;} else e0[l][m][4]=0;
