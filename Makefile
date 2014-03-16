@@ -1,10 +1,11 @@
 all:: dummy-sing
 par:: dummy-par
 
-# Long-winded way of ensuring that "make" makes the single-threaded version
-# and "make par" makes the multi-threaded version.
+# Dummy files are a workaround to ensure that "make" makes the
+# single-threaded version and "make par" makes the multi-threaded version,
+# and compilation is only done when necessary.
 
-CFLAGS:= -Wall -funroll-loops -O9
+CFLAGS:= -Wall -O9
 LFLAGS:= -lm
 ifeq ($(filter par,$(MAKECMDGOALS)),)
   DUM0:= dummy-par
