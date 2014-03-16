@@ -106,6 +106,8 @@ double lcpu[NTIMS],tcpu[NTIMS]={0};
 int64 ntim[NTIMS]={0};
 #define TICK(n) {lcpu[n]=cpu();}
 #define TOCK(n) {tcpu[n]+=cpu()-lcpu[n];ntim[n]++;}
+//#define TICK(n) {}
+//#define TOCK(n) {}
 
 // Isolate random number generator in case we need to replace it with something better
 void initrand(int seed){srandom(seed);}
@@ -115,6 +117,7 @@ int randnib(void){return (random()>>16)&15;}
 int randnum(void){return random();}
 int randint(int n){return random()%n;}
 double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
+#define RANDFLOAT ((randtab[randptr++]+0.5)/(RAND_MAX+1.0))
 
 unsigned int *randtab;
 int randptr,randlength;
@@ -780,17 +783,18 @@ int checkbound(long double ZZ[16],long double max){
   return 1;
 }
 
-double tree1gibbs(int d,int p,int r0,long double*etab,
+double tree1gibbs(int d,int ph,int r0,long double*etab,
                   unsigned char septab0[16][16][4],unsigned int(*septab1)[16][16],long double(*septab2)[16][16],
+                  long double(*septab3)[4][2][2],
                   long double m0,long double m1,
                   long double q0,long double q1,long double q2){// q0,q1,q2 only used for bounds checking
-  // If d=0 sample the (induced) tree consisting of all verts of columns of parity p,
+  // If d=0 sample the (induced) tree consisting of all verts of columns of parity ph,
   //               the o=1 (vertically connected) verts of the other columns, and row r0.
   // If d=1 then same with rows <-> columns.
   // Comments and variable names are as if in the column case (d=0)
   // Updates tree to new sample and returns Z of tree
   // etab[r]=expl(-beta*r)  (r can be negative)
-  int b,c,f,r,s,check=0,dir,hc[N][N][16],hs[N][N][16],hr[N][16];
+  int b,c,f,r,s,check=0,dir,hc[N][N][16],hs[N][N][16],hr[N][16],id[16];
   long double z,Z,max,ff,pr[16],Z0[16],Z0a[16],Z1[16],Z2[16],Z3a[16],Z3[16],Z4[16];
   // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
   // Z1[s] = const*(Z of current column fragment, including (c,r,0), given that (c,r,1) = s)
@@ -805,6 +809,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
   // |Z4|<=m0.m1
 
   TICK(0);
+  for(b=0;b<16;b++)id[b]=b;
   for(s=0;s<16;s++)Z3[s]=1;
   for(c=0;c<N;c++){
 
@@ -814,7 +819,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
       for(s=0;s<16;s++)Z0[s]=1;
       for(r=dir*(N-1);r!=r0;r+=1-2*dir){
         // Here Z0[b] = const*(Z of (c,previous,*) given that (c,r,1)=b)
-        if((c-p)&1){
+        if((c-ph)&1){
           TICK(2);
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
             Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
@@ -826,14 +831,13 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
           TOCK(2);
         } else {
           TICK(3);
-          if(randptr>randlength-16)randptr=randint(randlength-15);//alter
+          if(randptr>randlength-64)randptr=randint(randlength-63);
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
             int i;
             unsigned char *p0;
             unsigned int *p1;
             long double *p2;
             p0=septab0[XBI(d,c-1,r,0)][XBI(d,c+1,r,0)];
-            // p0[i] = aabc (bits), aa=i, b=XBI(d,c-1,r,0) bit i, c=XBI(d,c+1,r,0) bit i
             p1=septab1[encI(d,c,r,0)][b];
             p2=septab2[encI(d,c,r,0)][b];
             for(i=0,s=0,Z=1;i<4;i++){Z*=p2[p0[i]];if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;}
@@ -850,17 +854,25 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
           TOCK(3);
         }
         TICK(4);
-        for(b=0,max=0;b<16;b++){// b = state of (c,r+1-2*dir,1)
-          for(s=0,Z=0;s<16;s++){// s = state of (c,r,1)
-            pr[s]=Z1[s]*etab[QBI(d,c,r,1,2-dir,s,b)];
-            Z+=pr[s];
+        if(randptr>randlength-64)randptr=randint(randlength-63);
+        {
+          long double Z5[16],ZZ0,ZZ1;
+          int q,lh0[16],lh1[16];
+          q=encI(d,c,r-dir,1);
+#define T1Ground(i,Zf,Zt,lf,lt)                                      \
+          for(b=0;b<16;b++){                                         \
+            ZZ0=Zf[b&~(1<<i)]*septab3[q][i][b>>i&1][0];              \
+            ZZ1=Zf[b|(1<<i)]*septab3[q][i][b>>i&1][1];               \
+            Zt[b]=ZZ0+ZZ1;                                           \
+            lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
           }
-          for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
-          assert(s<16);
-          Z0[b]=Z;
-          if(Z>max)max=Z;
-          hs[c][r][b]=s;
+          T1Ground(0,Z1,Z5,id,lh1);
+          T1Ground(1,Z5,Z1,lh1,lh0);
+          T1Ground(2,Z1,Z5,lh0,lh1);
+          T1Ground(3,Z5,Z0,lh1,hs[c][r]);
+          for(b=0;b<16;b++)if(Z0[b]>max)max=Z0[b];
         }
+        
         if(check)assert(checkbound(Z0,16*q1*m0*m1));
         ff=m1/max;for(b=0;b<16;b++)Z0[b]*=ff;
         if(check)assert(checkbound(Z0,m1));
@@ -872,12 +884,13 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
     if(check)assert(checkbound(Z2,m1*m1));
 
     TICK(5);
+    if(randptr>randlength-16)randptr=randint(randlength-15);
     for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
         pr[s]=Z2[s]*etab[QBI(d,c,r0,1,0,s,b)];
         Z+=pr[s];
       }
-      for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+      for(z=RANDFLOAT*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
       assert(s<16);
       hc[c][r0][b]=s;
       if(Z>max)max=Z;
@@ -891,7 +904,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
     TOCK(5);
 
     TICK(6);
-    //printf("\n");
+    if(randptr>randlength-16)randptr=randint(randlength-15);
     for(b=0,max=0;b<16;b++){// b = state of (c+1,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,0)
         pr[s]=Z4[s]*etab[QBI(d,c,r0,0,2,s,b)];
@@ -899,7 +912,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
         Z+=pr[s];
       }
       //printf("\n");
-      for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+      for(z=RANDFLOAT*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
       assert(s<16);
       Z3[b]=Z;
       if(Z>max)max=Z;
@@ -912,7 +925,7 @@ double tree1gibbs(int d,int p,int r0,long double*etab,
   }//c
 
   for(c=N-1;c>=0;c--){
-    f=!((c-p)&1);
+    f=!((c-ph)&1);
     XBI(d,c,r0,0)=hr[c][c==N-1?0:XBI(d,c+1,r0,0)];
     XBI(d,c,r0,1)=hc[c][r0][XBI(d,c,r0,0)];
     for(r=r0+1;r<N;r++){
@@ -2947,8 +2960,9 @@ int findeqbmusingtopbeta(int weightmode){
   double mu,va,se,nit,nsol,tim0,tim1;
   long double tx,*(etab[nt]),m0[nt],m1[nt],Q0[nt],Q1[nt],Q2[nt];
   unsigned char septab0[16][16][4];
-  unsigned int (*septab1)[NBV][16][16]=0;
-  long double (*septab2)[NBV][16][16]=0;
+  unsigned int (*septab1)[NBV][16][16];
+  long double (*septab2)[NBV][16][16];
+  long double (*septab3)[NBV][4][2][2];
   // septab0[a][b][i] = (i<<2)|(a_i<<1)|b_i   a_i, b_i =i^th bits of a, b
   // septab1[t][p][b][s] = Z0/(Z0+Z1) scaled to RAND_MAX, and
   // septab2[t][p][b][s] = Z0+Z1, where
@@ -2994,11 +3008,12 @@ int findeqbmusingtopbeta(int weightmode){
     Q2[i]=expl(be[i]*qq[2]);
   }
   {
-    int b,d,i,j,k,l,m,o,p,q,s,t,v,x,y,z,x0,x1,e0[2][2][6],e[16][4][2];
+    int b,d,i,j,k,l,m,o,p,q,s,t,v,w,x,y,z,x0,x1,e0[2][2][6],e[16][4][2];
     long double Z[2];
     septab1=(unsigned int(*)[NBV][16][16])malloc(nt*NBV*16ULL*16*sizeof(unsigned int));
     septab2=(long double (*)[NBV][16][16])malloc(nt*NBV*16ULL*16*sizeof(long double));
-    if(!(septab1&&septab2)){fprintf(stderr,"Couldn't allocate septabs1,2\n");exit(1);}
+    septab3=(long double (*)[NBV][4][2][2])malloc(nt*NBV*4ULL*2*2*sizeof(long double));
+    if(!(septab1&&septab2&&septab3)){fprintf(stderr,"Couldn't allocate septabs1,2,3\n");exit(1);}
     for(i=0;i<16;i++)for(j=0;j<16;j++)for(k=0;k<4;k++)septab0[i][j][k]=(k<<2)|(((i>>k)&1)<<1)|((j>>k)&1);
     for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(i=0;i<4;i++){
       p=enc(x,y,o);
@@ -3034,7 +3049,18 @@ int findeqbmusingtopbeta(int weightmode){
           septab2[t][p][b][s]=Z[0]+Z[1];
         }
       }
-    }
+      q=enc(x+1-o,y+o,o);
+      for(t=0;t<nt;t++){
+        w=z<N-1?Q[p][i][5]+Q[q][i][4]:0;
+        for(l=0;l<2;l++){// (x,y,o,i) is in state l
+          x0=statemap[l];
+          for(m=0;m<2;m++){// adjacent vertex is in state m
+            x1=statemap[m];
+            septab3[t][p][i][l][m]=etab[t][x0*x1*w-rr[0]];
+          }
+        }
+      }
+    }// x,y,o,i
   }
   while(1){// Loop over equilibration lengths
     double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
@@ -3059,7 +3085,7 @@ int findeqbmusingtopbeta(int weightmode){
           switch((int)(genp[0])){
           case 0:
             //tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-            tree1gibbs(randint(2),randint(2),randint(N),etab[i]-rr[0],septab0,septab1[i],septab2[i],m0[i],m1[i],Q0[i],Q1[i],Q2[i]);
+            tree1gibbs(randint(2),randint(2),randint(N),etab[i]-rr[0],septab0,septab1[i],septab2[i],septab3[i],m0[i],m1[i],Q0[i],Q1[i],Q2[i]);
             nit+=1;
             break;
           case 1:
