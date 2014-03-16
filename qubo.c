@@ -104,10 +104,10 @@ int ps[NTB][256];
 #define NTIMS 100
 double lcpu[NTIMS],tcpu[NTIMS]={0};
 int64 ntim[NTIMS]={0};
-#define TICK(n) {lcpu[n]=cpu();}
-#define TOCK(n) {tcpu[n]+=cpu()-lcpu[n];ntim[n]++;}
-//#define TICK(n) {}
-//#define TOCK(n) {}
+//#define TICK(n) {lcpu[n]=cpu();}
+//#define TOCK(n) {tcpu[n]+=cpu()-lcpu[n];ntim[n]++;}
+#define TICK(n) {}
+#define TOCK(n) {}
 
 // Isolate random number generator in case we need to replace it with something better
 void initrand(int seed){srandom(seed);}
@@ -819,6 +819,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
       for(s=0;s<16;s++)Z0[s]=1;
       for(r=dir*(N-1);r!=r0;r+=1-2*dir){
         // Here Z0[b] = const*(Z of (c,previous,*) given that (c,r,1)=b)
+        // (c,r,0) -> (c,r,1)
         if((c-ph)&1){
           TICK(2);
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
@@ -854,22 +855,23 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
           TOCK(3);
         }
         TICK(4);
+        // (c,r,1) -> (c,r+1-2*dir,1)
         if(randptr>randlength-64)randptr=randint(randlength-63);
         {
-          long double Z5[16],ZZ0,ZZ1;
+          long double Zx[16],ZZ0,ZZ1;
           int q,lh0[16],lh1[16];
           q=encI(d,c,r-dir,1);
-#define T1Ground(i,Zf,Zt,lf,lt)                                      \
+#define T1Gstrut(i,Zf,Zt,lf,lt)                                      \
           for(b=0;b<16;b++){                                         \
             ZZ0=Zf[b&~(1<<i)]*septab3[q][i][b>>i&1][0];              \
             ZZ1=Zf[b|(1<<i)]*septab3[q][i][b>>i&1][1];               \
             Zt[b]=ZZ0+ZZ1;                                           \
             lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
           }
-          T1Ground(0,Z1,Z5,id,lh1);
-          T1Ground(1,Z5,Z1,lh1,lh0);
-          T1Ground(2,Z1,Z5,lh0,lh1);
-          T1Ground(3,Z5,Z0,lh1,hs[c][r]);
+          T1Gstrut(0,Z1,Zx,id,lh1);
+          T1Gstrut(1,Zx,Z1,lh1,lh0);
+          T1Gstrut(2,Z1,Zx,lh0,lh1);
+          T1Gstrut(3,Zx,Z0,lh1,hs[c][r]);
           for(b=0;b<16;b++)if(Z0[b]>max)max=Z0[b];
         }
         
@@ -884,6 +886,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
     if(check)assert(checkbound(Z2,m1*m1));
 
     TICK(5);
+    // (c,r0,1) -> (c,r0,0)
     if(randptr>randlength-16)randptr=randint(randlength-15);
     for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
@@ -904,19 +907,17 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
     TOCK(5);
 
     TICK(6);
-    if(randptr>randlength-16)randptr=randint(randlength-15);
-    for(b=0,max=0;b<16;b++){// b = state of (c+1,r0,0)
-      for(s=0,Z=0;s<16;s++){// s = state of (c,r0,0)
-        pr[s]=Z4[s]*etab[QBI(d,c,r0,0,2,s,b)];
-        //printf("%2d %2d : %6d %12Lg\n",b,s,QBI(d,c,r0,0,2,s,b),etab[QBI(d,c,r0,0,2,s,b)]);
-        Z+=pr[s];
-      }
-      //printf("\n");
-      for(z=RANDFLOAT*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
-      assert(s<16);
-      Z3[b]=Z;
-      if(Z>max)max=Z;
-      hr[c][b]=s;
+    if(randptr>randlength-64)randptr=randint(randlength-63);
+    // (c,r0,0) -> (c+1,r0,0)
+    {
+      long double Zx[16],ZZ0,ZZ1;
+      int q,lh0[16],lh1[16];
+      q=encI(d,c,r0,0);
+      T1Gstrut(0,Z4,Zx,id,lh1);
+      T1Gstrut(1,Zx,Z4,lh1,lh0);
+      T1Gstrut(2,Z4,Zx,lh0,lh1);
+      T1Gstrut(3,Zx,Z3,lh1,hr[c]);
+      for(b=0;b<16;b++)if(Z3[b]>max)max=Z3[b];
     }
     TOCK(6);
     if(check)assert(checkbound(Z3,16*q1*m0*m1));
@@ -2971,7 +2972,7 @@ int findeqbmusingtopbeta(int weightmode){
   //   b = state of (x,y,1-o)  (b=0,...,15)
   //   s = i<<2|(j<<1)|k,  (i=0,1,2,3, j=0,1, k=0,1) as from septab0
   //   Z_l = Z-value arising from (x-1,y,0,i)=j, (x,y,0,i)=l, (x+1,y,0,i)=k, (x,y,1)=b  (mutatis mutandis if o=1)
-  //   I.e., it evaluates all edges from (x,y,o,i), including its self-edge (but none others)
+  //   It evaluates all edges from (x,y,o,i), including its self-edge and (x,y,1-o,i)'s self-edge (but none others)
 
   printf("Number of temperatures %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
