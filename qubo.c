@@ -2378,7 +2378,7 @@ void consistencychecks2(int weightmode,int strat,double mint,double maxt){
   }
 }
 
-void getqbounds(int qb[7]){// was qq[3],int rr[2],int mm[2]){
+void getqbounds(int qb[7]){
   // Return bounds rr[] such that accesses etab_centred[i] satisfy rr[0]<=i<=rr[1],
   //    and bounds mm[0], mm[1] controlling the maximum variation in Q(d,b,s) over s.
   //               mm[0] corresponds to d=0 (intra-K44) and mm[1] to d=1,2 (inter-K44).
@@ -2412,6 +2412,7 @@ void getqbounds(int qb[7]){// was qq[3],int rr[2],int mm[2]){
     }
   }
   qb[6]=MAX(-qb[0],qb[1]);
+  printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",qb[0],qb[1],qb[2],qb[3],qb[4],qb[5],qb[6]);
 }
 
 double getmaxbeta(int qb[7]){
@@ -2429,23 +2430,22 @@ double getmaxbeta(int qb[7]){
   return (i-64)*log(2)/x;
 }
 
-long double*initetab(double beta,int rr[2]){
-  int n;
-  long double *etab;
-  etab=(long double*)malloc((rr[1]-rr[0]+1)*sizeof(long double));
-  for(n=rr[0];n<=rr[1];n++)etab[n-rr[0]]=expl(-beta*n);
-  return etab;
-}
-
-gibbstables*initgibbstables(int nt,double *be,int qb[7],int tree){
+gibbstables*initgibbstables(int nt,double *be,int tree){
   // Allocate and initialise gibbs tables to be used by simplegibbssweep() and tree1gibbs().
   // Use beta values be[0],...,be[nt-1].
   // If tree=1 then the extra tables necessary for tree1gibbs() will be initialised.
-  int b,d,i,j,k,l,m,n,o,p,q,s,t,v,w,x,y,z,x0,x1,e0[2][2][6],e[16][4][2];
+  int b,d,i,j,k,l,m,n,o,p,q,s,t,v,w,x,y,z,x0,x1,qb[7],e0[2][2][6],e[16][4][2];
   unsigned char (*septab0)[16][4];
   long double Z[2];
   gibbstables*gt;
 
+  getqbounds(qb);
+  if(tree){
+    double maxbeta;
+    maxbeta=getmaxbeta(qb);
+    printf("Maximum beta: %g\n",maxbeta);
+    for(t=0;t<nt;t++)if(be[t]>maxbeta){fprintf(stderr,"Beta = %g exceeds maximum beta of %g for tree1gibbs()\n",be[t],maxbeta);exit(1);}
+  }
   gt=(gibbstables*)malloc(nt*sizeof(gibbstables));assert(gt);
   if(nt>0){
     septab0=(unsigned char(*)[16][4])malloc(16*16*4);assert(septab0);
@@ -2623,10 +2623,10 @@ void binderparamestimate(int weightmode){
 }
 
 void findexchangemontecarlotemperatureset(int weightmode){
-  int i,j,n,v,prch,pr=0,qb[7];
+  int i,j,n,v,prch,pr=0;
   int maxn=100000;
   int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
-  double tp,del,tim0,bemax,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
+  double tp,del,tim0,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
   int en[nt],ex[nt-1],sbuf[nt][NBV];
   gibbstables*gt;
   //if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
@@ -2645,13 +2645,7 @@ void findexchangemontecarlotemperatureset(int weightmode){
   for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
   vhist=(double(*)[nt])malloc(maxn*nt*sizeof(double));assert(vhist);
   initrandtab(100000);
-  getqbounds(qb);
-  if(genp[0]==0){
-    bemax=getmaxbeta(qb);
-    printf("Maximum beta: %g\n",bemax);
-    if(be[nt-1]>bemax){fprintf(stderr,"Top beta of %g exceeds maximum beta %g for tree1gibbs()\n",be[nt-1],bemax);exit(1);}
-  }
-  gt=initgibbstables(nt,be,qb,(int)(genp[0])==0);
+  gt=initgibbstables(nt,be,(int)(genp[0])==0);
   pr=genp[5];
 
   tim0=cpu();
@@ -3097,10 +3091,10 @@ int findeqbmusingtopbeta(int weightmode){
   int vmin;
   double em[nt][3];// Energy moments over all disorders
   double een[nt],ven[nt];// Derived energy estimates and std errs
-  double x,y,del,nex,bemax,ex[nt-1],ex2[nt][nt];
+  double x,y,del,nex,ex[nt-1],ex2[nt][nt];
   int eqb;// Current upper bound on equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-  int e,i,j,k,n,v,qb[7];
+  int e,i,j,k,n,v;
   double mu,va,se,nit,nsol,tim0,tim1;
   gibbstables*gt;
 
@@ -3113,16 +3107,8 @@ int findeqbmusingtopbeta(int weightmode){
   int ndgu=0.4*ndmax; // Give-up point
   eqb=ngp>5?genp[5]:1;vmin=1000000000;
   initrandtab(100000);
-  getqbounds(qb);
-  printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",qb[0],qb[1],qb[2],qb[3],qb[4],qb[5],qb[6]);
   
-  if(genp[0]==0){
-    bemax=getmaxbeta(qb);
-    printf("Maximum beta: %g\n",bemax);
-    if(be[nt-1]>bemax){fprintf(stderr,"Top beta of %g exceeds maximum beta %g for tree1gibbs()\n",be[nt-1],bemax);exit(1);}
-  }
-
-  gt=initgibbstables(nt,be,qb,(int)(genp[0])==0);
+  gt=initgibbstables(nt,be,(int)(genp[0])==0);
   while(1){// Loop over equilibration lengths
     double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
     // ^ grr - causes trouble for the standard stupidly low stacksize
