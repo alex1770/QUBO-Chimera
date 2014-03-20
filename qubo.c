@@ -2624,7 +2624,7 @@ void binderparamestimate(int weightmode){
 
 void findexchangemontecarlotemperatureset(int weightmode){
   int i,j,n,v,prch,pr=0;
-  int maxn=100000;
+  int maxn;
   int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
   double tp,del,tim0,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
   int en[nt],ex[nt-1],sbuf[nt][NBV];
@@ -2643,10 +2643,10 @@ void findexchangemontecarlotemperatureset(int weightmode){
   for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
   for(i=0;i<nt-1;i++)ex[i]=0;
   for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
+  maxn=ngp>5?genp[5]:250000;
   vhist=(double(*)[nt])malloc(maxn*nt*sizeof(double));assert(vhist);
   initrandtab(100000);
   gt=initgibbstables(nt,be,(int)(genp[0])==0);
-  pr=genp[5];
 
   tim0=cpu();
   for(n=0;n<maxn;){
@@ -2721,6 +2721,62 @@ void findexchangemontecarlotemperatureset(int weightmode){
       fflush(stdout);
     }
   }// while(1)
+}
+
+double*loadbetaset(int weightmode,double betaskip,int*nt){
+  double be_single[2]={betaskip};
+  double bew7[][50]={// Weightmode 7, be[]
+    {0},
+    {0},
+    {0.202,0.485,0.911,1.549,3.042,50.000},// 2, 0.25
+    {0},
+    {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,50.000},// 4, 0.25
+    {0},
+    {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,50.000},// 6, 0.25
+    {0},
+    {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,
+     2.920,3.783,5.511,50.000},// 8, 0.25
+    {0},
+    {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,
+     1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
+  };
+  double bew11[][50]={// Weightmode 11, be[]
+    {0},
+    {0},
+    {0.084,0.179,0.296,0.484,1.043,20.000},// 2, 0.25
+    {0},
+    {0.056,0.094,0.134,0.174,0.222,0.278,0.350,0.461,0.669,1.148,2.446,20.000},// 4, 0.25
+    {0},
+    {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
+    {0},
+    {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,
+     0.840,1.121,1.646,2.894,20.000},// 8, 0.25
+    {0},
+    {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,
+     0.419,0.472,0.539,0.622,0.736,0.892,1.134,1.531,2.222,3.507,6.166,20.000},// 10, 0.25
+    {0},
+    {0.052,0.064,0.077,0.090,0.103,0.116,0.129,0.142,0.156,0.170,0.185,0.201,0.216,0.233,0.250,0.269,0.289,0.310,
+     0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000},// 12, 0.25
+    {0},
+    {0.054,0.064,0.075,0.086,0.097,0.108,0.119,0.131,0.142,0.155,0.166,0.179,0.192,0.204,0.216,0.230,0.244,0.259,0.275,0.292,
+     0.310,0.333,0.358,0.385,0.419,0.455,0.495,0.545,0.608,0.677,0.763,0.871,1.006,1.190,1.442,1.812,2.417,3.724,20.000}// 14, 0.25
+  };
+  int i,n,skip;
+  double *be0,*be;
+  if(betaskip>0)be0=be_single; else {
+    skip=(int)betaskip;
+    switch(weightmode){
+    case 7: be0=bew7[N]-skip;break;
+    default:
+      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 11's set.\n",weightmode);
+    case 11: be0=bew11[N]-skip;break;
+    }
+  }
+  for(n=0;be0[n]>0;n++);assert(n>0);
+  be=(double*)malloc(n*sizeof(double));
+  for(i=0;i<n;i++)be[i]=be0[i];
+  *nt=n;
+  return be;
 }
 
 void calcbinderratio(int weightmode){
@@ -2886,35 +2942,11 @@ int findeqbmusingchisq(int weightmode){
   // Compare equilibration times of exchange Monte-Carlo by measuring <E>. Use chi^2 method on all temps to determine eqbn.
   // Currently configured to use only a particular disorder (specified by the input seed).
   //if(weightmode!=2||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=2, statemap[0]=-1\n");
-  double bew7[][50]={// Weightmode 7, be[]
-    {0},
-    {0},
-    {0},
-    {0},
-    {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,10.000},// 4, 0.25
-    //{0.203,0.285,0.411,0.541,0.679,0.820,0.975,1.149,1.344,1.597,1.898,2.327,3.037,4.460,10.000},// 4, 0.4
-    {0}, 
-    {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,10.000},// 6, 0.25
-    {0},
-    {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,2.920,3.783,5.511,10.000},// 8, 0.25
-    //{0.203,0.265,0.328,0.389,0.452,0.516,0.581,0.643,0.707,0.776,0.846,0.915,0.990,1.071,1.158,1.252,1.355,1.477,1.610,1.768,1.958,2.202,2.516,2.920,3.525,4.495,6.150,10.000}// 8, 0.4
-  };
-  double be0[2]={genp[3]};
   double *be;
-  //double be[]={0.507,0.548,0.590,0.639,0.691,0.750,0.819,0.898,0.999,1.121,1.282,1.506,1.854,2.502,5.000};
-  // ^ N=8 -w2 -x-1 p=0.4
-  //double be[]={0.108,0.137,0.167,0.199,0.237,0.278,0.325,0.388,0.482,0.635,0.886,1.366,2.369,5.000};
-  // ^ N=4 -w11 p=0.4
-  //double be[]={0.108,0.122,0.137,0.151,0.167,0.184,0.199,0.215,0.233,0.252,0.273,0.295,0.319,0.345,0.381,0.420,0.463,0.521,0.598,0.700,0.852,1.058,1.366,1.835,2.718,5.000};
-  // ^ N=8 -w11 p=0.4
   int nt;// Number of temperatures
   int nd;// Number of disorders sampled
   int pr=2;
-  if(genp[3]<=0){
-    assert(weightmode==7);
-    be=bew7[N]-(int)(genp[3]);
-  }else be=be0;
-  for(nt=0;be[nt]>0;nt++);
+  be=loadbetaset(weightmode,genp[3],&nt);
   int en[nt],sbuf[nt][NBV];
   double lem[2][nt];// Total energies for a given disorder
   double em[2][nt][3];// Energy moments over all disorders
@@ -3031,57 +3063,11 @@ int findeqbmusingtopbeta(int weightmode){
   // Compare equilibration times of exchange Monte-Carlo by measuring <E>. Determine eqbn
   // by assuming top beta is enough to essentially force groundstate.  Currently
   // configured to use only a particular disorder (specified by the input seed).
-  double bew7[][50]={// Weightmode 7, be[]
-    {0},
-    {0},
-    {0.202,0.485,0.911,1.549,3.042,50.000},// 2, 0.25
-    {0},
-    {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,50.000},// 4, 0.25
-    {0},
-    {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,50.000},// 6, 0.25
-    {0},
-    {0.267,0.352,0.438,0.520,0.604,0.690,0.782,0.880,0.982,1.096,1.214,1.355,1.524,1.741,2.020,2.382,
-     2.920,3.783,5.511,50.000},// 8, 0.25
-    {0},
-    {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,
-     1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
-  };
-  double bew11[][50]={// Weightmode 11, be[]
-    {0},
-    {0},
-    {0.084,0.179,0.296,0.484,1.043,20.000},// 2, 0.25
-    {0},
-    {0.056,0.094,0.134,0.174,0.222,0.278,0.350,0.461,0.669,1.148,2.446,20.000},// 4, 0.25
-    {0},
-    {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
-    {0},
-    {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,
-     0.840,1.121,1.646,2.894,20.000},// 8, 0.25
-    {0},
-    {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,
-     0.419,0.472,0.539,0.622,0.736,0.892,1.134,1.531,2.222,3.507,6.166,20.000},// 10, 0.25
-    {0},
-    {0.052,0.064,0.077,0.090,0.103,0.116,0.129,0.142,0.156,0.170,0.185,0.201,0.216,0.233,0.250,0.269,0.289,0.310,
-     0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000}// 12, 0.25
-  };
-  double be0[2]={genp[3]};
-  double *be;
-  int nt;// Number of temperatures
-  int nd;// Number of disorders sampled
+  double *be;// Set of betas
+  int nt;// Number of temperatures (betas)
+  int nd;// Number of disorders sampled (or number of restarts if the disorder is fixed)
   int pr=genp[1];
-  if(genp[3]<=0){
-    switch(weightmode){
-    case 7:
-      be=bew7[N]-(int)(genp[3]);
-      break;
-    default:
-      fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 11's set.\n",weightmode);
-    case 11:
-      be=bew11[N]-(int)(genp[3]);
-      break;
-    }
-  }else be=be0;
-  for(nt=0;be[nt]>0;nt++);assert(nt>0);
+  be=loadbetaset(weightmode,genp[3],&nt);
   typedef struct {
     int X[NBV];// State
     int t[nt];// t[i] = Time last visited temperature i (-1 = never)
@@ -3098,14 +3084,15 @@ int findeqbmusingtopbeta(int weightmode){
   double mu,va,se,nit,nsol,tim0,tim1;
   gibbstables*gt;
 
-  printf("Number of temperatures %d\n",nt);
+  printf("Number of temperatures: %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
   printf("Monte Carlo mode %g\n",genp[0]);
   for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
   int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
-  // protection against rare events
+  //                  protection against rare events
   int ndgu=0.4*ndmax; // Give-up point
-  eqb=ngp>5?genp[5]:1;vmin=1000000000;
+  eqb=ngp>5?genp[5]:1;
+  vmin=ngp>6?genp[6]:1000000000;
   initrandtab(100000);
   
   gt=initgibbstables(nt,be,(int)(genp[0])==0);
@@ -3200,7 +3187,7 @@ int findeqbmusingtopbeta(int weightmode){
       se=sqrt(va/sten0[eqb]);
       assert(mu>=vmin);
       if(pr>=1){
-        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, genp[]=",mu-vmin,se,vmin,N,nd);
+        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, eqb=%d, genp[]=",mu-vmin,se,vmin,N,nd,eqb);
         for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
         tim1=cpu();printf(", CPU=%.2fs, CPU_this=%.2fs, CPU/run=%.3fs\n",tim1,tim1-tim0,(tim1-tim0)/nd);
         prtimes();
