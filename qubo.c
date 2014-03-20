@@ -118,9 +118,25 @@ int randnum(void){return random();}
 int randint(int n){return random()%n;}
 double randfloat(void){return (random()+.5)/(RAND_MAX+1.0);}
 #define RANDFLOAT ((randtab[randptr++]+0.5)/(RAND_MAX+1.0))
-
 unsigned int *randtab;
 int randptr,randlength;
+
+typedef struct {
+  long double *etab0,*etab,m0,m1,Q0,Q1,Q2;
+  unsigned char (*septab0)[16][4]; // [16][16][4]
+  unsigned int (*septab1)[16][16]; // [NBV][16][16]
+  long double (*septab2)[16][16];  // [NBV][16][16]
+  long double (*septab3)[4][2][2]; // [NBV][4][2][2]
+} gibbstables;
+// septab0[a][b][i] = (i<<2)|(a_i<<1)|b_i   a_i, b_i =i^th bits of a, b
+// septab1[p][b][s] = Z0/(Z0+Z1) scaled to RAND_MAX, and
+// septab2[p][b][s] = Z0+Z1, where
+//   t = temperature number (i.e., using beta=be[t])
+//   p = big vertex = (x,y,o) say
+//   b = state of (x,y,1-o)  (b=0,...,15)
+//   s = i<<2|(j<<1)|k,  (i=0,1,2,3, j=0,1, k=0,1) as from septab0
+//   Z_l = Z-value arising from (x-1,y,0,i)=j, (x,y,0,i)=l, (x+1,y,0,i)=k, (x,y,1)=b  (mutatis mutandis if o=1)
+//   It evaluates all edges from (x,y,o,i), including its self-edge and (x,y,1-o,i)'s self-edge (but none others)
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
@@ -783,11 +799,11 @@ int checkbound(long double ZZ[16],long double max){
   return 1;
 }
 
-double tree1gibbs(int d,int ph,int r0,long double*etab,
-                  unsigned char septab0[16][16][4],unsigned int(*septab1)[16][16],long double(*septab2)[16][16],
-                  long double(*septab3)[4][2][2],
-                  long double m0,long double m1,
-                  long double q0,long double q1,long double q2){// q0,q1,q2 only used for bounds checking
+double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
+  //                  unsigned char septab0[16][16][4],unsigned int(*septab1)[16][16],long double(*septab2)[16][16],
+  //                  long double(*septab3)[4][2][2],
+  //                  long double m0,long double m1,
+  //                  long double q0,long double q1,long double q2){// q0,q1,q2 only used for bounds checking
   // If d=0 sample the (induced) tree consisting of all verts of columns of parity ph,
   //               the o=1 (vertically connected) verts of the other columns, and row r0.
   // If d=1 then same with rows <-> columns.
@@ -795,7 +811,11 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
   // Updates tree to new sample and returns Z of tree
   // etab[r]=expl(-beta*r)  (r can be negative)
   int b,c,f,r,s,check=0,dir,hc[N][N][16],hs[N][N][16],hr[N][16],id[16];
-  long double z,Z,max,ff,pr[16],Z0[16],Z0a[16],Z1[16],Z2[16],Z3a[16],Z3[16],Z4[16];
+  long double z,Z,max,ff,m0,m1,pr[16],Z0[16],Z0a[16],Z1[16],Z2[16],Z3a[16],Z3[16],Z4[16];
+  unsigned char (*septab0)[16][4]=gt->septab0;
+  unsigned int (*septab1)[16][16]=gt->septab1;
+  long double (*septab2)[16][16]=gt->septab2;
+  long double (*septab3)[4][2][2]=gt->septab3;
   // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
   // Z1[s] = const*(Z of current column fragment, including (c,r,0), given that (c,r,1) = s)
   // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
@@ -811,6 +831,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
   TICK(0);
   for(b=0;b<16;b++)id[b]=b;
   for(s=0;s<16;s++)Z3[s]=1;
+  m0=gt->m0;m1=gt->m1;
   for(c=0;c<N;c++){
 
     for(s=0;s<16;s++)Z2[s]=1;
@@ -823,10 +844,10 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
         if((c-ph)&1){
           TICK(2);
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
-            Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
+            Z1[b]=Z0[b]*gt->etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
             if(Z1[b]>max)max=Z1[b];
           }
-          if(check)assert(checkbound(Z1,16*q0*m1));
+          if(check)assert(checkbound(Z1,16*gt->Q0*m1));
           ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
           if(check)assert(checkbound(Z1,m0*m1));
           TOCK(2);
@@ -847,7 +868,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
             if(Z>max)max=Z;
             Z0a[b]=Z;
           }
-          if(check)assert(checkbound(Z0a,16*q2));
+          if(check)assert(checkbound(Z0a,16*gt->Q2));
           ff=m0/max;for(b=0;b<16;b++)Z0a[b]*=ff;
           if(check)assert(checkbound(Z0a,m0));
           for(b=0;b<16;b++)Z1[b]=Z0[b]*Z0a[b];// b = state of (c,r,1)
@@ -875,7 +896,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
           for(b=0;b<16;b++)if(Z0[b]>max)max=Z0[b];
         }
         
-        if(check)assert(checkbound(Z0,16*q1*m0*m1));
+        if(check)assert(checkbound(Z0,16*gt->Q1*m0*m1));
         ff=m1/max;for(b=0;b<16;b++)Z0[b]*=ff;
         if(check)assert(checkbound(Z0,m1));
         TOCK(4);
@@ -890,7 +911,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
     if(randptr>randlength-16)randptr=randint(randlength-15);
     for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
-        pr[s]=Z2[s]*etab[QBI(d,c,r0,1,0,s,b)];
+        pr[s]=Z2[s]*gt->etab[QBI(d,c,r0,1,0,s,b)];
         Z+=pr[s];
       }
       for(z=RANDFLOAT*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
@@ -899,7 +920,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
       if(Z>max)max=Z;
       Z3a[b]=Z;
     }
-    if(check)assert(checkbound(Z3a,16*q0*m1*m1));
+    if(check)assert(checkbound(Z3a,16*gt->Q0*m1*m1));
     ff=m0/max;for(b=0;b<16;b++)Z3a[b]*=ff;
     if(check)assert(checkbound(Z3a,m0));
     for(b=0;b<16;b++)Z4[b]=Z3[b]*Z3a[b];// b = state of (c,r0,0)
@@ -920,7 +941,7 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
       for(b=0;b<16;b++)if(Z3[b]>max)max=Z3[b];
     }
     TOCK(6);
-    if(check)assert(checkbound(Z3,16*q1*m0*m1));
+    if(check)assert(checkbound(Z3,16*gt->Q1*m0*m1));
     ff=m1/max;for(b=0;b<16;b++)Z3[b]*=ff;
     if(check)assert(checkbound(Z3,m1));
   }//c
@@ -942,42 +963,48 @@ double tree1gibbs(int d,int ph,int r0,long double*etab,
   return Z3[0];
 }
 
-void bigvertexgibbs_slow(int d,int x,int y,double beta){// Does Gibbs iteration to a single "bigvertex" (4 spins)
-  // If d=0 then v=the bigvertex (x,y,0)
-  // If d=1 then v=the bigvertex (y,x,1)
-  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
-  // distribution at inverse temperature beta conditioned on the rest of the graph.
-  // This is the basic unit of the simple Monte Carlo sweep
-  int s;
+void simplegibbssweep_slow(double beta){
+  int d,s,x,y;
   double z,Z,pr[16];
   double max,lp[16];
-  for(s=0,Z=0,max=-1e9;s<16;s++){
-    lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
-                 QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
-                 QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
-    if(lp[s]>max)max=lp[s];
+  for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
+    // Do Gibbs iteration to a single "bigvertex" (4 spins)
+    // If d=0 then v=the bigvertex (x,y,0)
+    // If d=1 then v=the bigvertex (y,x,1)
+    // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+    // distribution at inverse temperature beta conditioned on the rest of the graph.
+    for(s=0,Z=0,max=-1e9;s<16;s++){
+      lp[s]=-beta*(QBI(d,x,y,0,0,s,XBI(d,x,y,1))+
+                   QBI(d,x,y,0,1,s,XBI(d,x-1,y,0))+
+                   QBI(d,x,y,0,2,s,XBI(d,x+1,y,0)));
+      if(lp[s]>max)max=lp[s];
+    }
+    for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
+    for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+    assert(s<16);
+    XBI(d,x,y,0)=s;
   }
-  for(s=0,Z=0;s<16;s++){pr[s]=exp(lp[s]-max);Z+=pr[s];}
-  for(z=randfloat()*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
-  assert(s<16);
-  XBI(d,x,y,0)=s;
 }
 
-void bigvertexgibbs(int d,int x,int y,unsigned char septab0[16][16][4],unsigned int(*septab1)[16][16]){
-  // Does Gibbs iteration to a single "bigvertex" (4 spins)
-  // If d=0 then v=the bigvertex (x,y,0)
-  // If d=1 then v=the bigvertex (y,x,1)
-  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
-  // distribution at inverse temperature beta conditioned on the rest of the graph.
-  // This is the basic unit of the simple Monte Carlo sweep
-  int i,s;
+void simplegibbssweep(gibbstables*gt){
+  int d,i,s,x,y;
   unsigned char *p0;
   unsigned int *p1;
-  p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
-  // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
-  p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
-  for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
-  XBI(d,x,y,0)=s;
+  unsigned char (*septab0)[16][4]=gt->septab0;
+  unsigned int (*septab1)[16][16]=gt->septab1;
+  randptr=randint(randlength-2*N*N*4+1);
+  for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
+    // Do Gibbs iteration to a single "bigvertex" (4 spins)
+    // If d=0 then v=the bigvertex (x,y,0)
+    // If d=1 then v=the bigvertex (y,x,1)
+    // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+    // distribution at inverse temperature beta conditioned on the rest of the graph.
+    p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+    // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+    p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
+    for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
+    XBI(d,x,y,0)=s;
+  }
 }
 
 typedef int treestriptype;// Use int if range of values exceeds 16 bits, or use short to save memory on a very wide exhaust.
@@ -2351,20 +2378,20 @@ void consistencychecks2(int weightmode,int strat,double mint,double maxt){
   }
 }
 
-void qbounds(int qq[3],int rr[2],int mm[2]){
-  // Return bounds rr[] such that accesses, etab[i], to centred etab satisfy rr[0]<=i<=rr[1],
+void getqbounds(int qb[7]){// was qq[3],int rr[2],int mm[2]){
+  // Return bounds rr[] such that accesses etab_centred[i] satisfy rr[0]<=i<=rr[1],
   //    and bounds mm[0], mm[1] controlling the maximum variation in Q(d,b,s) over s.
   //               mm[0] corresponds to d=0 (intra-K44) and mm[1] to d=1,2 (inter-K44).
-  //            so mm[0] = max_{n,b}(max_s Q(n,0,b,s) - min_s Q(n,0,b,s))
-  //               mm[1] = max_{n,b,d=1,2}(max_s Q(n,d,b,s) - min_s Q(n,d,b,s))
-  //               rr[0] = min_{n,b} sum_d min_s Q(n,d,b,s)
-  //               rr[1] = max_{n,b} sum_d max_s Q(n,d,b,s)
-  //               qq[0] = max_{n,b,s} |Q(n,0,b,s)|
-  //               qq[1] = max_{n,d=1,2,b,s} |Q(n,d,b,s)|
-  //               qq[2] = max_{n,b} MAX(sum_d max_s Q(n,d,b,s), sum_d max_s -Q(n,d,b,s)) = MAX(-rr[0],rr[1])
-  //               mm[i]/2 <= qq[i], i=0,1
-  int d,n,q,v,s0,s1,min1,max1,min2,max2;
-  qq[0]=qq[1]=qq[2]=rr[0]=rr[1]=mm[0]=mm[1]=0;
+  //            so qb[0] = rr[0] = min_{n,b} sum_d min_s Q(n,d,b,s)
+  //               qb[1] = rr[1] = max_{n,b} sum_d max_s Q(n,d,b,s)
+  //               qb[2] = mm[0] = max_{n,b}(max_s Q(n,0,b,s) - min_s Q(n,0,b,s))
+  //               qb[3] = mm[1] = max_{n,b,d=1,2}(max_s Q(n,d,b,s) - min_s Q(n,d,b,s))
+  //               qb[4] = qq[0] = max_{n,b,s} |Q(n,0,b,s)|
+  //               qb[5] = qq[1] = max_{n,d=1,2,b,s} |Q(n,d,b,s)|
+  //               qb[6] = qq[2] = max_{n,b} MAX(sum_d max_s Q(n,d,b,s), sum_d max_s -Q(n,d,b,s)) = MAX(-rr[0],rr[1])
+  //                       mm[i]/2 <= qq[i], i=0,1
+  int d,i,n,q,v,s0,s1,min1,max1,min2,max2;
+  for(i=0;i<7;i++)qb[i]=0;
   for(n=0;n<NBV;n++){
     for(s0=0;s0<16;s0++){
       min1=max1=0;
@@ -2375,16 +2402,31 @@ void qbounds(int qq[3],int rr[2],int mm[2]){
           q=QBa[n][d][s0][s1];
           if(q>max2)max2=q;
           if(q<min2)min2=q;
-          if(abs(q)>qq[MIN(d,1)])qq[MIN(d,1)]=abs(q);
+          if(abs(q)>qb[4+MIN(d,1)])qb[4+MIN(d,1)]=abs(q);
         }
-        v=max2-min2;if(v>mm[MIN(d,1)])mm[MIN(d,1)]=v;
+        v=max2-min2;if(v>qb[2+MIN(d,1)])qb[2+MIN(d,1)]=v;
         min1+=min2;max1+=max2;
       }
-      if(min1<rr[0])rr[0]=min1;
-      if(max1>rr[1])rr[1]=max1;
+      if(min1<qb[0])qb[0]=min1;
+      if(max1>qb[1])qb[1]=max1;
     }
   }
-  qq[2]=MAX(-rr[0],rr[1]);
+  qb[6]=MAX(-qb[0],qb[1]);
+}
+
+double getmaxbeta(int qb[7]){
+  // Determine whether the floating point type used in tree1gibbs has enough range to
+  // support the fast method.
+  int i;
+  double x,y;
+  long double tx;
+  x=qb[6];
+  y=qb[5]+(qb[2]+qb[3])/2.;if(y>x)x=y;
+  y=qb[4]+qb[3];if(y>x)x=y;
+  // x = MAX(q2,q1*m0*m1,q0*m1*m1)
+  for(i=0,tx=1;isfinite(tx);i++,tx*=2);
+  // tx = exponent of floating point type used in tree1gibbs
+  return (i-64)*log(2)/x;
 }
 
 long double*initetab(double beta,int rr[2]){
@@ -2393,6 +2435,96 @@ long double*initetab(double beta,int rr[2]){
   etab=(long double*)malloc((rr[1]-rr[0]+1)*sizeof(long double));
   for(n=rr[0];n<=rr[1];n++)etab[n-rr[0]]=expl(-beta*n);
   return etab;
+}
+
+gibbstables*initgibbstables(int nt,double *be,int qb[7],int tree){
+  // Allocate and initialise gibbs tables to be used by simplegibbssweep() and tree1gibbs().
+  // Use beta values be[0],...,be[nt-1].
+  // If tree=1 then the extra tables necessary for tree1gibbs() will be initialised.
+  int b,d,i,j,k,l,m,n,o,p,q,s,t,v,w,x,y,z,x0,x1,e0[2][2][6],e[16][4][2];
+  unsigned char (*septab0)[16][4];
+  long double Z[2];
+  gibbstables*gt;
+
+  gt=(gibbstables*)malloc(nt*sizeof(gibbstables));assert(gt);
+  if(nt>0){
+    septab0=(unsigned char(*)[16][4])malloc(16*16*4);assert(septab0);
+    for(i=0;i<16;i++)for(j=0;j<16;j++)for(k=0;k<4;k++)septab0[i][j][k]=(k<<2)|(((i>>k)&1)<<1)|((j>>k)&1);
+  }
+  for(t=0;t<nt;t++){
+    gt[t].etab0=(long double*)malloc((qb[1]-qb[0]+1)*sizeof(long double));
+    gt[t].etab=gt[t].etab0-qb[0];
+    for(n=qb[0];n<=qb[1];n++)gt[t].etab[n]=expl(-be[t]*n);
+    gt[t].m0=expl(be[t]*qb[2]/2.);
+    gt[t].m1=expl(be[t]*qb[3]/2.);
+    gt[t].Q0=expl(be[t]*qb[4]);
+    gt[t].Q1=expl(be[t]*qb[5]);
+    gt[t].Q2=expl(be[t]*qb[6]);
+    gt[t].septab0=septab0;
+    gt[t].septab1=(unsigned int(*)[16][16])malloc(NBV*16ULL*16*sizeof(unsigned int));
+    if(tree){
+      gt[t].septab2=(long double (*)[16][16])malloc(NBV*16ULL*16*sizeof(long double));
+      gt[t].septab3=(long double (*)[4][2][2])malloc(NBV*4ULL*2*2*sizeof(long double));
+    }else {gt[t].septab2=0;gt[t].septab3=0;}
+    if(!gt[t].septab1||(tree&&!(gt[t].septab2&&gt[t].septab3))){fprintf(stderr,"Couldn't allocate septabs1,2,3\n");exit(1);}
+  }
+
+  for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(i=0;i<4;i++){
+    p=enc(x,y,o);
+    z=o?y:x;
+    for(l=0;l<2;l++){// (x,y,o,i) is in state l
+      x0=statemap[l];
+      for(m=0;m<2;m++){// adjacent vertex is in state m
+        x1=statemap[m];
+        q=enc(x,y,1-o);
+        for(d=0;d<4;d++){
+          v=(Q[p][i][d]+Q[q][d][i])*x0*x1;
+          if(d==i)v+=Q[p][i][6]*x0*x0+Q[q][i][6]*x1*x1;
+          e0[l][m][d]=v;
+        }
+        if(z>0){q=enc(x-1+o,y-o,o);x1=statemap[m];e0[l][m][4]=(Q[p][i][4]+Q[q][i][5])*x0*x1;} else e0[l][m][4]=0;
+        if(z<N-1){q=enc(x+1-o,y+o,o);x1=statemap[m];e0[l][m][5]=(Q[p][i][5]+Q[q][i][4])*x0*x1;} else e0[l][m][5]=0;
+      }
+    }
+    for(b=0;b<16;b++)for(j=0;j<4;j++){// Do this extra loop to improve sequential memory accesses
+      s=(i<<2)|j;
+      for(l=0;l<2;l++){
+        v=0;
+        for(d=0;d<4;d++)v+=e0[l][(b>>d)&1][d];
+        v+=e0[l][j>>1][4]+e0[l][j&1][5];
+        e[b][j][l]=v;
+      }
+    }
+    for(t=0;t<nt;t++){
+      for(b=0;b<16;b++)for(j=0;j<4;j++){
+        s=(i<<2)|j;
+        for(l=0;l<2;l++)Z[l]=gt[t].etab[e[b][j][l]];
+        gt[t].septab1[p][b][s]=(unsigned int)floor(Z[0]/(Z[0]+Z[1])*(RAND_MAX+1.)+.5);
+        if(tree)gt[t].septab2[p][b][s]=Z[0]+Z[1];
+      }
+    }
+    if(tree){
+      q=enc(x+1-o,y+o,o);
+      for(t=0;t<nt;t++){
+        w=z<N-1?Q[p][i][5]+Q[q][i][4]:0;
+        for(l=0;l<2;l++){// (x,y,o,i) is in state l
+          x0=statemap[l];
+          for(m=0;m<2;m++){// adjacent vertex is in state m
+            x1=statemap[m];
+            gt[t].septab3[p][i][l][m]=gt[t].etab[x0*x1*w];
+          }
+        }
+      }
+    }
+  }// x,y,o,i
+  return gt;
+}
+
+void freegibbstables(int nt,gibbstables*gt){
+  int t;
+  if(nt>0)free(gt[0].septab0);
+  for(t=0;t<nt;t++){free(gt[t].etab0);free(gt[t].septab1);free(gt[t].septab2);free(gt[t].septab3);}
+  free(gt);
 }
 
 void gibbstests(int weightmode){
@@ -2491,11 +2623,12 @@ void binderparamestimate(int weightmode){
 }
 
 void findexchangemontecarlotemperatureset(int weightmode){
-  int i,j,n,v,prch,pr=0;
+  int i,j,n,v,prch,pr=0,qb[7];
   int maxn=100000;
   int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
-  double tp,del,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
+  double tp,del,tim0,bemax,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
   int en[nt],ex[nt-1],sbuf[nt][NBV];
+  gibbstables*gt;
   //if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
   //initweights(weightmode);
   be0=ngp>2?genp[2]:0.5;be1=ngp>3?genp[3]:5;// low and high beta
@@ -2511,16 +2644,26 @@ void findexchangemontecarlotemperatureset(int weightmode){
   for(i=0;i<nt-1;i++)ex[i]=0;
   for(i=0;i<nt;i++)s0[i]=s1[i]=s2[i]=0;
   vhist=(double(*)[nt])malloc(maxn*nt*sizeof(double));assert(vhist);
+  initrandtab(100000);
+  getqbounds(qb);
+  if(genp[0]==0){
+    bemax=getmaxbeta(qb);
+    printf("Maximum beta: %g\n",bemax);
+    if(be[nt-1]>bemax){fprintf(stderr,"Top beta of %g exceeds maximum beta %g for tree1gibbs()\n",be[nt-1],bemax);exit(1);}
+  }
+  gt=initgibbstables(nt,be,qb,(int)(genp[0])==0);
+  pr=genp[5];
+
+  tim0=cpu();
   for(n=0;n<maxn;){
     for(i=0;i<nt;i++){
       memcpy(XBa,sbuf[i],NBV*sizeof(int));
       switch((int)(genp[0])){
-        int d,r,c;
       case 0:
-        tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
+        tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
         break;
       case 1:
-        for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_slow(d,c,r,be[i]);
+        simplegibbssweep(&gt[i]);
         break;
       }
       v=val();en[i]=v;vhist[n][i]=v;
@@ -2578,7 +2721,7 @@ void findexchangemontecarlotemperatureset(int weightmode){
         }
         j=i0;
       }
-      printf("%d steps\n",n);
+      printf("%d steps. CPU=%.2f\n",n,cpu()-tim0);
       printf("p=%.3f choice of be[]:",tp);
       for(i=nb-1;i>=0;i--)printf(" %5.3f",ben[i]);printf("\n");
       fflush(stdout);
@@ -2786,7 +2929,7 @@ int findeqbmusingchisq(int weightmode){
   int eqb,leqb;// Equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
   double chi;
-  int c,d,e,i,n,p,r,v;
+  int e,i,n,v;
   double nit,nsol;
       
   printf("Number of temperatures %d\n",nt);
@@ -2802,7 +2945,7 @@ int findeqbmusingchisq(int weightmode){
       //if(genp[1]==0)initweights(weightmode);// Disorder (J_ij) sample
       for(e=0;e<2;e++){// Loop over two equilibrations being compared
         leqb=eqb<<e;
-        nit=nsol=0;d=p=r=0;
+        nit=nsol=0;
       lp0:
         for(i=0;i<nt;i++){init_state();memcpy(sbuf[i],XBa,NBV*sizeof(int));}
         for(i=0;i<nt;i++)lem[e][i]=0;
@@ -2815,7 +2958,7 @@ int findeqbmusingchisq(int weightmode){
               nit+=1;
               break;
             case 1:
-              for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs_slow(d,c,r,be[i]);
+              simplegibbssweep_slow(be[i]);
               nit+=1;
               break;
             }
@@ -2957,22 +3100,9 @@ int findeqbmusingtopbeta(int weightmode){
   double x,y,del,nex,bemax,ex[nt-1],ex2[nt][nt];
   int eqb;// Current upper bound on equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-  int c,d,e,i,j,k,n,p,r,v,mm[2],qq[3],rr[2];
+  int e,i,j,k,n,v,qb[7];
   double mu,va,se,nit,nsol,tim0,tim1;
-  long double tx,*(etab[nt]),m0[nt],m1[nt],Q0[nt],Q1[nt],Q2[nt];
-  unsigned char septab0[16][16][4];
-  unsigned int (*septab1)[NBV][16][16];
-  long double (*septab2)[NBV][16][16];
-  long double (*septab3)[NBV][4][2][2];
-  // septab0[a][b][i] = (i<<2)|(a_i<<1)|b_i   a_i, b_i =i^th bits of a, b
-  // septab1[t][p][b][s] = Z0/(Z0+Z1) scaled to RAND_MAX, and
-  // septab2[t][p][b][s] = Z0+Z1, where
-  //   t = temperature number (i.e., using beta=be[t])
-  //   p = big vertex = (x,y,o) say
-  //   b = state of (x,y,1-o)  (b=0,...,15)
-  //   s = i<<2|(j<<1)|k,  (i=0,1,2,3, j=0,1, k=0,1) as from septab0
-  //   Z_l = Z-value arising from (x-1,y,0,i)=j, (x,y,0,i)=l, (x+1,y,0,i)=k, (x,y,1)=b  (mutatis mutandis if o=1)
-  //   It evaluates all edges from (x,y,o,i), including its self-edge and (x,y,1-o,i)'s self-edge (but none others)
+  gibbstables*gt;
 
   printf("Number of temperatures %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
@@ -2983,86 +3113,16 @@ int findeqbmusingtopbeta(int weightmode){
   int ndgu=0.4*ndmax; // Give-up point
   eqb=ngp>5?genp[5]:1;vmin=1000000000;
   initrandtab(100000);
-  qbounds(qq,rr,mm);
-  printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",rr[0],rr[1],mm[0],mm[1],qq[0],qq[1],qq[2]);
+  getqbounds(qb);
+  printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",qb[0],qb[1],qb[2],qb[3],qb[4],qb[5],qb[6]);
   
   if(genp[0]==0){
-    // Determine whether the floating point type used in tree1gibbs has enough range to
-    // support the fast method.
-    x=qq[2];
-    y=qq[1]+(mm[0]+mm[1])/2.;if(y>x)x=y;
-    y=qq[0]+mm[1];if(y>x)x=y;
-    // x = MAX(q2,q1*m0*m1,q0*m1*m1)
-    for(i=0,tx=1;isfinite(tx);i++,tx*=2);
-    // tx = exponent of floating point type used in tree1gibbs
-    bemax=(i-64)*log(2)/x;
+    bemax=getmaxbeta(qb);
     printf("Maximum beta: %g\n",bemax);
     if(be[nt-1]>bemax){fprintf(stderr,"Top beta of %g exceeds maximum beta %g for tree1gibbs()\n",be[nt-1],bemax);exit(1);}
   }
 
-  for(i=0;i<nt;i++){
-    etab[i]=initetab(be[i],rr);
-    m0[i]=expl(be[i]*mm[0]/2.);
-    m1[i]=expl(be[i]*mm[1]/2.);
-    Q0[i]=expl(be[i]*qq[0]);
-    Q1[i]=expl(be[i]*qq[1]);
-    Q2[i]=expl(be[i]*qq[2]);
-  }
-  {
-    int b,d,i,j,k,l,m,o,p,q,s,t,v,w,x,y,z,x0,x1,e0[2][2][6],e[16][4][2];
-    long double Z[2];
-    septab1=(unsigned int(*)[NBV][16][16])malloc(nt*NBV*16ULL*16*sizeof(unsigned int));
-    septab2=(long double (*)[NBV][16][16])malloc(nt*NBV*16ULL*16*sizeof(long double));
-    septab3=(long double (*)[NBV][4][2][2])malloc(nt*NBV*4ULL*2*2*sizeof(long double));
-    if(!(septab1&&septab2&&septab3)){fprintf(stderr,"Couldn't allocate septabs1,2,3\n");exit(1);}
-    for(i=0;i<16;i++)for(j=0;j<16;j++)for(k=0;k<4;k++)septab0[i][j][k]=(k<<2)|(((i>>k)&1)<<1)|((j>>k)&1);
-    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(i=0;i<4;i++){
-      p=enc(x,y,o);
-      z=o?y:x;
-      for(l=0;l<2;l++){// (x,y,o,i) is in state l
-        x0=statemap[l];
-        for(m=0;m<2;m++){// adjacent vertex is in state m
-          x1=statemap[m];
-          q=enc(x,y,1-o);
-          for(d=0;d<4;d++){
-            v=(Q[p][i][d]+Q[q][d][i])*x0*x1;
-            if(d==i)v+=Q[p][i][6]*x0*x0+Q[q][i][6]*x1*x1;
-            e0[l][m][d]=v;
-          }
-          if(z>0){q=enc(x-1+o,y-o,o);x1=statemap[m];e0[l][m][4]=(Q[p][i][4]+Q[q][i][5])*x0*x1;} else e0[l][m][4]=0;
-          if(z<N-1){q=enc(x+1-o,y+o,o);x1=statemap[m];e0[l][m][5]=(Q[p][i][5]+Q[q][i][4])*x0*x1;} else e0[l][m][5]=0;
-        }
-      }
-      for(b=0;b<16;b++)for(j=0;j<4;j++){// Do this extra loop to improve sequential memory accesses
-        s=(i<<2)|j;
-        for(l=0;l<2;l++){
-          v=0;
-          for(d=0;d<4;d++)v+=e0[l][(b>>d)&1][d];
-          v+=e0[l][j>>1][4]+e0[l][j&1][5];
-          e[b][j][l]=v;
-        }
-      }
-      for(t=0;t<nt;t++){
-        for(b=0;b<16;b++)for(j=0;j<4;j++){
-          s=(i<<2)|j;
-          for(l=0;l<2;l++)Z[l]=etab[t][e[b][j][l]-rr[0]];
-          septab1[t][p][b][s]=(unsigned int)floor(Z[0]/(Z[0]+Z[1])*(RAND_MAX+1.)+.5);
-          septab2[t][p][b][s]=Z[0]+Z[1];
-        }
-      }
-      q=enc(x+1-o,y+o,o);
-      for(t=0;t<nt;t++){
-        w=z<N-1?Q[p][i][5]+Q[q][i][4]:0;
-        for(l=0;l<2;l++){// (x,y,o,i) is in state l
-          x0=statemap[l];
-          for(m=0;m<2;m++){// adjacent vertex is in state m
-            x1=statemap[m];
-            septab3[t][p][i][l][m]=etab[t][x0*x1*w-rr[0]];
-          }
-        }
-      }
-    }// x,y,o,i
-  }
+  gt=initgibbstables(nt,be,qb,(int)(genp[0])==0);
   while(1){// Loop over equilibration lengths
     double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
     // ^ grr - causes trouble for the standard stupidly low stacksize
@@ -3074,7 +3134,7 @@ int findeqbmusingtopbeta(int weightmode){
     tim0=cpu();
     while(1){// Loop over runs
       for(i=0;i<nt;i++)for(j=0;j<nt;j++)ex2[i][j]=0;// Count of long-range exchanges for a particular run
-      nit=nsol=0;d=p=r=0;
+      nit=nsol=0;
       for(i=0;i<nt;i++){
         init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
         for(j=0;j<nt;j++)sbuf[i].t[j]=-(j!=i);
@@ -3086,12 +3146,11 @@ int findeqbmusingtopbeta(int weightmode){
           switch((int)(genp[0])){
           case 0:
             //tree1gibbs_slow(randint(2),randint(2),randint(N),be[i]);
-            tree1gibbs(randint(2),randint(2),randint(N),etab[i]-rr[0],septab0,septab1[i],septab2[i],septab3[i],m0[i],m1[i],Q0[i],Q1[i],Q2[i]);
+            tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
             nit+=1;
             break;
           case 1:
-            randptr=randint(randlength-2*N*N*4+1);
-            for(d=0;d<2;d++)for(r=0;r<N;r++)for(c=0;c<N;c++)bigvertexgibbs(d,c,r,septab0,septab1[i]);
+            simplegibbssweep(&gt[i]);
             nit+=1;
             break;
           }
@@ -3175,7 +3234,7 @@ int findeqbmusingtopbeta(int weightmode){
     eqb*=2;// This scale-up ratio should perhaps be chosen to minimise (r-1+ndgu/ndmax)/log(r)
   }// Eqbn times
  ok1:;
-  for(i=0;i<nt;i++)free(etab[i]);
+  freegibbstables(nt,gt);
   return eqb;
 }
 
@@ -3470,7 +3529,7 @@ int main(int ac,char**av){
   case 18:
     findeqbmusingtopbeta(weightmode);
     break;
-  }// switch(mode)
+  }// mode
   prtimes();
   if(outstatefile)writestate(outstatefile);
   return 0;
