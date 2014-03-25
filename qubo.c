@@ -3097,7 +3097,8 @@ int findeqbmusingtopbeta(int weightmode){
   
   gt=initgibbstables(nt,be,(int)(genp[0])==0);
   while(1){// Loop over equilibration lengths
-    double ten[2*eqb],sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
+    int ten[2*eqb];
+    double sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
     // ^ grr - causes trouble for the standard stupidly low stacksize
     double lem[nt];
     printf("\nEquilibration length %d\n",eqb);fflush(stdout);
@@ -3149,7 +3150,7 @@ int findeqbmusingtopbeta(int weightmode){
         nex++;
         ten[n]=sbuf[nt-1].e;// Store top beta's energy at each sample step (for equilibration detection)
         if(n>=eqb)for(i=0;i<nt;i++)lem[i]+=sbuf[i].e;// Store total energies at each temperature (for interest)
-        if(pr>=4)printf("Top beta energy %12g\n",ten[n]);
+        if(pr>=4)printf("Top beta energy %d\n",ten[n]);
       }// Thermal
       for(i=0;i<nt;i++)lem[i]/=eqb;
       nd++;
@@ -3187,7 +3188,7 @@ int findeqbmusingtopbeta(int weightmode){
       se=sqrt(va/sten0[eqb]);
       assert(mu>=vmin);
       if(pr>=1){
-        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, eqb=%d, genp[]=",mu-vmin,se,vmin,N,nd,eqb);
+        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, nt=%d, eqb=%d, genp[]=",mu-vmin,se,vmin,N,nd,nt,eqb);
         for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
         tim1=cpu();printf(", CPU=%.2fs, CPU_this=%.2fs, CPU/run=%.3fs\n",tim1,tim1-tim0,(tim1-tim0)/nd);
         prtimes();
