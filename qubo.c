@@ -3091,18 +3091,22 @@ int findeqbmusingtopbeta(int weightmode){
   int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
   //                  protection against rare events
   int ndgu=0.4*ndmax; // Give-up point
+  const int eqbprec=4096; // Only care about knowing the required eqb to 1/eqbprec accuracy,
+  int eqbblksz;           // so consider equilibration steps in blocks of eqbblksz to keep memory compact.
+  int eqbnblk;
   eqb=ngp>5?genp[5]:1;
   vmin=ngp>6?genp[6]:1000000000;
   initrandtab(100000);
   
   gt=initgibbstables(nt,be,(int)(genp[0])==0);
   while(1){// Loop over equilibration lengths
-    int ten[2*eqb];
-    double sten0[eqb+1],sten1[eqb+1],sten2[eqb+1];
-    // ^ grr - causes trouble for the standard stupidly low stacksize
+    eqbblksz=(eqb-1)/eqbprec+1;
+    eqb-=eqb%eqbblksz;
+    eqbnblk=eqb/eqbblksz;
+    double ten[2*eqbnblk],sten0[eqbnblk+1],sten1[eqbnblk+1],sten2[eqbnblk+1];
     double lem[nt];
     printf("\nEquilibration length %d\n",eqb);fflush(stdout);
-    for(i=0;i<eqb+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
+    for(i=0;i<eqbnblk+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
     for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
     nd=0;
     tim0=cpu();
@@ -3114,6 +3118,7 @@ int findeqbmusingtopbeta(int weightmode){
         for(j=0;j<nt;j++)sbuf[i].t[j]=-(j!=i);
       }
       for(i=0;i<nt;i++)lem[i]=0;
+      for(i=0;i<2*eqbnblk;i++)ten[i]=0;
       for(n=0;n<2*eqb;n++){// Thermal loop
         for(i=0;i<nt;i++){
           memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
@@ -3139,18 +3144,16 @@ int findeqbmusingtopbeta(int weightmode){
             sbuf[i]=sbuf[i+1];
             sbuf[i+1]=ts;
             ex[i]++;
-            for(k=i;k<=i+1;k++){
-              if(n>=eqb)for(j=0;j<nt;j++){
-                if(sbuf[k].t[j]>sbuf[k].t[k])ex2[j][k]+=1;// add j->k flux unit if more recently in j than in k
-              }
+            if(n>=eqb)for(k=i;k<=i+1;k++)for(j=0;j<nt;j++){
+              if(sbuf[k].t[j]>sbuf[k].t[k])ex2[j][k]+=1;// add j->k flux unit if more recently in j than in k
             }
           }
           for(j=0;j<nt;j++)sbuf[j].t[j]=nt*n+i;
         }
         nex++;
-        ten[n]=sbuf[nt-1].e;// Store top beta's energy at each sample step (for equilibration detection)
+        ten[n/eqbblksz]+=sbuf[nt-1].e;// Record top beta's energy (for equilibration detection)
         if(n>=eqb)for(i=0;i<nt;i++)lem[i]+=sbuf[i].e;// Store total energies at each temperature (for interest)
-        if(pr>=4)printf("Top beta energy %d\n",ten[n]);
+        if(pr>=4)printf("Top beta energy %g\n",ten[n]);
       }// Thermal
       for(i=0;i<nt;i++)lem[i]/=eqb;
       nd++;
@@ -3177,15 +3180,15 @@ int findeqbmusingtopbeta(int weightmode){
         for(i=0;i<nt;i++)printf("%8.2f ",een[i]);printf("  een[%d][]\n",eqb);
         for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf("  err[%d][]\n",eqb);
       }
-      for(n=1,x=0;n<=eqb;n++){
+      for(n=1,x=0;n<=eqbnblk;n++){
         x+=ten[2*n-2]+ten[2*n-1]-ten[n-1];
-        // x = sum of ten[n],...,ten[2n-1] = the top-energy terms that would be used at eqb=n
-        y=x/n;
+        // x = sum of ten[n],...,ten[2n-1] = the top-energy terms that would be used at eqb=n*eqbblksz
+        y=x/(n*eqbblksz);
         sten0[n]+=1;sten1[n]+=y;sten2[n]+=y*y;
       }
-      mu=sten1[eqb]/sten0[eqb];
-      va=(sten2[eqb]-sten1[eqb]*sten1[eqb]/sten0[eqb])/(sten0[eqb]-1);
-      se=sqrt(va/sten0[eqb]);
+      mu=sten1[eqbnblk]/sten0[eqbnblk];
+      va=(sten2[eqbnblk]-sten1[eqbnblk]*sten1[eqbnblk]/sten0[eqbnblk])/(sten0[eqbnblk]-1);
+      se=sqrt(va/sten0[eqbnblk]);
       assert(mu>=vmin);
       if(pr>=1){
         printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, nt=%d, eqb=%d, genp[]=",mu-vmin,se,vmin,N,nd,nt,eqb);
@@ -3197,10 +3200,11 @@ int findeqbmusingtopbeta(int weightmode){
       // Of course N(mu,se^2) is a very poor approximation to the posterior distribution of the energy of the top beta (NCU anyway)
       if((mu-vmin)*MIN(nd,ndgu)/(double)ndgu>eps)break;
       if(nd>=ndmax){
-        if(pr>=3)for(n=1;n<=eqb;n++)printf("%6d %12.6f %12g\n",n,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
-        for(n=1,e=1;n<=eqb;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
+        if(pr>=3)for(n=1;n<=eqbnblk;n++)printf("%6d %12.6f %12g\n",n*eqbblksz,sten1[n]/sten0[n],sten1[n]/sten0[n]-vmin);
+        for(n=1,e=1;n<=eqbnblk;n++)if(sten1[n]/sten0[n]-vmin>eps)e++;
+        eqb=e*eqbblksz;
         printf("Equilibration time %d deemed sufficient for target error %g at nd=%d, eqb=%d, N=%d, vmin=%d, method=%g, workproduct=%d\n",
-               e,eps,nd,eqb,N,vmin,genp[0],e*nt);
+               eqb,eps,nd,eqb,N,vmin,genp[0],eqb*nt);
         goto ok1;
       }
     }// Runs (nd)
