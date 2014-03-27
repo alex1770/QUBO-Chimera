@@ -123,8 +123,10 @@ int randptr,randlength;
 
 typedef struct {
   long double *etab0,*etab,m0,m1,Q0,Q1,Q2;
+  unsigned int *ftab0,*ftab;
   unsigned char (*septab0)[16][4]; // [16][16][4]
   unsigned int (*septab1)[16][16]; // [NBV][16][16]
+  signed char (*septab1a)[16][16]; // [NBV][16][16]
   long double (*septab2)[16][16];  // [NBV][16][16]
   long double (*septab3)[4][2][2]; // [NBV][4][2][2]
 } gibbstables;
@@ -137,6 +139,7 @@ typedef struct {
 //   s = i<<2|(j<<1)|k,  (i=0,1,2,3, j=0,1, k=0,1) as from septab0
 //   Z_l = Z-value arising from (x-1,y,0,i)=j, (x,y,0,i)=l, (x+1,y,0,i)=k, (x,y,1)=b  (mutatis mutandis if o=1)
 //   It evaluates all edges from (x,y,o,i), including its self-edge and (x,y,1-o,i)'s self-edge (but none others)
+int septab1a_overflow;
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
@@ -800,10 +803,6 @@ int checkbound(long double ZZ[16],long double max){
 }
 
 double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
-  //                  unsigned char septab0[16][16][4],unsigned int(*septab1)[16][16],long double(*septab2)[16][16],
-  //                  long double(*septab3)[4][2][2],
-  //                  long double m0,long double m1,
-  //                  long double q0,long double q1,long double q2){// q0,q1,q2 only used for bounds checking
   // If d=0 sample the (induced) tree consisting of all verts of columns of parity ph,
   //               the o=1 (vertically connected) verts of the other columns, and row r0.
   // If d=1 then same with rows <-> columns.
@@ -990,20 +989,33 @@ void simplegibbssweep(gibbstables*gt){
   int d,i,s,x,y;
   unsigned char *p0;
   unsigned int *p1;
+  signed char *p1a;
   unsigned char (*septab0)[16][4]=gt->septab0;
   unsigned int (*septab1)[16][16]=gt->septab1;
+  signed char (*septab1a)[16][16]=gt->septab1a;
+  unsigned int *ftab=gt->ftab;
   randptr=randint(randlength-2*N*N*4+1);
-  for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
-    // Do Gibbs iteration to a single "bigvertex" (4 spins)
-    // If d=0 then v=the bigvertex (x,y,0)
-    // If d=1 then v=the bigvertex (y,x,1)
-    // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
-    // distribution at inverse temperature beta conditioned on the rest of the graph.
-    p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
-    // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
-    p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
-    for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
-    XBI(d,x,y,0)=s;
+  // Do Gibbs iteration to each "bigvertex" (d,x,y) (4 spins)
+  // If d=0 then v=the bigvertex (x,y,0)
+  // If d=1 then v=the bigvertex (y,x,1)
+  // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
+  // distribution at inverse temperature beta conditioned on the rest of the graph.
+  if(septab1a_overflow){
+    for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
+      p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+      // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+      p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
+      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
+      XBI(d,x,y,0)=s;
+    }
+  }else{
+    for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
+      p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+      // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+      p1a=septab1a[encI(d,x,y,0)][XBI(d,x,y,1)];
+      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=ftab[p1a[p0[i]]])s|=1<<i;
+      XBI(d,x,y,0)=s;
+    }
   }
 }
 
@@ -2440,6 +2452,7 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   gibbstables*gt;
 
   getqbounds(qb);
+  septab1a_overflow=0;
   if(tree){
     double maxbeta;
     maxbeta=getmaxbeta(qb);
@@ -2454,7 +2467,13 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   for(t=0;t<nt;t++){
     gt[t].etab0=(long double*)malloc((qb[1]-qb[0]+1)*sizeof(long double));
     gt[t].etab=gt[t].etab0-qb[0];
+    gt[t].ftab0=(unsigned int*)malloc(256*sizeof(unsigned int));
+    gt[t].ftab=gt[t].ftab0+128;
     for(n=qb[0];n<=qb[1];n++)gt[t].etab[n]=expl(-be[t]*n);
+    for(n=-128;n<128;n++){
+      double x=n>0?1/(1+exp(-be[t]*n)):exp(be[t]*n)/(exp(be[t]*n)+1);
+      gt[t].ftab[n]=(unsigned int)floor(x*(RAND_MAX+1.)+.5);
+    }
     gt[t].m0=expl(be[t]*qb[2]/2.);
     gt[t].m1=expl(be[t]*qb[3]/2.);
     gt[t].Q0=expl(be[t]*qb[4]);
@@ -2462,6 +2481,7 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
     gt[t].Q2=expl(be[t]*qb[6]);
     gt[t].septab0=septab0;
     gt[t].septab1=(unsigned int(*)[16][16])malloc(NBV*16ULL*16*sizeof(unsigned int));
+    gt[t].septab1a=(signed char(*)[16][16])malloc(NBV*16ULL*16);
     if(tree){
       gt[t].septab2=(long double (*)[16][16])malloc(NBV*16ULL*16*sizeof(long double));
       gt[t].septab3=(long double (*)[4][2][2])malloc(NBV*4ULL*2*2*sizeof(long double));
@@ -2498,6 +2518,9 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
     for(t=0;t<nt;t++){
       for(b=0;b<16;b++)for(j=0;j<4;j++){
         s=(i<<2)|j;
+        int del=e[b][j][1]-e[b][j][0];
+        if(del<-128||del>127)septab1a_overflow=1;
+        gt[t].septab1a[p][b][s]=del;
         for(l=0;l<2;l++)Z[l]=gt[t].etab[e[b][j][l]];
         gt[t].septab1[p][b][s]=(unsigned int)floor(Z[0]/(Z[0]+Z[1])*(RAND_MAX+1.)+.5);
         if(tree)gt[t].septab2[p][b][s]=Z[0]+Z[1];
@@ -2517,13 +2540,14 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
       }
     }
   }// x,y,o,i
+  if(septab1a_overflow)printf("Note: cannot use septab1a due to overflow\n");
   return gt;
 }
 
 void freegibbstables(int nt,gibbstables*gt){
   int t;
   if(nt>0)free(gt[0].septab0);
-  for(t=0;t<nt;t++){free(gt[t].etab0);free(gt[t].septab1);free(gt[t].septab2);free(gt[t].septab3);}
+  for(t=0;t<nt;t++){free(gt[t].etab0);free(gt[t].ftab0);free(gt[t].septab1);free(gt[t].septab1a);free(gt[t].septab2);free(gt[t].septab3);}
   free(gt);
 }
 
