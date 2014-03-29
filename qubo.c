@@ -2448,6 +2448,7 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   // If tree=1 then the extra tables necessary for tree1gibbs() will be initialised.
   int b,d,i,j,k,l,m,n,o,p,q,s,t,v,w,x,y,z,x0,x1,qb[7],e0[2][2][6],e[16][4][2];
   unsigned char (*septab0)[16][4];
+  signed char (*septab1a)[16][16]=0;
   long double Z[2];
   gibbstables*gt;
 
@@ -2463,11 +2464,12 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   if(nt>0){
     septab0=(unsigned char(*)[16][4])malloc(16*16*4);assert(septab0);
     for(i=0;i<16;i++)for(j=0;j<16;j++)for(k=0;k<4;k++)septab0[i][j][k]=(k<<2)|(((i>>k)&1)<<1)|((j>>k)&1);
+    septab1a=(signed char(*)[16][16])malloc(NBV*16ULL*16);
   }
   for(t=0;t<nt;t++){
     gt[t].etab0=(long double*)malloc((qb[1]-qb[0]+1)*sizeof(long double));
     gt[t].etab=gt[t].etab0-qb[0];
-    gt[t].ftab0=(unsigned int*)malloc(256*sizeof(unsigned int));
+    gt[t].ftab0=(unsigned int*)malloc(256*sizeof(unsigned int));assert(gt[t].ftab0);
     gt[t].ftab=gt[t].ftab0+128;
     for(n=qb[0];n<=qb[1];n++)gt[t].etab[n]=expl(-be[t]*n);
     for(n=-128;n<128;n++){
@@ -2480,13 +2482,13 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
     gt[t].Q1=expl(be[t]*qb[5]);
     gt[t].Q2=expl(be[t]*qb[6]);
     gt[t].septab0=septab0;
-    gt[t].septab1=(unsigned int(*)[16][16])malloc(NBV*16ULL*16*sizeof(unsigned int));
-    gt[t].septab1a=(signed char(*)[16][16])malloc(NBV*16ULL*16);
+    gt[t].septab1=(unsigned int(*)[16][16])malloc(NBV*16ULL*16*sizeof(unsigned int));assert(gt[t].septab1);
+    gt[t].septab1a=septab1a;
     if(tree){
       gt[t].septab2=(long double (*)[16][16])malloc(NBV*16ULL*16*sizeof(long double));
       gt[t].septab3=(long double (*)[4][2][2])malloc(NBV*4ULL*2*2*sizeof(long double));
+      assert(gt[t].septab2&&gt[t].septab3);
     }else {gt[t].septab2=0;gt[t].septab3=0;}
-    if(!gt[t].septab1||(tree&&!(gt[t].septab2&&gt[t].septab3))){fprintf(stderr,"Couldn't allocate septabs1,2,3\n");exit(1);}
   }
 
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)for(i=0;i<4;i++){
@@ -2515,12 +2517,16 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
         e[b][j][l]=v;
       }
     }
-    for(t=0;t<nt;t++){
+    if(nt>0){
       for(b=0;b<16;b++)for(j=0;j<4;j++){
         s=(i<<2)|j;
         int del=e[b][j][1]-e[b][j][0];
         if(del<-128||del>127)septab1a_overflow=1;
-        gt[t].septab1a[p][b][s]=del;
+        septab1a[p][b][s]=del;
+      }
+    }
+    for(t=0;t<nt;t++){
+      for(b=0;b<16;b++)for(j=0;j<4;j++){
         for(l=0;l<2;l++)Z[l]=gt[t].etab[e[b][j][l]];
         gt[t].septab1[p][b][s]=(unsigned int)floor(Z[0]/(Z[0]+Z[1])*(RAND_MAX+1.)+.5);
         if(tree)gt[t].septab2[p][b][s]=Z[0]+Z[1];
@@ -2546,8 +2552,8 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
 
 void freegibbstables(int nt,gibbstables*gt){
   int t;
-  if(nt>0)free(gt[0].septab0);
-  for(t=0;t<nt;t++){free(gt[t].etab0);free(gt[t].ftab0);free(gt[t].septab1);free(gt[t].septab1a);free(gt[t].septab2);free(gt[t].septab3);}
+  if(nt>0){free(gt[0].septab0);free(gt[0].septab1a);}
+  for(t=0;t<nt;t++){free(gt[t].etab0);free(gt[t].ftab0);free(gt[t].septab1);free(gt[t].septab2);free(gt[t].septab3);}
   free(gt);
 }
 
