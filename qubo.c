@@ -3105,7 +3105,7 @@ int findeqbmusingtopbeta(int weightmode){
   int eqb;// Current upper bound on equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
   int e,i,j,k,n,v;
-  double mu,va,se,nit,nsol,tim0,tim1;
+  double mu,va,se,nit,nsol,tim0,tim1,tim2;
   gibbstables*gt;
 
   printf("Number of temperatures: %d\n",nt);
@@ -3135,6 +3135,7 @@ int findeqbmusingtopbeta(int weightmode){
     nd=0;
     tim0=cpu();
     while(1){// Loop over runs
+      tim2=cpu();
       for(i=0;i<nt;i++)for(j=0;j<nt;j++)ex2[i][j]=0;// Count of long-range exchanges for a particular run
       nit=nsol=0;
       for(i=0;i<nt;i++){
@@ -3217,7 +3218,7 @@ int findeqbmusingtopbeta(int weightmode){
       if(pr>=1){
         printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, nt=%d, eqb=%d, genp[]=",mu-vmin,se,vmin,N,nd,nt,eqb);
         for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-        tim1=cpu();printf(", CPU=%.2fs, CPU_this=%.2fs, CPU/run=%.3fs\n",tim1,tim1-tim0,(tim1-tim0)/nd);
+        tim1=cpu();printf(", CPU=%.2fs, CPU_this=%.2fs, CPU_lastrun=%.2fs, CPU/run=%.3fs\n",tim1,tim1-tim0,tim1-tim2,(tim1-tim0)/nd);
         prtimes();
         fflush(stdout);
       }
