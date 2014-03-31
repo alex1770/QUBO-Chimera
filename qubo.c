@@ -68,11 +68,13 @@ int *XBa; // XBa[NBV]
           // XBa[enc(x,y,o)] = State (0..15) of big vert
           // Allow extra space to avoid having to check for out-of-bounds accesses
           // (Doesn't matter that they wrap horizontally, since the weights will be 0 for these edges.)
-int (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
-                       // Weights for big verts (derived from Q[])
-                       // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
-                       //                              to the big vert in direction d in state s1
-                       // d=0 is intra-K_4,4, d=1 is Left/Down, d=2 is Right/Up
+
+typedef short intqba;// Use int if range of values exceeds 16 bits, or use short to be more compact, cacheable
+intqba (*QBa)[3][16][16]; // QBa[NBV][3][16][16]
+                          // Weights for big verts (derived from Q[])
+                          // QBa[enc(x,y,o)][d][s0][s1] = total weight from big vert (x,y,o) in state s0
+                          //                              to the big vert in direction d in state s1
+                          // d=0 is intra-K_4,4, d=1 is Left/Down, d=2 is Right/Up
 int (*ok)[16]; // ok[NBV+1][16]   ok[enc(x,y,o)][s] = s^th allowable state in cell x,y,o (list)
 int *nok;      // nok[NBV+1]      nok[enc(x,y,o)] = number of allowable states in x,y,o
                // The last entry is single state entry which is used when things go outside the grid
@@ -124,11 +126,13 @@ int randptr,randlength;
 typedef struct {
   long double *etab0,*etab,m0,m1,Q0,Q1,Q2;
   unsigned int *ftab0,*ftab;
-  unsigned char (*septab0)[16][4]; // [16][16][4]
+  unsigned char (*septab0)[16][4]; // [16][16][4], static
   unsigned int (*septab1)[16][16]; // [NBV][16][16]
-  signed char (*septab1a)[16][16]; // [NBV][16][16]
+  signed char (*septab1a)[16][16]; // [NBV][16][16], static
   long double (*septab2)[16][16];  // [NBV][16][16]
+  signed char (*septab2a)[16][16][2]; // [NBV][16][16][2], static
   long double (*septab3)[4][2][2]; // [NBV][4][2][2]
+  signed char (*septab3a)[4][2][2]; // [NBV][4][2][2], static
 } gibbstables;
 // septab0[a][b][i] = (i<<2)|(a_i<<1)|b_i   a_i, b_i =i^th bits of a, b
 // septab1[p][b][s] = Z0/(Z0+Z1) scaled to RAND_MAX, and
@@ -139,7 +143,9 @@ typedef struct {
 //   s = i<<2|(j<<1)|k,  (i=0,1,2,3, j=0,1, k=0,1) as from septab0
 //   Z_l = Z-value arising from (x-1,y,0,i)=j, (x,y,0,i)=l, (x+1,y,0,i)=k, (x,y,1)=b  (mutatis mutandis if o=1)
 //   It evaluates all edges from (x,y,o,i), including its self-edge and (x,y,1-o,i)'s self-edge (but none others)
-int septab1a_overflow;
+// septab3[p][i][j][k] = exp(-be[t]*(-J_{pq}-J_{qp})*statemap[j]*statemap[k]), where
+//                       p=(x,y,0,i), q=(x,y+1,0,i)  (mutatis mutandis if o=1)
+int septab1a_compact,septab2a_compact,septab3a_compact;
 
 double cpu(){return clock()/(double)CLOCKS_PER_SEC;}
 
@@ -179,11 +185,11 @@ void getbigweights1(void){// Get derived weights on "big graph" QB[] from Q[]
   // This (messier) version is just here to show that the setup time can be more-or-less negligible.
   // Could be faster if we optimised for the case that statemap={0,1} or {-1,1}, but it's fast enough for now.
   int i,j,o,p,q,v,x,y,po,s0,s1,x0,x1,x00,x0d,dd,dd2;
-  memset(QBa,0,NBV*3*16*16*sizeof(int));
+  memset(QBa,0,NBV*3*16*16*sizeof(intqba));
   x0=statemap[0];x1=statemap[1];
   x00=x0*x0;x0d=x0*(x1-x0);dd=(x1-x0)*(x1-x0);dd2=x1*x1-x0*x0;
   for(x=0;x<N;x++)for(y=0;y<N;y++){
-    int (*QBal)[16],vv[16][16];
+    intqba (*QBal)[16],vv[16][16];
     p=enc(x,y,0);po=enc(x,y,1);
     for(i=0,v=0;i<4;i++)for(j=0;j<4;j++){vv[i][j]=Q[p][i][j]+Q[po][j][i];v+=vv[i][j];}
     for(i=0;i<4;i++)v+=Q[p][i][6]+Q[po][i][6];
@@ -226,8 +232,8 @@ void getbigweights1(void){// Get derived weights on "big graph" QB[] from Q[]
     }
   }// x,y
   for(x=0;x<N;x++)for(y=0;y<N;y++){
-    if(x<N-1)memcpy(QBa[enc(x+1,y,0)][1],QBa[enc(x,y,0)][2],256*sizeof(int));
-    if(y<N-1)memcpy(QBa[enc(x,y+1,1)][1],QBa[enc(x,y,1)][2],256*sizeof(int));
+    if(x<N-1)memcpy(QBa[enc(x+1,y,0)][1],QBa[enc(x,y,0)][2],256*sizeof(intqba));
+    if(y<N-1)memcpy(QBa[enc(x,y+1,1)][1],QBa[enc(x,y,1)][2],256*sizeof(intqba));
     p=enc(x,y,1);q=enc(x,y,0);
     for(s0=0;s0<16;s0++)for(s1=0;s1<16;s1++)QBa[p][0][s0][s1]=QBa[q][0][s1][s0];
   }
@@ -809,12 +815,18 @@ double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
   // Comments and variable names are as if in the column case (d=0)
   // Updates tree to new sample and returns Z of tree
   // etab[r]=expl(-beta*r)  (r can be negative)
-  int b,c,f,r,s,check=0,dir,hc[N][N][16],hs[N][N][16],hr[N][16],id[16];
+  int b,c,f,r,s,dir,hc[N][N][16],hs[N][N][16],hr[N][16],id[16];
+  const int check=0;
   long double z,Z,max,ff,m0,m1,pr[16],Z0[16],Z0a[16],Z1[16],Z2[16],Z3a[16],Z3[16],Z4[16];
+  long double *etab=gt->etab;
+  unsigned int *ftab=gt->ftab;
   unsigned char (*septab0)[16][4]=gt->septab0;
   unsigned int (*septab1)[16][16]=gt->septab1;
+  signed char (*septab1a)[16][16]=gt->septab1a;
   long double (*septab2)[16][16]=gt->septab2;
+  signed char (*septab2a)[16][16][2]=gt->septab2a;
   long double (*septab3)[4][2][2]=gt->septab3;
+  signed char (*septab3a)[4][2][2]=gt->septab3a;
   // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
   // Z1[s] = const*(Z of current column fragment, including (c,r,0), given that (c,r,1) = s)
   // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
@@ -843,7 +855,7 @@ double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
         if((c-ph)&1){
           TICK(2);
           for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
-            Z1[b]=Z0[b]*gt->etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
+            Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)];
             if(Z1[b]>max)max=Z1[b];
           }
           if(check)assert(checkbound(Z1,16*gt->Q0*m1));
@@ -857,11 +869,19 @@ double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
             int i;
             unsigned char *p0;
             unsigned int *p1;
-            long double *p2;
+            signed char *p1a;
             p0=septab0[XBI(d,c-1,r,0)][XBI(d,c+1,r,0)];
-            p1=septab1[encI(d,c,r,0)][b];
-            p2=septab2[encI(d,c,r,0)][b];
-            for(i=0,s=0,Z=1;i<4;i++){Z*=p2[p0[i]];if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;}
+            if(septab1a_compact&&septab2a_compact){
+              signed char (*p2a)[2];
+              p1a=septab1a[encI(d,c,r,0)][b];
+              p2a=septab2a[encI(d,c,r,0)][b];
+              for(i=0,s=0,Z=1;i<4;i++){Z*=etab[p2a[p0[i]][0]]+etab[p2a[p0[i]][1]];if(randtab[randptr++]>=ftab[p1a[p0[i]]])s|=1<<i;}
+            }else{
+              long double *p2;
+              p1=septab1[encI(d,c,r,0)][b];
+              p2=septab2[encI(d,c,r,0)][b];
+              for(i=0,s=0,Z=1;i<4;i++){Z*=p2[p0[i]];if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;}
+            }
             assert(s<16);
             hc[c][r][b]=s;
             if(Z>max)max=Z;
@@ -888,10 +908,24 @@ double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
             Zt[b]=ZZ0+ZZ1;                                           \
             lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
           }
-          T1Gstrut(0,Z1,Zx,id,lh1);
-          T1Gstrut(1,Zx,Z1,lh1,lh0);
-          T1Gstrut(2,Z1,Zx,lh0,lh1);
-          T1Gstrut(3,Zx,Z0,lh1,hs[c][r]);
+#define T1Gstruta(i,Zf,Zt,lf,lt)                                     \
+          for(b=0;b<16;b++){                                         \
+            ZZ0=Zf[b&~(1<<i)]*etab[septab3a[q][i][b>>i&1][0]];       \
+            ZZ1=Zf[b|(1<<i)]*etab[septab3a[q][i][b>>i&1][1]];        \
+            Zt[b]=ZZ0+ZZ1;                                           \
+            lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
+          }
+          if(septab3a_compact){
+            T1Gstruta(0,Z1,Zx,id,lh1);
+            T1Gstruta(1,Zx,Z1,lh1,lh0);
+            T1Gstruta(2,Z1,Zx,lh0,lh1);
+            T1Gstruta(3,Zx,Z0,lh1,hs[c][r]);
+          }else{
+            T1Gstrut(0,Z1,Zx,id,lh1);
+            T1Gstrut(1,Zx,Z1,lh1,lh0);
+            T1Gstrut(2,Z1,Zx,lh0,lh1);
+            T1Gstrut(3,Zx,Z0,lh1,hs[c][r]);
+          }
           for(b=0;b<16;b++)if(Z0[b]>max)max=Z0[b];
         }
         
@@ -910,7 +944,7 @@ double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
     if(randptr>randlength-16)randptr=randint(randlength-15);
     for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
       for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
-        pr[s]=Z2[s]*gt->etab[QBI(d,c,r0,1,0,s,b)];
+        pr[s]=Z2[s]*etab[QBI(d,c,r0,1,0,s,b)];
         Z+=pr[s];
       }
       for(z=RANDFLOAT*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
@@ -1000,20 +1034,20 @@ void simplegibbssweep(gibbstables*gt){
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
   // distribution at inverse temperature beta conditioned on the rest of the graph.
-  if(septab1a_overflow){
+  if(septab1a_compact){
     for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
       p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
       // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
-      p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
-      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
+      p1a=septab1a[encI(d,x,y,0)][XBI(d,x,y,1)];
+      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=ftab[p1a[p0[i]]])s|=1<<i;
       XBI(d,x,y,0)=s;
     }
   }else{
     for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
       p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
       // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
-      p1a=septab1a[encI(d,x,y,0)][XBI(d,x,y,1)];
-      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=ftab[p1a[p0[i]]])s|=1<<i;
+      p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
+      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
       XBI(d,x,y,0)=s;
     }
   }
@@ -1672,7 +1706,7 @@ void getrestrictedsets(void){
   }
 }
 
-void applyam(int a,int*XBa0,int(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok20)[256],int*nok20){
+void applyam(int a,int*XBa0,intqba(*QBa0)[3][16][16],int(*ok0)[16],int*nok0,int(*ok20)[256],int*nok20){
   // Apply automorphism a=0,1,...,7
   int d,i,o,t,v,x,y,o1,x1,y1,dx,dy,d1,v1,s0,s1;
   for(x=0;x<N;x++)for(y=0;y<N;y++){
@@ -1710,8 +1744,9 @@ int fullexhaust(){
   // Uses restricted sets to cut down possibilities
   // and full automorphism group to choose best orientation
   int a,c,r,s,v,x,bc,bc0,A,s0,mul0,mul1,offset,
-    XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N],
+    XBa0[NBV],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N],
     pre[4096][4],pre2[16][16];
+  intqba QBa0[NBV][3][16][16];
   int64 b,br,bm,nc,ns,nc0,tnc,maxc,maxs,maxt,size0,size1;
   double t0,t1,t2,tns,ctns,cost,mincost;
   short*v0,*v1,*vold,*vnew;
@@ -2394,8 +2429,8 @@ void getqbounds(int qb[7]){
   // Return bounds rr[] such that accesses etab_centred[i] satisfy rr[0]<=i<=rr[1],
   //    and bounds mm[0], mm[1] controlling the maximum variation in Q(d,b,s) over s.
   //               mm[0] corresponds to d=0 (intra-K44) and mm[1] to d=1,2 (inter-K44).
-  //            so qb[0] = rr[0] = min_{n,b} sum_d min_s Q(n,d,b,s)
-  //               qb[1] = rr[1] = max_{n,b} sum_d max_s Q(n,d,b,s)
+  //            so qb[0] = rr[0] = min_{n,b} sum_d min (min_s Q(n,d,b,s), 0)
+  //               qb[1] = rr[1] = max_{n,b} sum_d max (max_s Q(n,d,b,s), 0)
   //               qb[2] = mm[0] = max_{n,b}(max_s Q(n,0,b,s) - min_s Q(n,0,b,s))
   //               qb[3] = mm[1] = max_{n,b,d=1,2}(max_s Q(n,d,b,s) - min_s Q(n,d,b,s))
   //               qb[4] = qq[0] = max_{n,b,s} |Q(n,0,b,s)|
@@ -2449,11 +2484,13 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   int b,d,i,j,k,l,m,n,o,p,q,s,t,v,w,x,y,z,x0,x1,qb[7],e0[2][2][6],e[16][4][2];
   unsigned char (*septab0)[16][4];
   signed char (*septab1a)[16][16]=0;
+  signed char (*septab2a)[16][16][2]=0;
+  signed char (*septab3a)[4][2][2]=0;
   long double Z[2];
   gibbstables*gt;
 
   getqbounds(qb);
-  septab1a_overflow=0;
+  septab1a_compact=septab2a_compact=septab3a_compact=1;
   if(tree){
     double maxbeta;
     maxbeta=getmaxbeta(qb);
@@ -2464,14 +2501,19 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   if(nt>0){
     septab0=(unsigned char(*)[16][4])malloc(16*16*4);assert(septab0);
     for(i=0;i<16;i++)for(j=0;j<16;j++)for(k=0;k<4;k++)septab0[i][j][k]=(k<<2)|(((i>>k)&1)<<1)|((j>>k)&1);
-    septab1a=(signed char(*)[16][16])malloc(NBV*16ULL*16);
+    septab1a=(signed char(*)[16][16])malloc(NBV*16ULL*16);assert(septab1a);
+    septab2a=(signed char(*)[16][16][2])malloc(NBV*16ULL*16*2);assert(septab2a);
+    septab3a=(signed char(*)[4][2][2])malloc(NBV*4*2*2);assert(septab3a);
   }
   for(t=0;t<nt;t++){
-    gt[t].etab0=(long double*)malloc((qb[1]-qb[0]+1)*sizeof(long double));
-    gt[t].etab=gt[t].etab0-qb[0];
+    int emin,emax;
+    emin=MIN(qb[0],-128);
+    emax=MAX(qb[1],127);
+    gt[t].etab0=(long double*)malloc((emax-emin+1)*sizeof(long double));
+    gt[t].etab=gt[t].etab0-emin;
     gt[t].ftab0=(unsigned int*)malloc(256*sizeof(unsigned int));assert(gt[t].ftab0);
     gt[t].ftab=gt[t].ftab0+128;
-    for(n=qb[0];n<=qb[1];n++)gt[t].etab[n]=expl(-be[t]*n);
+    for(n=emin;n<=emax;n++)gt[t].etab[n]=expl(-be[t]*n);
     for(n=-128;n<128;n++){
       double x=n>0?1/(1+exp(-be[t]*n)):exp(be[t]*n)/(exp(be[t]*n)+1);
       gt[t].ftab[n]=(unsigned int)floor(x*(RAND_MAX+1.)+.5);
@@ -2484,6 +2526,8 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
     gt[t].septab0=septab0;
     gt[t].septab1=(unsigned int(*)[16][16])malloc(NBV*16ULL*16*sizeof(unsigned int));assert(gt[t].septab1);
     gt[t].septab1a=septab1a;
+    gt[t].septab2a=septab2a;
+    gt[t].septab3a=septab3a;
     if(tree){
       gt[t].septab2=(long double (*)[16][16])malloc(NBV*16ULL*16*sizeof(long double));
       gt[t].septab3=(long double (*)[4][2][2])malloc(NBV*4ULL*2*2*sizeof(long double));
@@ -2517,19 +2561,22 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
         e[b][j][l]=v;
       }
     }
-    if(nt>0){
-      for(b=0;b<16;b++)for(j=0;j<4;j++){
-        s=(i<<2)|j;
-        int del=e[b][j][1]-e[b][j][0];
-        if(del<-128||del>127)septab1a_overflow=1;
-        septab1a[p][b][s]=del;
-      }
-    }
     for(t=0;t<nt;t++){
       for(b=0;b<16;b++)for(j=0;j<4;j++){
+        s=(i<<2)|j;
         for(l=0;l<2;l++)Z[l]=gt[t].etab[e[b][j][l]];
         gt[t].septab1[p][b][s]=(unsigned int)floor(Z[0]/(Z[0]+Z[1])*(RAND_MAX+1.)+.5);
         if(tree)gt[t].septab2[p][b][s]=Z[0]+Z[1];
+        if(t==0){
+          int del=e[b][j][1]-e[b][j][0];
+          if(del<-128||del>127)septab1a_compact=0;
+          septab1a[p][b][s]=del;
+          for(l=0;l<2;l++){
+            v=e[b][j][l];
+            if(v<-128||v>127)septab2a_compact=0;
+            septab2a[p][b][s][l]=v;
+          }
+        }
       }
     }
     if(tree){
@@ -2540,19 +2587,26 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
           x0=statemap[l];
           for(m=0;m<2;m++){// adjacent vertex is in state m
             x1=statemap[m];
-            gt[t].septab3[p][i][l][m]=gt[t].etab[x0*x1*w];
+            v=x0*x1*w;
+            gt[t].septab3[p][i][l][m]=gt[t].etab[v];
+            if(t==0){
+              if(v<-128||v>127)septab3a_compact=0;
+              septab3a[p][i][l][m]=v;
+            }
           }
         }
       }
     }
   }// x,y,o,i
-  if(septab1a_overflow)printf("Note: cannot use septab1a due to overflow\n");
+  if(!septab1a_compact)printf("Note: cannot use septab1a due to overflow\n");
+  if(!septab2a_compact)printf("Note: cannot use septab2a due to overflow\n");
+  if(!septab3a_compact)printf("Note: cannot use septab3a due to overflow\n");
   return gt;
 }
 
 void freegibbstables(int nt,gibbstables*gt){
   int t;
-  if(nt>0){free(gt[0].septab0);free(gt[0].septab1a);}
+  if(nt>0){free(gt[0].septab0);free(gt[0].septab1a);free(gt[0].septab2a);free(gt[0].septab3a);}
   for(t=0;t<nt;t++){free(gt[t].etab0);free(gt[t].ftab0);free(gt[t].septab1);free(gt[t].septab2);free(gt[t].septab3);}
   free(gt);
 }
@@ -3126,7 +3180,7 @@ int findeqbmusingtopbeta(int weightmode){
   int eqbnblk;
   eqb=ngp>5?genp[5]:1;
   vmin=ngp>6?genp[6]:1000000000;
-  initrandtab(100000);
+  initrandtab(50000);
   
   gt=initgibbstables(nt,be,(int)(genp[0])==0);
   while(1){// Loop over equilibration lengths
@@ -3340,7 +3394,7 @@ int main(int ac,char**av){
   okv=(int(*)[4])malloc(NBV*4*sizeof(int));
   XBplus=(int*)calloc((N+2)*N*2*sizeof(int),1);
   XBa=XBplus+N*2;
-  QBa=(int(*)[3][16][16])malloc(NBV*3*16*16*sizeof(int));
+  QBa=(intqba(*)[3][16][16])malloc(NBV*3*16*16*sizeof(intqba));
   ok=(int(*)[16])malloc((NBV+1)*16*sizeof(int));
   nok=(int*)malloc((NBV+1)*sizeof(int));
   ok2=(int(*)[256])malloc((N*N+1)*256*sizeof(int));
@@ -3421,7 +3475,8 @@ int main(int ac,char**av){
     {
       int c,r,f[N-1][16][16],g[N-1][16][16];
       if(0){
-        int XBa0[NBV],QBa0[NBV][3][16][16],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
+        int XBa0[NBV],ok0[NBV][16],nok0[NBV],ok20[N*N][256],nok20[N*N];
+        intqba QBa0[NBV][3][16][16];
         init_state();
         memcpy(XBa0,XBa,sizeof(XBa0));memcpy(QBa0,QBa,sizeof(QBa0));
         memcpy(ok0,ok,sizeof(ok0));memcpy(nok0,nok,sizeof(nok0));
