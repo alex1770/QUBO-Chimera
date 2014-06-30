@@ -1,4 +1,4 @@
-all:: dummy-sing
+all:: dummy-sing plant
 par:: dummy-par
 
 # Dummy files are a workaround to ensure that "make" makes the
@@ -22,6 +22,9 @@ $(DUM1): Makefile qubo.c $(DUM0)
 
 $(DUM0):
 	touch $(DUM0)
+
+plant: Makefile plant.c
+	gcc -o plant plant.c $(CFLAGS) $(LFLAGS)
 
 .PHONY : clean
 clean:
