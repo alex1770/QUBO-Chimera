@@ -151,7 +151,7 @@ void simplefrustnum(int(*vl)[6],int(*el)[6]){
   double s1[maxnl];
   memset(bd,0,sizeof(bd));
   for(i=0;i<maxnl;i++)s1[i]=0;
-  for(it=0;it<1000;it++){
+  for(it=0;it<10000;it++){
     memset(jj,0,sizeof(jj));
     nfr=0;
     for(nl=0;nl<maxnl;nl++){// nl=num loops
@@ -224,7 +224,7 @@ void weightedfrustnum(int(*vl)[6],int(*el)[6],int(*evl)[2]){
     return f1/f0;
   }
 
-  for(it=0;it<1000;it++){
+  for(it=0;it<10000;it++){
     memset(jj,0,sizeof(jj));
     nfr=0;
     for(nl=0;nl<maxnl;nl++){// nl=num loops
