@@ -1485,7 +1485,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
 
   int v,w,bv,lbv,nis,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
   int64 nn,rep,stt,ntr,*stats;
-  double ff,t0,t1,t2,tt,w1,now,work[N+1];
+  double ff,t0,t1,t2,t3,tt,w1,now,work[N+1];
   double parms[6][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2},{0.25,0.2}};
 
   // These are for hybrid strat 2, not currently used:
@@ -1511,15 +1511,16 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   reset=1;
   w1=rep=cv=lbv=nis=0;
   do{
-    if(reset){
+    if(reset){// Forcibly reset all state after a (presumed) solution, so that runs are independent
       init_state();nis++;cv=val();
-      cmin=1000000000;ssize=1024;assert(ssize<=MAXST);memset(stats,0,ssize*sizeof(int64));// Reset stats
+      cmin=1000000000;ssize=1024;assert(ssize<=MAXST);memset(stats,0,ssize*sizeof(int64));
       stt=0;// Total count of values found
       lbv=1000000000;// Local best value (for S2)
       memset(Xlbest,0,NBV*sizeof(int));// Local best state (for S2)
       w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution (for S2)
       rep=0;
       reset=0;
+      t3=cpu();
     }
     //printf("%10d %10d %10lld %10lld\n",cv,bv,rep,stt);
     if(rep>=stt*parms[strat%10][0]){
@@ -1571,6 +1572,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     if(new){bv=cv;ns=0;ntr=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv){
       if(new&&findtts)t2=now; else ns++;
+      //if(new&&findtts){t2=now;printf("NEW BEST\n");} else {ns++;printf("%12g Time to find\n",now-t3);}
       if(findtts)reset=1;
     }
     tt=now-t0;
