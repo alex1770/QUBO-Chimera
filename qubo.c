@@ -1572,7 +1572,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     if(new){bv=cv;ns=0;ntr=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
     if(cv==bv){
       if(new&&findtts)t2=now; else ns++;
-      //if(new&&findtts){t2=now;printf("NEW BEST\n");} else {ns++;printf("%12g Time to find\n",now-t3);}
+      if(0){if(new&&findtts){t2=now;printf("NEW BEST\n");} else {ns++;printf("%12g Time to find\n",now-t3);}}
       if(findtts)reset=1;
     }
     tt=now-t0;
@@ -3166,8 +3166,8 @@ int findeqbmusingtopbeta(int weightmode){
   double x,y,del,nex,ex[nt-1],ex2[nt][nt];
   int eqb;// Current upper bound on equilibration time
   double eps=ngp>2?genp[2]:0.1;// Target absolute error in energy
-  int e,i,j,k,n,v;
-  double mu,va,se,nit,nsol,tim0,tim1,tim2;
+  int e,i,j,k,n,v,foundsol;
+  double mu,va,se,nit,nsol,tim0,tim1,tim2,tts0,tts1;
   gibbstables*gt;
 
   printf("Number of temperatures: %d\n",nt);
@@ -3183,7 +3183,8 @@ int findeqbmusingtopbeta(int weightmode){
   eqb=ngp>5?genp[5]:1;
   vmin=ngp>6?genp[6]:1000000000;
   initrandtab(50000);
-  
+  tts0=tts1=0;
+
   gt=initgibbstables(nt,be,(int)(genp[0])==0);
   while(1){// Loop over equilibration lengths
     eqbblksz=(eqb-1)/eqbprec+1;
@@ -3206,6 +3207,7 @@ int findeqbmusingtopbeta(int weightmode){
       }
       for(i=0;i<nt;i++)lem[i]=0;
       for(i=0;i<2*eqbnblk;i++)ten[i]=0;
+      foundsol=0;
       for(n=0;n<2*eqb;n++){// Thermal loop
         for(i=0;i<nt;i++){
           memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
@@ -3220,7 +3222,8 @@ int findeqbmusingtopbeta(int weightmode){
             nit+=1;
             break;
           }
-          v=val();if(v<vmin)vmin=v;
+          v=val();if(v<vmin){vmin=v;tts0=tts1=0;}
+          if(v==vmin&&foundsol==0){tts0+=1;tts1+=n;foundsol=1;}
           sbuf[i].e=v;
           memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
         }
@@ -3278,7 +3281,7 @@ int findeqbmusingtopbeta(int weightmode){
       se=sqrt(va/sten0[eqbnblk]);
       assert(mu>=vmin);
       if(pr>=1){
-        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, nt=%d, eqb=%d, genp[]=",mu-vmin,se,vmin,N,nd,nt,eqb);
+        printf("Error %.3g (std err %.3g), vmin=%d, N=%d, nd=%d, nt=%d, eqb=%d, tts=%g, genp[]=",mu-vmin,se,vmin,N,nd,nt,eqb,tts1/tts0);
         for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
         tim1=cpu();printf(", CPU=%.2fs, CPU_this=%.2fs, CPU_lastrun=%.2fs, CPU/run=%.3fs\n",tim1,tim1-tim0,tim1-tim2,(tim1-tim0)/nd);
         prtimes();
