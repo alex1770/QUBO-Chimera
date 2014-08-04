@@ -1565,6 +1565,11 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     while(cv>=cmin+ssize){assert(ssize*2<=MAXST);resizecumsumright(stats,ssize);ssize*=2;}
     if(rep==0){inccumsum(stats,ssize,cv-cmin);stt++;}// possibly change rep=0 condition
     rep+=querycumsumle(stats,ssize,cv-cmin);
+    // stt=number of new minima since last reset
+    // qqq=number of new minima since last reset that were <= current cv
+    // rep=sum of qqq since last new minimum
+    // idea is that by putting a limit on rep/stt, the time spent at energy cv is
+    // inversely proportional to the probability that a new minimum is <= cv.
     if((pr>=3&&cv<=bv)||pr>=5){printf("\nSTATE cv=%d bv=%d\n",cv,bv);prstate(stdout,0,0);printf("DIFF\n");prstate(stdout,1,Xbest);}
     nn++;
     now=cpu();
