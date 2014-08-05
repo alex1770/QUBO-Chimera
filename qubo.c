@@ -3411,12 +3411,12 @@ void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
   initrandtab(50000);
   gt=initgibbstables(1,&beta,tree);
   ns=0;tim0=tim1=cpu();nit=0;
-  printf("  Iterations R T     beta     pert         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");
+  printf("  Iterations R T     beta     pert         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
     cv=pertandgibbs_simple(weightmode,tree,beta,pert,bv,gt,&nit);
     now=cpu();
     if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
-    printf("%12lld %d %d %8.3g %8.3g %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",nit,RANDSTART,tree,beta,pert,bv,ns,now-tim1,now-tim0,(now-tim1)/ns,nit/(double)ns);
+    printf("%12lld %d %d %8.3g %8.3g %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",nit,RANDSTART,tree,beta,pert,bv,ns,now-tim1,now-tim0,(now-tim1)/ns,nit/(double)ns);fflush(stdout);
   }
   freegibbstables(1,gt);
 }
@@ -3714,7 +3714,7 @@ int main(int ac,char**av){
     findeqbmusingtopbeta(weightmode);
     break;
   case 19:
-    pertandgibbs(weightmode,genp[0]==0,genp[1],genp[2],genp[3]);// singlevertexmode,beta,pert,target energy
+    pertandgibbs(weightmode,genp[0]==0,genp[1],genp[2],genp[3]);// treemode,beta,pert,target energy
     break;
   case 20:
     opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert,initial target (optional)
