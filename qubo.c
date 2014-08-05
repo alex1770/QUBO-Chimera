@@ -1019,8 +1019,9 @@ void simplegibbssweep_slow(double beta){
   }
 }
 
+#define RANDSTART 0
 void simplegibbssweep(gibbstables*gt){
-  int d,i,s,x,y;
+  int d,i,s,x,y,d0,x0,y0,d1,x1,y1;
   unsigned char *p0;
   unsigned int *p1;
   signed char *p1a;
@@ -1028,27 +1029,46 @@ void simplegibbssweep(gibbstables*gt){
   unsigned int (*septab1)[16][16]=gt->septab1;
   signed char (*septab1a)[16][16]=gt->septab1a;
   unsigned int *ftab=gt->ftab;
-  randptr=randint(randlength-2*N*N*4+1);
+  randptr=randint(randlength-2*N*N*4-2);
   // Do Gibbs iteration to each "bigvertex" (d,x,y) (4 spins)
   // If d=0 then v=the bigvertex (x,y,0)
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
   // distribution at inverse temperature beta conditioned on the rest of the graph.
+  if(RANDSTART){
+    d0=randtab[randptr++]&1;
+    x0=randtab[randptr++]%N;
+    y0=randtab[randptr++]%N;
+  }else d0=x0=y0=0;
   if(septab1a_compact){
-    for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
-      p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
-      // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
-      p1a=septab1a[encI(d,x,y,0)][XBI(d,x,y,1)];
-      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=ftab[p1a[p0[i]]])s|=1<<i;
-      XBI(d,x,y,0)=s;
+    for(d1=d0;d1<d0+2;d1++){
+      d=d1-2*(d1>=2);
+      for(y1=y0;y1<y0+N;y1++){
+        y=y1-N*(y1>=N);
+        for(x1=x0;x1<x0+N;x1++){
+          x=x1-N*(x1>=N);
+          p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+          // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+          p1a=septab1a[encI(d,x,y,0)][XBI(d,x,y,1)];
+          for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=ftab[p1a[p0[i]]])s|=1<<i;
+          XBI(d,x,y,0)=s;
+        }
+      }
     }
   }else{
-    for(d=0;d<2;d++)for(y=0;y<N;y++)for(x=0;x<N;x++){
-      p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
-      // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
-      p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
-      for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
-      XBI(d,x,y,0)=s;
+    for(d1=d0;d1<d0+2;d1++){
+      d=d1-2*(d1>=2);
+      for(y1=y0;y1<y0+N;y1++){
+        y=y1-N*(y1>=N);
+        for(x1=x0;x1<x0+N;x1++){
+          x=x1-N*(x1>=N);
+          p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
+          // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
+          p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
+          for(i=0,s=0;i<4;i++)if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;
+          XBI(d,x,y,0)=s;
+        }
+      }
     }
   }
 }
@@ -3311,6 +3331,96 @@ int findeqbmusingtopbeta(int weightmode){
   return eqb;
 }
 
+// Find a state of energy <=bv, from a clean start
+#define MAXERANGE (1<<16)// Maximum energy range
+int pertandgibbs(int weightmode,int tree,double beta,double pert,int bv){
+  int e,v,nit,mine,maxe,stats[MAXERANGE];
+  double t0,t1,tt,now;
+  gibbstables*gt;
+  printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+  printf("Beta: %g\n",beta);
+  printf("Perturbation: %g\n",pert);
+  printf("Target energy %d\n",bv);
+  initrandtab(50000);
+  gt=initgibbstables(1,&beta,tree);
+  memset(stats,0,sizeof(stats));
+  init_state();nit=0;
+  mine=1000000000;maxe=-mine;
+  t0=cpu();// Initial time
+  t1=0;// Elapsed time threshold for printing update
+  while(1){// Loop over runs
+    switch(tree){
+    case 0:
+      pertstate(pert);
+      simplegibbssweep(gt);
+      nit+=1;
+      break;
+    case 1:
+      pertstate(pert);
+      tree1gibbs(randint(2),randint(2),randint(N),gt);
+      nit+=1;
+      break;
+    }
+    v=val();if(v<bv)goto frexit;
+    if(v<mine)mine=v;if(v>maxe)maxe=v;
+    if(v>=bv){assert(v-bv<MAXERANGE);stats[v-bv]++;}
+    now=cpu();
+    tt=now-t0;
+    if(v<=bv||tt>=t1){
+      t1=MAX(tt*1.1,tt+5);
+      printf("%10.2fs %10d iterations\n",tt,nit);
+      for(e=maxe;e>=mine;e--)if(stats[e-bv])printf("%6d: %10d\n",e,stats[e-bv]);
+      printf("\n");
+    }
+    if(v<=bv)goto frexit;
+  }
+ frexit:;
+  freegibbstables(1,gt);
+  return v;
+}
+
+// Find a state of energy <=bv, from a clean start; simple version of pertandgibbs()
+int pertandgibbs_simple(int weightmode,int tree,double beta,double pert,int bv,gibbstables*gt,int64*nit){
+  int v;
+  init_state();
+  while(1){// Loop over runs
+    switch(tree){
+    case 0:
+      pertstate(pert);
+      simplegibbssweep(gt);
+      break;
+    case 1:
+      pertstate(pert);
+      tree1gibbs(randint(2),randint(2),randint(N),gt);
+      break;
+    }
+    if(nit)(*nit)++;
+    v=val();if(v<=bv)return v;
+  }
+}
+
+void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
+  int ns,cv;
+  int64 nit;
+  double tim0,tim1,now;
+  gibbstables*gt;
+  printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+  printf("Beta: %g\n",beta);
+  printf("Perturbation: %g\n",pert);
+  printf("Target energy %d\n",bv);
+  initrandtab(50000);
+  gt=initgibbstables(1,&beta,tree);
+  ns=0;tim0=tim1=cpu();nit=0;
+  printf("  Iterations R T     beta     pert         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");
+  while(ns<tns){
+    cv=pertandgibbs_simple(weightmode,tree,beta,pert,bv,gt,&nit);
+    now=cpu();
+    if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
+    printf("%12lld %d %d %8.3g %8.3g %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",nit,RANDSTART,tree,beta,pert,bv,ns,now-tim1,now-tim0,(now-tim1)/ns,nit/(double)ns);
+  }
+  freegibbstables(1,gt);
+}
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,numpo;
   double mint,maxt;
@@ -3602,6 +3712,12 @@ int main(int ac,char**av){
     break;
   case 18:
     findeqbmusingtopbeta(weightmode);
+    break;
+  case 19:
+    pertandgibbs(weightmode,genp[0]==0,genp[1],genp[2],genp[3]);// singlevertexmode,beta,pert,target energy
+    break;
+  case 20:
+    opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert,initial target (optional)
     break;
   }// mode
   prtimes();
