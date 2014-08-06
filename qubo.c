@@ -1019,9 +1019,15 @@ void simplegibbssweep_slow(double beta){
   }
 }
 
+void shuf2(int*a,int n){
+  int i,j,t;
+  for(i=0;i<n-1;i++){
+    j=i+randtab[randptr++]%(n-i);t=a[i];a[i]=a[j];a[j]=t;
+  }
+}
 #define RANDSTART 0
 void simplegibbssweep(gibbstables*gt){
-  int d,i,s,x,y,d0,x0,y0,d1,x1,y1;
+  int d,i,s,x,y;
   unsigned char *p0;
   unsigned int *p1;
   signed char *p1a;
@@ -1029,24 +1035,40 @@ void simplegibbssweep(gibbstables*gt){
   unsigned int (*septab1)[16][16]=gt->septab1;
   signed char (*septab1a)[16][16]=gt->septab1a;
   unsigned int *ftab=gt->ftab;
-  randptr=randint(randlength-2*N*N*4-2);
+  randptr=randint(randlength-2*N*N*4-2*N-2);
   // Do Gibbs iteration to each "bigvertex" (d,x,y) (4 spins)
   // If d=0 then v=the bigvertex (x,y,0)
   // If d=1 then v=the bigvertex (y,x,1)
   // Replaces bigvertex v (4 spins) with a random value given by the Gibbs
   // distribution at inverse temperature beta conditioned on the rest of the graph.
-  if(RANDSTART){
-    d0=randtab[randptr++]&1;
-    x0=randtab[randptr++]%N;
-    y0=randtab[randptr++]%N;
-  }else d0=x0=y0=0;
+  int d0[2],x0[N],y0[N],d1,x1,y1;
+  switch(RANDSTART){
+  case 0:
+    for(d=0;d<2;d++)d0[d]=d;
+    for(x=0;x<N;x++)x0[x]=x;
+    for(y=0;y<N;y++)y0[y]=y;
+    break;
+  case 1:
+    d1=randtab[randptr++]&1;
+    x1=randtab[randptr++]%N;
+    y1=randtab[randptr++]%N;
+    for(d=0;d<2;d++)d0[d]=(d1+d)&1;
+    for(x=0;x<N;x++)x0[x]=(x1+x)%N;
+    for(y=0;y<N;y++)y0[y]=(y1+y)%N;
+    break;
+  case 2:
+    for(d=0;d<2;d++)d0[d]=d;shuf2(d0,2);
+    for(x=0;x<N;x++)x0[x]=x;shuf2(x0,N);
+    for(y=0;y<N;y++)y0[y]=y;shuf2(y0,N);
+    break;
+  }
   if(septab1a_compact){
-    for(d1=d0;d1<d0+2;d1++){
-      d=d1-2*(d1>=2);
-      for(y1=y0;y1<y0+N;y1++){
-        y=y1-N*(y1>=N);
-        for(x1=x0;x1<x0+N;x1++){
-          x=x1-N*(x1>=N);
+    for(d1=0;d1<2;d1++){
+      d=d0[d1];
+      for(y1=0;y1<N;y1++){
+        y=y0[y1];
+        for(x1=0;x1<N;x1++){
+          x=x0[x1];
           p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
           // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
           p1a=septab1a[encI(d,x,y,0)][XBI(d,x,y,1)];
@@ -1056,12 +1078,12 @@ void simplegibbssweep(gibbstables*gt){
       }
     }
   }else{
-    for(d1=d0;d1<d0+2;d1++){
-      d=d1-2*(d1>=2);
-      for(y1=y0;y1<y0+N;y1++){
-        y=y1-N*(y1>=N);
-        for(x1=x0;x1<x0+N;x1++){
-          x=x1-N*(x1>=N);
+    for(d1=0;d1<2;d1++){
+      d=d0[d1];
+      for(y1=0;y1<N;y1++){
+        y=y0[y1];
+        for(x1=0;x1<N;x1++){
+          x=x0[x1];
           p0=septab0[XBI(d,x-1,y,0)][XBI(d,x+1,y,0)];
           // p0[i] = aabc (bits), aa=i, b=XBI(d,x-1,y,0) bit i, c=XBI(d,x+1,y,0) bit i
           p1=septab1[encI(d,x,y,0)][XBI(d,x,y,1)];
@@ -3421,6 +3443,120 @@ void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
   freegibbstables(1,gt);
 }
 
+void findspectrum(int weightmode,int tree,int pr){
+  double *be;// Set of betas
+  int nt;// Number of temperatures (betas)
+  be=loadbetaset(weightmode,genp[2],&nt);
+  typedef struct {
+    int X[NBV];// State
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate sbuf[nt],ts;
+  double een[nt],ven[nt],veo[nt];// Derived energy estimates, variance and std errs
+  int d,h,i,v,dc,lc,h0;
+  double del,nit,tim0,tim1;
+  gibbstables*gt;
+  const int maxdoublings=50;
+  const int linlen=20;
+  const int nhist=maxdoublings*linlen;
+  const int maxerange=10000;
+  typedef struct {
+    int64 ndj[maxerange];// ndj[e] = number of samples of energy base+e at history <=h
+    int64 nid[nt];// nid[i] = number of samples at beta[i] at history <=h (currently simple constant)
+    double ten1[nt],ten2[nt];// ten_r[i] = total energy^r at beta[i] at history <=h
+    double ex0[nt],ex1[nt];// ex1[i] = number of exchanges, ex0[i] = number of possible exchanges i<->i+1 at history <=h
+  } histdata;
+  // Group sample values in multiples
+  // 1 1 ... 1  2 2 ... 2 4 4 ... 4 8 8 ... 8 ...
+  //  linlen     linlen    linlen    linlen ...
+  // so that having sampled 2n values, can look at the last n samples
+  // and can do that every size increase of roughly a factor of 1+1/linlen
+  histdata hist[nhist];// switch to malloc to cope with lame stack sizes
+  int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
+
+  printf("Number of temperatures: %d\n",nt);
+  for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+  printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+  printf("Randstart: %d\n",RANDSTART);
+  initrandtab(50000);
+  init_state();
+  v=stabletreeexhaust(val(),1,0);base=v-100;mine=maxe=v;
+  gt=initgibbstables(nt,be,tree);
+  for(i=0;i<nt;i++){
+    init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+    sbuf[i].e=val();
+  }
+  dc=0;// doubling counter: do linlen lots of 2^dc
+  lc=0;// linear counter 0<=lc<linlen
+  nit=0;
+  tim0=cpu();
+  memset(&hist[0],0,sizeof(hist[0]));
+
+  while(1){
+    lc+=1;if(lc==linlen){lc=0;dc+=1;assert(dc<maxdoublings);}
+    h=dc*linlen+lc;// position in history
+    memcpy(&hist[h],&hist[h-1],sizeof(hist[h]));
+    for(d=0;d<(1<<dc);d++){
+      for(i=0;i<nt;i++){
+        memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+        switch(tree){
+        case 0:
+          simplegibbssweep(&gt[i]);
+          break;
+        case 1:
+          tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
+          break;
+        }
+        v=val();if(v<mine)mine=v;if(v>maxe)maxe=v;
+        assert(v>=base&&v-base<maxerange);
+        sbuf[i].e=v;
+        memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+        hist[h].nid[i]++;
+        hist[h].ndj[v-base]++;
+        hist[h].ten1[i]+=v;
+        hist[h].ten2[i]+=v*(double)v;
+      }
+      for(i=0;i<nt-1;i++){
+        del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
+        if(del<0||randfloat()<exp(-del)){
+          ts=sbuf[i];
+          sbuf[i]=sbuf[i+1];
+          sbuf[i+1]=ts;
+          hist[h].ex1[i]++;
+        }
+        hist[h].ex0[i]++;
+      }
+      nit+=1;
+    }//d
+    h0=MAX(h-linlen,0);// subtract off from this point in history
+    for(i=0;i<nt;i++){
+      double e0,e1,e2;
+      e0=hist[h].nid[i]-hist[h0].nid[i];
+      e1=hist[h].ten1[i]-hist[h0].ten1[i];
+      e2=hist[h].ten2[i]-hist[h0].ten2[i];
+      een[i]=e1/e0;
+      ven[i]=(e2-e1*e1/e0)/(e0-1);
+      veo[i]=(e2-e1*e1/e0)/(e0-1)/e0;
+    }
+    if(pr>=1){
+      printf("\n");
+      for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+      printf("   ");
+      for(i=0;i<nt-1;i++)printf(" %8.3f",(hist[h].ex1[i]-hist[h0].ex1[i])/(hist[h].ex0[i]-hist[h0].ex0[i]));printf("        exch[]\n");
+      for(i=0;i<nt;i++)printf("%8.2f ",een[i]);printf(" Mean energy\n");
+      for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf(" Std deviation energy\n");
+      for(i=0;i<nt;i++)printf("%8.4f ",sqrt(veo[i]));printf(" Std error (uncorr for eqbn)\n");
+      printf("min_energy=%d, max_energy=%d, N=%d, nt=%d, genp[]=",mine,maxe,N,nt);
+      for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
+      tim1=cpu();printf(", CPU=%.2fs, CPU/iteration=%.3gs, Range = %lld-%lld \n",tim1,(tim1-tim0)/nit,hist[h0].nid[0],hist[h].nid[0]);
+      prtimes();
+      fflush(stdout);
+    }
+  }
+  freegibbstables(nt,gt);
+}
+
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,numpo;
   double mint,maxt;
@@ -3718,6 +3854,9 @@ int main(int ac,char**av){
     break;
   case 20:
     opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert,initial target (optional)
+    break;
+  case 21:
+    findspectrum(weightmode,genp[0]==0,genp[1]);
     break;
   }// mode
   prtimes();
