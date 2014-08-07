@@ -57,6 +57,8 @@ int (*Q)[4][7]; // Q[NBV][4][7]
                 // Weights: Q[r][i][d] = weight of i^th vertex of r^th big vertex in direction d
                 // Directions 0-3 corresponds to intra-K_4,4 neighbours, and
                 // 4 = Left or Down, 5 = Right or Up, 6 = self
+int QC;         // Centre constant = (if enabled by -c) sum of pre-shifted energy of state X and X with bipartite half flipped
+                // Only actually constant if Q was derived from an Ising model with no external fields
 int (*adj)[4][7][2]; // adj[NBV][4][7][2]
                      // Complete adjacency list, including both directions along an edge and self-loops
                      // adj[p][i][d]={q,j} <-> d^th neighbour of encoded vertex p, index i, is 
@@ -266,11 +268,20 @@ void getbigweights(void){// Get derived weights on "big graph" QB[] from Q[]
 
 int val(void){// Calculate value (energy)
   int v,x,y;
-  v=0;
+  v=-((QC+1)>>1);
   for(x=0;x<N;x++)for(y=0;y<N;y++){
     v+=QB(x,y,0,0,XB(x,y,0),XB(x,y,1));
     v+=QB(x,y,0,2,XB(x,y,0),XB(x+1,y,0));
     v+=QB(x,y,1,2,XB(x,y,1),XB(x,y+1,1));
+  }
+  return v;
+}
+
+int centreconst(void){
+  int f,o,v,x,y;
+  for(f=v=0;f<2;f++){
+    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=15*f*((x+y+o)&1);
+    v+=val();
   }
   return v;
 }
@@ -288,7 +299,7 @@ int stripval(int d,int c0,int c1){
   return v;
 }
 
-void initweights(int weightmode){// Randomly initialise a symmetric weight matrix
+void initweights(int weightmode,int centreflag){// Randomly initialise a symmetric weight matrix
   // weightmode
   // 0           All of Q_ij independently +/-1
   // 1           As 0, but diagonal not allowed
@@ -332,6 +343,8 @@ void initweights(int weightmode){// Randomly initialise a symmetric weight matri
     }
   }
   getbigweights();
+  QC=0;
+  if(centreflag)QC=centreconst();
 }
 
 void writeweights(char *f){
@@ -349,7 +362,7 @@ void writeweights(char *f){
   fclose(fp);
 }
 
-int readweights(char *f){
+int readweights(char *f,int centreflag){
   int d,i,n,p,w,v0,v1,x0,y0,o0,i0,e0,x1,y1,o1,i1,nx,ny,wn,gtr;
   char l[1000];
   FILE *fp;
@@ -381,6 +394,8 @@ int readweights(char *f){
   fclose(fp);
   for(p=0,wn=0;p<NBV;p++)for(i=0;i<4;i++)wn+=okv[p][i];
   getbigweights();
+  QC=0;
+  if(centreflag)QC=centreconst();
   return wn;
 }
 
@@ -608,6 +623,18 @@ void init_state(void){// Initialise state randomly
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
 }
 
+int checksym(void){// Checks if symmetric (no external fields)
+  int i,v,x,y,qc;
+  qc=centreconst();
+  for(i=0;i<100;i++){
+    init_state();v=val();
+    for(x=0;x<N;x++)for(y=0;y<N;y++)XB(x,y,(x+y)&1)^=15;
+    v+=val();
+    if(v!=qc)return 0;
+  }
+  return 1;
+}
+
 void pertstate(double p){
   int o,x,y;
   for(x=0;x<N;x++)for(y=0;y<N;y++)if(randfloat()<p)for(o=0;o<2;o++)XB(x,y,o)=randnib();
@@ -702,7 +729,7 @@ int tree1exhaust(int d,int p,int r0,int upd){
     }
   }
 
-  return v3[0];
+  return v3[0]-((QC+1)>>1);
 }
 
 double tree1gibbs_slow(int d,int p,int r0,double beta){
@@ -2408,7 +2435,7 @@ void timingtests(int strat,double mint,double maxt){
   }
 }
 
-void consistencychecks2(int weightmode,int strat,double mint,double maxt){
+void consistencychecks2(int weightmode,int centreflag,int strat,double mint,double maxt){
   int c,d,o,w,lw,ph,phl,r,v0,v1;
   //opt1(mint,maxt,1,1,0,strat);
   printf("val=%d\n",val());
@@ -2421,7 +2448,7 @@ void consistencychecks2(int weightmode,int strat,double mint,double maxt){
     exit(0);
   }
   while(1){
-    initweights(weightmode);
+    initweights(weightmode,centreflag);
     init_state();
     for(d=0;d<2;d++)for(ph=0;ph<2;ph++)for(r=0;r<N;r++){
       v0=treestripexhaust(d,1,ph,0,r);
@@ -2715,7 +2742,7 @@ void gibbstests(int weightmode){
   }
 }
 
-void binderparamestimate(int weightmode){
+void binderparamestimate(int weightmode,int centreflag){
   int i,j,k,n,nd,nb=6,burnin;
   int sbuf[nb][NBV],btab[16];
   double q,x,t0,t1,beta,sp[9];
@@ -2729,7 +2756,7 @@ void binderparamestimate(int weightmode){
   for(i=0;i<=8;i++)sp[i]=0;// sp[i] = sum of i^th powers of q
   t0=cpu();
   for(n=0;n<nd||nd<0;){// Disorder samples
-    initweights(weightmode);
+    initweights(weightmode,centreflag);
     for(i=0;i<nb;i++){// State samples
       init_state();
       for(j=0;j<burnin;j++)tree1gibbs_slow(randint(2),randint(2),randint(N),beta);
@@ -2755,15 +2782,13 @@ void binderparamestimate(int weightmode){
   }
 }
 
-void findexchangemontecarlotemperatureset(int weightmode){
+void findexchangemontecarlotemperatureset(void){
   int i,j,n,v,prch,pr=0;
   int maxn;
   int nt=ngp>1?genp[1]:500;// Number of temperatures (fine grid for evaluation purposes)
   double tp,del,tim0,be0,be1,be[nt],s0[nt],s1[nt],s2[nt],(*vhist)[nt];
   int en[nt],ex[nt-1],sbuf[nt][NBV];
   gibbstables*gt;
-  //if((weightmode!=0&&weightmode!=2)||statemap[0]!=-1)fprintf(stderr,"Warning: expect weightmode=0 or 2, statemap[0]=-1\n");
-  //initweights(weightmode);
   be0=ngp>2?genp[2]:0.5;be1=ngp>3?genp[3]:5;// low and high beta
   for(i=0;i<nt;i++)be[i]=be0*pow(be1/be0,i/(nt-1.));// Interpolate geometrically for first guess
   printf("nt=%d\n",nt);
@@ -2912,7 +2937,60 @@ double*loadbetaset(int weightmode,double betaskip,int*nt){
   return be;
 }
 
-void calcbinderratio(int weightmode){
+double*loadspecbetaset(int weightmode,int*nt){
+  // Placeholder values
+  double bew7[][50]={// Weightmode 7, be[]
+    {0},
+    {0},
+    {0.202,0.485,0.911,1.549,3.042,50.000},// 2, 0.25
+    {0},
+    {0.202,0.325,0.508,0.690,0.887,1.131,1.409,1.782,2.382,3.666,50.000},// 4, 0.25
+    {0},
+    {0.202,0.318,0.435,0.554,0.679,0.807,0.944,1.096,1.272,1.477,1.741,2.101,2.596,3.363,4.675,50.000},// 6, 0.25
+    {0},
+    {0.000,0.014,0.078,0.142,0.205,0.267,0.329,0.396,0.464,0.529,0.603,0.670,0.744,0.805,0.871,0.943,1.020,1.104,
+     1.195,1.293,1.399,1.514,1.638,1.819,2.021,2.305,2.629,2.999,3.605,4.449,5.787,8.363,13.426,50.000},// 8, 0.4
+    {0},
+    {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,
+     1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
+  };
+  double bew11[][50]={// Weightmode 11, be[]
+    {0},
+    {0},
+    {0.084,0.179,0.296,0.484,1.043,20.000},// 2, 0.25
+    {0},
+    {0.056,0.094,0.134,0.174,0.222,0.278,0.350,0.461,0.669,1.148,2.446,20.000},// 4, 0.25
+    {0},
+    {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
+    {0},
+    {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,
+     0.840,1.121,1.646,2.894,20.000},// 8, 0.25
+    {0},
+    {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,
+     0.419,0.472,0.539,0.622,0.736,0.892,1.134,1.531,2.222,3.507,6.166,20.000},// 10, 0.25
+    {0},
+    {0.052,0.064,0.077,0.090,0.103,0.116,0.129,0.142,0.156,0.170,0.185,0.201,0.216,0.233,0.250,0.269,0.289,0.310,
+     0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000},// 12, 0.25
+    {0},
+    {0.054,0.064,0.075,0.086,0.097,0.108,0.119,0.131,0.142,0.155,0.166,0.179,0.192,0.204,0.216,0.230,0.244,0.259,0.275,0.292,
+     0.310,0.333,0.358,0.385,0.419,0.455,0.495,0.545,0.608,0.677,0.763,0.871,1.006,1.190,1.442,1.812,2.417,3.724,20.000}// 14, 0.25
+  };
+  int i,n;
+  double *be0,*be;
+  switch(weightmode){
+  case 7: be0=bew7[N];break;
+  default:
+    fprintf(stderr,"Warning: no temperature set available for weightmode %d. Using weightmode 11's set.\n",weightmode);
+  case 11: be0=bew11[N];break;
+  }
+  for(n=1;be0[n]>0;n++);assert(n>0);
+  be=(double*)malloc(n*sizeof(double));
+  for(i=0;i<n;i++)be[i]=be0[i];
+  *nt=n;
+  return be;
+}
+
+void calcbinderratio(int weightmode,int centreflag){
   int h,i,j,k,m,n,r,v,eqb,nd,btab[16];
   double be0[]={0.108,0.137,0.166,0.196,0.226,0.258,0.291,0.326,0.364,0.405,0.451,0.500,0.557,0.624,0.704,0.808,0.944,1.131,1.438,2.000};
   // ^ N=8 -w0 -x-1 p=0.3
@@ -2979,7 +3057,7 @@ void calcbinderratio(int weightmode){
   }
 
   while(1){// Loop over disorders
-    initweights(weightmode);// Disorder (J_ij) sample
+    initweights(weightmode,centreflag);// Disorder (J_ij) sample
     for(r=0;r<2;r++)for(i=0;i<nt;i++){init_state();memcpy(sbuf[r][i],XBa,NBV*sizeof(int));}
     lsp.n=0;for(i=0;i<nt;i++)for(k=0;k<2;k++)lsp.qq[i][k]=0;
     n=-eqb;
@@ -3101,7 +3179,7 @@ int findeqbmusingchisq(int weightmode){
     for(e=0;e<2;e++)for(i=0;i<nt;i++)em[e][i][0]=em[e][i][1]=em[e][i][2]=0;
     nd=0;
     while(1){// Loop over disorders and runs
-      //if(genp[1]==0)initweights(weightmode);// Disorder (J_ij) sample
+      //if(genp[1]==0)initweights(weightmode,centreflag);// Disorder (J_ij) sample
       for(e=0;e<2;e++){// Loop over two equilibrations being compared
         leqb=eqb<<e;
         nit=nsol=0;
@@ -3355,7 +3433,7 @@ int findeqbmusingtopbeta(int weightmode){
 
 // Find a state of energy <=bv, from a clean start
 #define MAXERANGE (1<<16)// Maximum energy range
-int pertandgibbs(int weightmode,int tree,double beta,double pert,int bv){
+int pertandgibbs(int tree,double beta,double pert,int bv){
   int e,v,nit,mine,maxe,stats[MAXERANGE];
   double t0,t1,tt,now;
   gibbstables*gt;
@@ -3402,7 +3480,7 @@ int pertandgibbs(int weightmode,int tree,double beta,double pert,int bv){
 }
 
 // Find a state of energy <=bv, from a clean start; simple version of pertandgibbs()
-int pertandgibbs_simple(int weightmode,int tree,double beta,double pert,int bv,gibbstables*gt,int64*nit){
+int pertandgibbs_simple(int tree,double beta,double pert,int bv,gibbstables*gt,int64*nit){
   int v;
   init_state();
   while(1){// Loop over runs
@@ -3435,7 +3513,7 @@ void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
   ns=0;tim0=tim1=cpu();nit=0;
   printf("  Iterations R T     beta     pert         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
-    cv=pertandgibbs_simple(weightmode,tree,beta,pert,bv,gt,&nit);
+    cv=pertandgibbs_simple(tree,beta,pert,bv,gt,&nit);
     now=cpu();
     if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
     printf("%12lld %d %d %8.3g %8.3g %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",nit,RANDSTART,tree,beta,pert,bv,ns,now-tim1,now-tim0,(now-tim1)/ns,nit/(double)ns);fflush(stdout);
@@ -3454,7 +3532,7 @@ double addlog(double x,double y){
 void findspectrum(int weightmode,int tree,int pr){
   double *be;// Set of betas
   int nt;// Number of temperatures (betas)
-  be=loadbetaset(weightmode,genp[2],&nt);
+  be=loadspecbetaset(weightmode,&nt);
   typedef struct {
     int X[NBV];// State
     int e;// Energy
@@ -3462,15 +3540,21 @@ void findspectrum(int weightmode,int tree,int pr){
   tstate sbuf[nt],ts;
   double een[nt],ven[nt],veo[nt];// Derived energy estimates, variance and std errs
   double ovl[nt-1];// Overlap probabilities for iterative Z-finding
-  int d,e,h,i,j,n,r,v,dc,lc,h0;
+  int d,e,h,i,j,n,r,v,dc,lc,h0,lqc,margin;
+  int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
   double x,y,del,nit,tim0,tim1,tim2;
   gibbstables*gt;
+
+  margin=100;// safety margin for lowest energy
+  lqc=centreconst();
+  if(!checksym()){fprintf(stderr,"Error: findspectrum() uses symmetry and assumes that the model has no external fields\n");exit(1);}
+  init_state();v=stabletreeexhaust(val(),1,0);base=v-margin;mine=v;maxe=lqc>>1;
   const int maxdoublings=50;
   const int linlen=20;
   const int nhist=maxdoublings*linlen;
-  const int maxerange=10000;
+  const int erange=maxe+1-base;
   typedef struct {
-    int64 ndj[maxerange];// ndj[e] = number of samples of energy base+e at history <=h
+    int64 ndj[erange];// ndj[e] = number of samples of energy base+e at history <=h
     int64 nid[nt];// nid[i] = number of samples at beta[i] at history <=h (currently simple constant)
     double ten1[nt],ten2[nt];// ten_r[i] = total energy^r at beta[i] at history <=h
     double ex0[nt],ex1[nt];// ex1[i] = number of exchanges, ex0[i] = number of possible exchanges i<->i+1 at history <=h
@@ -3481,16 +3565,14 @@ void findspectrum(int weightmode,int tree,int pr){
   // so that having sampled 2n values, can look at the last n samples
   // and can do that every size increase of roughly a factor of 1+1/linlen
   histdata hist[nhist];// switch to malloc to cope with lame stack sizes
-  int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
-  double lp[maxerange],lZ[nt];
+  double lp[erange],lZ[nt];
 
   printf("Number of temperatures: %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
   printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
   printf("Randstart: %d\n",RANDSTART);
+  printf("Centre constant: %d\n",lqc);
   initrandtab(50000);
-  init_state();
-  v=stabletreeexhaust(val(),1,0);base=v-100;mine=maxe=v;
   gt=initgibbstables(nt,be,tree);
   for(i=0;i<nt;i++){
     init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
@@ -3519,14 +3601,16 @@ void findspectrum(int weightmode,int tree,int pr){
           tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
           break;
         }
-        v=val();if(v<mine)mine=v;if(v>maxe)maxe=v;
-        assert(v>=base&&v-base<maxerange);
+        v=val();if(v<mine)mine=v;
         sbuf[i].e=v;
         memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
         hist[h].nid[i]++;
-        hist[h].ndj[v-base]++;
         hist[h].ten1[i]+=v;
         hist[h].ten2[i]+=v*(double)v;
+        if(v<base)fprintf(stderr,"Error: energy lower than expected. Trying increasing margin.\n");
+        if(v>maxe)v=lqc-v;// apply symmetry
+        assert(v>=base&&v-base<erange);
+        hist[h].ndj[v-base]++;
       }
       for(i=0;i<nt-1;i++){
         del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
@@ -3553,8 +3637,6 @@ void findspectrum(int weightmode,int tree,int pr){
     tim1+=cpu();
     if(nit>=1000*(tree?1:10)){
       tim2-=cpu();
-      while(hist[h].ndj[mine-base]-hist[h0].ndj[mine-base]==0)mine++;
-      while(hist[h].ndj[maxe-base]-hist[h0].ndj[maxe-base]==0)maxe--;
       while(1){// Infer p_i, Z_i
         double lZ0[nt];
         memcpy(lZ0,lZ,sizeof(lZ0));
@@ -3575,11 +3657,12 @@ void findspectrum(int weightmode,int tree,int pr){
           x=-1e30;
           for(i=0;i<nt;i++)x=addlog(x,log(hist[h].nid[i]-hist[h0].nid[i])-be[i]*e-lZ[i]);
           lp[j]=log(r)-x;
-          y=addlog(y,lp[j]);
+          y=addlog(y,lp[j]+log(2)*(2*e<lqc));// weight by symmetry factor
         }//e
+        y-=NV*log(2);// 2^NV states altogether
         for(e=mine;e<=maxe;e++)lp[e-base]-=y;
         for(i=0,x=0;i<nt;i++)x=MAX(x,fabs(lZ[i]-lZ0[i]));
-        if(x<1e-3)break;
+        if(x<1e-4)break;
       }//while
       for(i=0;i<nt-1;i++){
         ovl[i]=-1e30;
@@ -3595,16 +3678,17 @@ void findspectrum(int weightmode,int tree,int pr){
       for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
       printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",(hist[h].ex1[i]-hist[h0].ex1[i])/(hist[h].ex0[i]-hist[h0].ex0[i]));printf("        exch[]\n");
       for(i=0;i<nt;i++)printf("%8.2f ",een[i]);printf(" Mean energy\n");
-      for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf(" Std deviation energy\n");
+      for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf(" Std dev en\n");
       if(0){for(i=0;i<nt;i++)printf("%8.4f ",sqrt(veo[i]));printf(" Std error (uncorrected for eqbn)\n");}
       for(i=0;i<nt;i++)printf("%8g ",lZ[i]);printf(" log(Z)\n");
       printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",ovl[i]);printf("       log(overlap)\n");
       for(e=mine,n=0;e<=maxe;e++)n+=hist[h].ndj[e-base]-hist[h0].ndj[e-base]>0;
       printf("min_en=%d, max_en=%d, nnz_en=%d, N=%d, nt=%d, genp[]=",mine,maxe,n,N,nt);
       for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-      printf(", CPU=%.2fs, CPU_EMC=%.2fs, CPU_Z=%.2fs, CPU/EMCit=%.3gs, Range=%.3g..%.3g\n",
-             cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h0].nid[0],(double)hist[h].nid[0]);
+      printf(", CPU=%.2fs, CPU_EMC=%.2fs, CPU_Z=%.2fs, CPU/EMCit=%.3gs, its=%.3g, centre_energy=%g\n",
+             cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h].nid[0],lqc/2.);
       prtimes();
+      for(e=MIN(mine+10,maxe);e>=mine;e--)printf("%6d %12g\n",e,lp[e-base]);printf("\n");//alter
       fflush(stdout);
     }
   }
@@ -3613,14 +3697,15 @@ void findspectrum(int weightmode,int tree,int pr){
 
 
 int main(int ac,char**av){
-  int opt,wn,mode,strat,weightmode,numpo;
+  int opt,wn,mode,strat,weightmode,centreflag,numpo;
   double mint,maxt;
   char *inprobfile,*outprobfile,*outstatefile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=7;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;ngp=0;
-  while((opt=getopt(ac,av,"m:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
+  weightmode=7;centreflag=0;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;ngp=0;
+  while((opt=getopt(ac,av,"cm:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
+    case 'c': centreflag=1;break;
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
     case 'N': N=atoi(optarg);break;
@@ -3647,6 +3732,9 @@ int main(int ac,char**av){
     case 'X': ext=atof(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
+      fprintf(stderr,"       -c   Centre energy (default false). Adds constant to energy so that {-1,-2,-3,...} becomes\n");
+      fprintf(stderr,"            {1,2,3,...} or {0,1,2,...} (according to parity) when you flip the spins of one half of\n");
+      fprintf(stderr,"            the bipartite graph. Used to make QUBO mode give answers comparable to Ising mode.\n");
       fprintf(stderr,"       -m   mode of operation:\n");
       fprintf(stderr,"            0   Try to find minimum value by heuristic search\n");
       fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search (default)\n");
@@ -3671,7 +3759,7 @@ int main(int ac,char**av){
       fprintf(stderr,"       -t   min run time for some modes\n");
       fprintf(stderr,"       -T   max run time for some modes\n");
       fprintf(stderr,"       -v   0,1,2,... verbosity level\n");
-      fprintf(stderr,"       -w   weight creation convention\n");
+      fprintf(stderr,"       -w   weight creation convention (use with the default -x0 unless otherwise stated)\n");
       fprintf(stderr,"            0   All of Q_ij independently +/-1\n");
       fprintf(stderr,"            1   As 0, but diagonal not allowed\n");
       fprintf(stderr,"            2   Upper triangular\n");
@@ -3680,12 +3768,15 @@ int main(int ac,char**av){
       fprintf(stderr,"            5   Start with Ising J_ij (i<j) and h_i IID {-1,1} and transform back to QUBO,\n");
       fprintf(stderr,"                ignoring constant term. (Default - meant to be equivalent to McGeoch instances.)\n");
       fprintf(stderr,"            6   Test case\n");
-      fprintf(stderr,"            7   Start with Ising J_ij (i<j) IID {-1,1} and transform back to QUBO,\n");
-      fprintf(stderr,"                also known as \"no external field\".\n");
+      fprintf(stderr,"            7   Start with Ising J_ij (i<j) IID {-1,1} (aka \"no external field\") and transform\n");
+      fprintf(stderr,"                back to QUBO form\n");
       fprintf(stderr,"            8   Start with Ising J_ij (i<j) IID uniform in {-100,-99,...,100} and\n");
       fprintf(stderr,"                transform back to QUBO.\n");
       fprintf(stderr,"           10   Start with Ising J_ij (i<j) IID uniform in {-n,-n+1,...,n} where n=100 intra-K_44,\n");
       fprintf(stderr,"                n=220 inter-K_44, then transform back to QUBO.\n");
+      fprintf(stderr,"           11   Start with Ising J_ij {i<j} IID uniform on {-n,...,-1,1,...,n} where n=7, then\n");
+      fprintf(stderr,"                transform back to QUBO.\n");
+      fprintf(stderr,"           12   True Ising mode J_ij {i<j} IID uniform on {-n,...,-1,1,...,n} where n=7 (use with -x-1)\n");
       fprintf(stderr,"       -x   set the lower state value\n");
       fprintf(stderr,"            Default 0 corresponds to QUBO state values in {0,1}\n");
       fprintf(stderr,"            Other common option is -1, corresponding to Ising model state values in {-1,1}\n");
@@ -3714,9 +3805,9 @@ int main(int ac,char**av){
   initrand(seed);
   initgraph(wn);
   if(inprobfile){
-    wn=readweights(inprobfile);// This overrides current setting of wn
+    wn=readweights(inprobfile,centreflag);// This overrides current setting of wn
   }else{
-    initweights(weightmode);printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
+    initweights(weightmode,centreflag);printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
   if(0){
     int i,j,k;
@@ -3745,7 +3836,7 @@ int main(int ac,char**av){
       double s0,s1,s2,va;
       s0=s1=s2=0;
       while(1){
-        initweights(weightmode);
+        initweights(weightmode,centreflag);
         v=opt1(0,maxt,0,500,0,strat);
         s0+=1;s1+=v;s2+=v*v;va=(s2-s1*s1/s0)/(s0-1);
         printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
@@ -3780,7 +3871,7 @@ int main(int ac,char**av){
     timingtests(strat,mint,maxt);
     break;
   case 9:
-    consistencychecks2(weightmode,strat,mint,maxt);
+    consistencychecks2(weightmode,centreflag,strat,mint,maxt);
     break;
   case 10:
     {
@@ -3890,13 +3981,13 @@ int main(int ac,char**av){
     gibbstests(weightmode);
     break;
   case 14:
-    binderparamestimate(weightmode);
+    binderparamestimate(weightmode,centreflag);
     break;
   case 15:
-    findexchangemontecarlotemperatureset(weightmode);
+    findexchangemontecarlotemperatureset();
     break;
   case 16:
-    calcbinderratio(weightmode);
+    calcbinderratio(weightmode,centreflag);
     break;
   case 17:
     findeqbmusingchisq(weightmode);
@@ -3905,10 +3996,10 @@ int main(int ac,char**av){
     findeqbmusingtopbeta(weightmode);
     break;
   case 19:
-    pertandgibbs(weightmode,genp[0]==0,genp[1],genp[2],genp[3]);// treemode,beta,pert,target energy
+    pertandgibbs(genp[0]==0,genp[1],genp[2],genp[3]);// treemode,beta,pert,target energy
     break;
   case 20:
-    opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert,initial target (optional)
+    opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert[,initial target]
     break;
   case 21:
     findspectrum(weightmode,genp[0]==0,deb);
