@@ -90,7 +90,7 @@ int *nok2;      // nok2[N*N+1]      nok2[enc2(x,y)] = number of allowable states
 int N;// Size of Chimera graph
 int statemap[2];// statemap[0], statemap[1] are the two possible values that the state variables take
 int deb;// verbosity
-int seed;
+int seed,seed2;
 double ext;
 
 #define MAXNGP 100
@@ -3529,7 +3529,7 @@ double addlog(double x,double y){
   return y+log(1+exp(d));
 }
 
-void findspectrum(int weightmode,int tree,int pr){
+void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   double *be;// Set of betas
   int nt;// Number of temperatures (betas)
   be=loadspecbetaset(weightmode,&nt);
@@ -3544,6 +3544,7 @@ void findspectrum(int weightmode,int tree,int pr){
   int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
   double x,y,del,nit,tim0,tim1,tim2;
   gibbstables*gt;
+  FILE*fp;
 
   margin=100;// safety margin for lowest energy
   lqc=centreconst();
@@ -3662,7 +3663,7 @@ void findspectrum(int weightmode,int tree,int pr){
         y-=NV*log(2);// 2^NV states altogether
         for(e=mine;e<=maxe;e++)lp[e-base]-=y;
         for(i=0,x=0;i<nt;i++)x=MAX(x,fabs(lZ[i]-lZ0[i]));
-        if(x<1e-4)break;
+        if(x<1e-3)break;
       }//while
       for(i=0;i<nt-1;i++){
         ovl[i]=-1e30;
@@ -3675,20 +3676,28 @@ void findspectrum(int weightmode,int tree,int pr){
       }
       tim2+=cpu();
       printf("\n");
-      for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
-      printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",(hist[h].ex1[i]-hist[h0].ex1[i])/(hist[h].ex0[i]-hist[h0].ex0[i]));printf("        exch[]\n");
+      for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf(" be[]\n");
+      printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",(hist[h].ex1[i]-hist[h0].ex1[i])/(hist[h].ex0[i]-hist[h0].ex0[i]));printf("       exch[]\n");
       for(i=0;i<nt;i++)printf("%8.2f ",een[i]);printf(" Mean energy\n");
       for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf(" Std dev en\n");
       if(0){for(i=0;i<nt;i++)printf("%8.4f ",sqrt(veo[i]));printf(" Std error (uncorrected for eqbn)\n");}
       for(i=0;i<nt;i++)printf("%8g ",lZ[i]);printf(" log(Z)\n");
       printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",ovl[i]);printf("       log(overlap)\n");
+      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8d ",e);printf(" Energy\n");
+      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.2f ",lp[e-base]);printf(" log(occupancy)\n");
+      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.2f ",lp[e-base]-lp[mine-base]);printf(" same rel gr st\n");
+      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.3g ",(double)(hist[h].ndj[e-base]-hist[h0].ndj[e-base]));printf(" ndj\n");
       for(e=mine,n=0;e<=maxe;e++)n+=hist[h].ndj[e-base]-hist[h0].ndj[e-base]>0;
       printf("min_en=%d, max_en=%d, nnz_en=%d, N=%d, nt=%d, genp[]=",mine,maxe,n,N,nt);
       for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
       printf(", CPU=%.2fs, CPU_EMC=%.2fs, CPU_Z=%.2fs, CPU/EMCit=%.3gs, its=%.3g, centre_energy=%g\n",
              cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h].nid[0],lqc/2.);
       prtimes();
-      for(e=MIN(mine+10,maxe);e>=mine;e--)printf("%6d %12g\n",e,lp[e-base]);printf("\n");//alter
+      if(outprobfn){
+        fp=fopen(outprobfn,"w");
+        for(e=maxe;e>=mine;e--)fprintf(fp,"%6d %12.3f\n",e,lp[e-base]);
+        fclose(fp);
+      }
       fflush(stdout);
     }
   }
@@ -3699,13 +3708,14 @@ void findspectrum(int weightmode,int tree,int pr){
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,centreflag,numpo;
   double mint,maxt;
-  char *inprobfile,*outprobfile,*outstatefile;
+  char *inprobfile,*outprobfile,*outstatefile,*genfile;
 
-  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=7;centreflag=0;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;ngp=0;
-  while((opt=getopt(ac,av,"cm:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
+  wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);seed2=0;mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
+  weightmode=7;centreflag=0;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;ngp=0;genfile=0;
+  while((opt=getopt(ac,av,"cf:m:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
     case 'c': centreflag=1;break;
+    case 'f': genfile=strdup(optarg);break;
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
     case 'N': N=atoi(optarg);break;
@@ -3722,7 +3732,13 @@ int main(int ac,char**av){
         }
       }
       break;
-    case 's': seed=atoi(optarg);break;
+    case 's':
+      {
+        char *l=optarg;
+        seed=atoi(l);
+        l=strchr(l,',');if(l)seed2=atoi(l+1);
+      }
+      break;
     case 'S': strat=atoi(optarg);break;
     case 't': mint=atof(optarg);break;
     case 'T': maxt=atof(optarg);break;
@@ -3732,9 +3748,10 @@ int main(int ac,char**av){
     case 'X': ext=atof(optarg);break;
     default:
       fprintf(stderr,"Usage: %s [OPTIONS] [inputproblemfile]\n",av[0]);
-      fprintf(stderr,"       -c   Centre energy (default false). Adds constant to energy so that {-1,-2,-3,...} becomes\n");
-      fprintf(stderr,"            {1,2,3,...} or {0,1,2,...} (according to parity) when you flip the spins of one half of\n");
-      fprintf(stderr,"            the bipartite graph. Used to make QUBO mode give answers comparable to Ising mode.\n");
+      fprintf(stderr,"       -c   Centre energy (default false). Adds constant to energy so that energies {-1,-2,-3,...}\n");
+      fprintf(stderr,"            transform to {1,2,3,...} or {0,1,2,...} (according to parity) when you flip the spins of one\n");
+      fprintf(stderr,"            half of the bipartite graph. Used to make QUBO mode give answers comparable to Ising mode.\n");
+      fprintf(stderr,"       -f   general file used in some modes\n");
       fprintf(stderr,"       -m   mode of operation:\n");
       fprintf(stderr,"            0   Try to find minimum value by heuristic search\n");
       fprintf(stderr,"            1   Try to find rate of solution generation by repeated heuristic search (default)\n");
@@ -3747,8 +3764,8 @@ int main(int ac,char**av){
       fprintf(stderr,"       -o   output problem (weight) file\n");
       fprintf(stderr,"       -O   output state file\n");
       fprintf(stderr,"       -p   target number of presumed optima for -m1\n");
-      fprintf(stderr,"       -P   x[,y[,z,...]] general parameters for test code\n");
-      fprintf(stderr,"       -s   seed\n");
+      fprintf(stderr,"       -P   x[,y[,z...]] general parameters, various uses in some modes\n");
+      fprintf(stderr,"       -s   seed[,seed2]\n");
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
       fprintf(stderr,"            0      Exhaust K44s repeatedly\n");
       fprintf(stderr,"            1      Exhaust lines repeatedly\n");
@@ -3788,6 +3805,7 @@ int main(int ac,char**av){
   printf("N=%d\n",N);
   printf("Mode: %d\n",mode);
   printf("Seed: %d\n",seed);
+  if(seed2)printf("Seed2: %d\n",seed2);
   printf("Search strategy: %d\n",strat);
   if(ngp>0){int i;printf("General parameters:");for(i=0;i<ngp;i++)printf(" %g",genp[i]);printf("\n");}
 
@@ -3809,6 +3827,7 @@ int main(int ac,char**av){
   }else{
     initweights(weightmode,centreflag);printf("Initialising random weight matrix with %d working node%s\n",wn,wn==1?"":"s");
   }
+  if(seed2)initrand(random()+seed2);
   if(0){
     int i,j,k;
     for(i=0;i<N;i++)for(j=0;j<16;j++)for(k=0;k<16;k++)printf("QB(%d,0,0,0,%d,%d)=%d\n",i,j,k,QB(i,0,0,0,j,k));
@@ -4002,7 +4021,7 @@ int main(int ac,char**av){
     opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert[,initial target]
     break;
   case 21:
-    findspectrum(weightmode,genp[0]==0,deb);
+    findspectrum(weightmode,genp[0]==0,genfile,deb);
     break;
   }// mode
   prtimes();
