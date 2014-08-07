@@ -3443,6 +3443,14 @@ void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
   freegibbstables(1,gt);
 }
 
+double addlog(double x,double y){
+  double d=x-y;
+  if(d>0){d=-d;y=x;}
+  // y, y+d (d<0)
+  if(d<-44)return y;
+  return y+log(1+exp(d));
+}
+
 void findspectrum(int weightmode,int tree,int pr){
   double *be;// Set of betas
   int nt;// Number of temperatures (betas)
@@ -3453,8 +3461,9 @@ void findspectrum(int weightmode,int tree,int pr){
   } tstate; // Tempering state
   tstate sbuf[nt],ts;
   double een[nt],ven[nt],veo[nt];// Derived energy estimates, variance and std errs
-  int d,h,i,v,dc,lc,h0;
-  double del,nit,tim0,tim1;
+  double ovl[nt-1];// Overlap probabilities for iterative Z-finding
+  int d,e,h,i,j,n,r,v,dc,lc,h0;
+  double x,y,del,nit,tim0,tim1,tim2;
   gibbstables*gt;
   const int maxdoublings=50;
   const int linlen=20;
@@ -3473,6 +3482,7 @@ void findspectrum(int weightmode,int tree,int pr){
   // and can do that every size increase of roughly a factor of 1+1/linlen
   histdata hist[nhist];// switch to malloc to cope with lame stack sizes
   int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
+  double lp[maxerange],lZ[nt];
 
   printf("Number of temperatures: %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
@@ -3489,10 +3499,12 @@ void findspectrum(int weightmode,int tree,int pr){
   dc=0;// doubling counter: do linlen lots of 2^dc
   lc=0;// linear counter 0<=lc<linlen
   nit=0;
-  tim0=cpu();
+  tim0=cpu();tim1=tim2=0;
   memset(&hist[0],0,sizeof(hist[0]));
+  for(e=mine;e<=maxe;e++)lp[e-base]=0;
 
   while(1){
+    tim1-=cpu();
     lc+=1;if(lc==linlen){lc=0;dc+=1;assert(dc<maxdoublings);}
     h=dc*linlen+lc;// position in history
     memcpy(&hist[h],&hist[h-1],sizeof(hist[h]));
@@ -3538,17 +3550,60 @@ void findspectrum(int weightmode,int tree,int pr){
       ven[i]=(e2-e1*e1/e0)/(e0-1);
       veo[i]=(e2-e1*e1/e0)/(e0-1)/e0;
     }
-    if(pr>=1){
+    tim1+=cpu();
+    if(nit>=1000*(tree?1:10)){
+      tim2-=cpu();
+      while(hist[h].ndj[mine-base]-hist[h0].ndj[mine-base]==0)mine++;
+      while(hist[h].ndj[maxe-base]-hist[h0].ndj[maxe-base]==0)maxe--;
+      while(1){// Infer p_i, Z_i
+        double lZ0[nt];
+        memcpy(lZ0,lZ,sizeof(lZ0));
+        if(pr>=3){for(e=maxe;e>=mine;e--)printf("%6d %12g\n",e,lp[e-base]);printf("\n");}
+        for(i=0;i<nt;i++){
+          lZ[i]=-1e30;
+          for(e=mine;e<=maxe;e++){
+            j=e-base;
+            lZ[i]=addlog(lZ[i],lp[j]-be[i]*e);
+          }
+        }//i
+        if(pr>=2){for(i=0;i<nt;i++)printf("%3d %9.3g %12g\n",i,be[i],lZ[i]);printf("\n");}
+        y=-1e30;
+        for(e=mine;e<=maxe;e++){
+          j=e-base;
+          r=hist[h].ndj[j]-hist[h0].ndj[j];
+          if(r==0){lp[j]=-1e30;continue;}
+          x=-1e30;
+          for(i=0;i<nt;i++)x=addlog(x,log(hist[h].nid[i]-hist[h0].nid[i])-be[i]*e-lZ[i]);
+          lp[j]=log(r)-x;
+          y=addlog(y,lp[j]);
+        }//e
+        for(e=mine;e<=maxe;e++)lp[e-base]-=y;
+        for(i=0,x=0;i<nt;i++)x=MAX(x,fabs(lZ[i]-lZ0[i]));
+        if(x<1e-3)break;
+      }//while
+      for(i=0;i<nt-1;i++){
+        ovl[i]=-1e30;
+        for(e=mine;e<=maxe;e++){
+          j=e-base;
+          x=lp[j]*2-(be[i]+be[i+1])*e;
+          ovl[i]=addlog(ovl[i],x);
+        }
+        ovl[i]-=lZ[i]+lZ[i+1];
+      }
+      tim2+=cpu();
       printf("\n");
       for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
-      printf("   ");
-      for(i=0;i<nt-1;i++)printf(" %8.3f",(hist[h].ex1[i]-hist[h0].ex1[i])/(hist[h].ex0[i]-hist[h0].ex0[i]));printf("        exch[]\n");
+      printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",(hist[h].ex1[i]-hist[h0].ex1[i])/(hist[h].ex0[i]-hist[h0].ex0[i]));printf("        exch[]\n");
       for(i=0;i<nt;i++)printf("%8.2f ",een[i]);printf(" Mean energy\n");
       for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf(" Std deviation energy\n");
-      for(i=0;i<nt;i++)printf("%8.4f ",sqrt(veo[i]));printf(" Std error (uncorr for eqbn)\n");
-      printf("min_energy=%d, max_energy=%d, N=%d, nt=%d, genp[]=",mine,maxe,N,nt);
+      if(0){for(i=0;i<nt;i++)printf("%8.4f ",sqrt(veo[i]));printf(" Std error (uncorrected for eqbn)\n");}
+      for(i=0;i<nt;i++)printf("%8g ",lZ[i]);printf(" log(Z)\n");
+      printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",ovl[i]);printf("       log(overlap)\n");
+      for(e=mine,n=0;e<=maxe;e++)n+=hist[h].ndj[e-base]-hist[h0].ndj[e-base]>0;
+      printf("min_en=%d, max_en=%d, nnz_en=%d, N=%d, nt=%d, genp[]=",mine,maxe,n,N,nt);
       for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-      tim1=cpu();printf(", CPU=%.2fs, CPU/iteration=%.3gs, Range = %lld-%lld \n",tim1,(tim1-tim0)/nit,hist[h0].nid[0],hist[h].nid[0]);
+      printf(", CPU=%.2fs, CPU_EMC=%.2fs, CPU_Z=%.2fs, CPU/EMCit=%.3gs, Range=%.3g..%.3g\n",
+             cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h0].nid[0],(double)hist[h].nid[0]);
       prtimes();
       fflush(stdout);
     }
@@ -3856,7 +3911,7 @@ int main(int ac,char**av){
     opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert,initial target (optional)
     break;
   case 21:
-    findspectrum(weightmode,genp[0]==0,genp[1]);
+    findspectrum(weightmode,genp[0]==0,deb);
     break;
   }// mode
   prtimes();
