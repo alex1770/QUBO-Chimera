@@ -3503,6 +3503,7 @@ int pertandgibbs_simple(int tree,double beta,double pert,int bv,gibbstables*gt,i
   }
 }
 
+// Perturbation + Gibbs sampling at fixed (pert,beta)
 void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
   int ns,cv;
   int64 nit;
@@ -3546,7 +3547,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   double ovl[nt-1];// Overlap probabilities for iterative Z-finding
   int d,e,h,i,j,n,r,v,dc,lc,h0,lqc,margin;
   int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
-  double x,y,del,nit,tim0,tim1,tim2;
+  double x,y,z,del,nit,tim0,tim1,tim2;
   gibbstables*gt;
   FILE*fp;
 
@@ -3654,7 +3655,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
           }
         }//i
         if(pr>=2){for(i=0;i<nt;i++)printf("%3d %9.3g %12g\n",i,be[i],lZ[i]);printf("\n");}
-        y=-1e30;
+        z=-1e30;
         for(e=mine;e<=maxe;e++){
           j=e-base;
           r=hist[h].ndj[j]-hist[h0].ndj[j];
@@ -3666,10 +3667,10 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
             x=addlog(x,log(hist[h].nid[i]-hist[h0].nid[i])+y);
           }
           lp[j]=log(r)-x;
-          y=addlog(y,lp[j]+log(2)*(2*e<lqc));// weight by symmetry factor
+          z=addlog(z,lp[j]+log(2)*(2*e<lqc));// weight by symmetry factor
         }//e
-        y-=NV*log(2);// 2^NV states altogether
-        for(e=mine;e<=maxe;e++)lp[e-base]-=y;
+        z-=NV*log(2);// 2^NV states altogether
+        for(e=mine;e<=maxe;e++)lp[e-base]-=z;
         for(i=0,x=0;i<nt;i++)x=MAX(x,fabs(lZ[i]-lZ0[i]));
         if(x<1e-3)break;
       }//while
@@ -3712,6 +3713,45 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   freegibbstables(nt,gt);
 }
 
+void wanglandau(int weightmode){
+  int e,i,o,v,x,y,e0,e1,e2,lqc,margin;
+  int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
+  int64 it;
+  double s,ff,del;
+  margin=100;// safety margin for lowest energy
+  lqc=centreconst();
+  if(!checksym()){fprintf(stderr,"Error: wanglandau() uses symmetry and assumes that the model has no external fields\n");exit(1);}
+  init_state();v=stabletreeexhaust(val(),1,0);base=v-margin;mine=v;maxe=lqc>>1;
+  const int erange=maxe+1-base;
+  int64 hist[erange];
+  double lp[erange];
+  for(i=0;i<erange;i++){lp[i]=0;hist[i]=0;}
+  it=0;e0=val();ff=.1;
+  while(1){
+    hist[e0-base]++;
+    x=randint(N);y=randint(N);o=randbit();i=randint(4);
+    XB(x,y,o)^=1<<i;
+    e1=val();// inefficient - but just a test routine anyway
+    it++;
+    if(e1<=maxe)e2=e1; else e2=lqc-e1;
+    if(e2<mine)mine=e2;
+    del=lp[e0-base]-lp[e2-base];
+    if(del>0||randfloat()<exp(del)){// accept
+      if(e1>maxe)for(x=0;x<N;x++)for(y=0;y<N;y++)XB(x,y,(x+y)&1)^=15;
+      lp[e2-base]+=ff/(1+(e2!=lqc-e2));
+      e0=e2;
+    }else XB(x,y,o)^=1<<i;
+    if(it%10000000==0){
+      printf("it=%lld\n",it);
+      for(e=mine,s=-1e30;e<=maxe;e++)s=addlog(s,lp[e-base]+log(2)*(2*e<lqc));
+      s-=NV*log(2);// 2^NV states altogether
+      for(e=mine;e<=maxe;e++)lp[e-base]-=s;
+      for(e=maxe;e>=mine;e--)printf("%6d %12lld %12g\n",e,hist[e-base],lp[e-base]);
+      printf("\n");
+      fflush(stdout);
+    }
+  }
+}
 
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,centreflag,numpo;
@@ -4030,6 +4070,9 @@ int main(int ac,char**av){
     break;
   case 21:
     findspectrum(weightmode,genp[0]==0,genfile,deb);
+    break;
+  case 22:
+    wanglandau(weightmode);
     break;
   }// mode
   prtimes();
