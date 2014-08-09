@@ -2967,7 +2967,7 @@ double*loadspecbetaset(int weightmode,int*nt){
     {0},
     {0.056,0.081,0.107,0.132,0.160,0.190,0.222,0.256,0.296,0.346,0.414,0.507,0.645,0.882,1.375,2.598,20.000},// 6, 0.25
     {0},
-    {0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,
+    {0.000,0.020,0.040,0.061,0.080,0.099,0.119,0.139,0.160,0.183,0.206,0.230,0.256,0.285,0.322,0.363,0.414,0.478,0.559,0.669,
      0.840,1.121,1.646,2.894,20.000},// 8, 0.25
     {0},
     {0.052,0.068,0.083,0.098,0.113,0.129,0.146,0.162,0.179,0.197,0.216,0.235,0.256,0.282,0.310,0.341,0.376,
@@ -3613,7 +3613,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
         hist[h].nid[i]++;
         hist[h].ten1[i]+=v;
         hist[h].ten2[i]+=v*(double)v;
-        if(v<base)fprintf(stderr,"Error: energy lower than expected. Trying increasing margin.\n");
+        if(v<base)fprintf(stderr,"Error: energy lower than expected. Try increasing margin.\n");
         if(v>maxe)v=lqc-v;// apply symmetry
         assert(v>=base&&v-base<erange);
         hist[h].ndj[v-base]++;
@@ -3643,7 +3643,8 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
     tim1+=cpu();
     if(nit>=1000*(tree?1:10)){
       tim2-=cpu();
-      while(1){// Infer p_i, Z_i
+      while(1){
+        // Infer Z_i
         double lZ0[nt];
         memcpy(lZ0,lZ,sizeof(lZ0));
         if(pr>=3){for(e=maxe;e>=mine;e--)printf("%6d %12g\n",e,lp[e-base]);printf("\n");}
@@ -3655,6 +3656,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
           }
         }//i
         if(pr>=2){for(i=0;i<nt;i++)printf("%3d %9.3g %12g\n",i,be[i],lZ[i]);printf("\n");}
+        // Infer p_j
         z=-1e30;
         for(e=mine;e<=maxe;e++){
           j=e-base;
@@ -3675,13 +3677,15 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
         if(x<1e-3)break;
       }//while
       for(i=0;i<nt-1;i++){
-        ovl[i]=-1e30;
-        for(e=mine;e<=maxe;e++){
-          j=e-base;
-          x=lp[j]*2-(be[i]+be[i+1])*e;
-          ovl[i]=addlog(ovl[i],x);
+        double x0,x1,x2;
+        x0=x1=x2=-1e30;
+        for(e=mine;e<=lqc-mine;e++){
+          if(e<=maxe)j=e-base; else j=lqc-e-base;
+          x0=addlog(x0,lp[j]*2-(be[i]+be[i+1])*e);
+          x1=addlog(x1,lp[j]*2-be[i]*2*e);
+          x2=addlog(x2,lp[j]*2-be[i+1]*2*e);
         }
-        ovl[i]-=lZ[i]+lZ[i+1];
+        ovl[i]=exp(x0-(x1+x2)/2);
       }
       tim2+=cpu();
       printf("\n");
@@ -3691,7 +3695,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
       for(i=0;i<nt;i++)printf("%8.4f ",sqrt(ven[i]));printf(" Std dev en\n");
       if(0){for(i=0;i<nt;i++)printf("%8.4f ",sqrt(veo[i]));printf(" Std error (uncorrected for eqbn)\n");}
       for(i=0;i<nt;i++)printf("%8g ",lZ[i]);printf(" log(Z)\n");
-      printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",ovl[i]);printf("       log(overlap)\n");
+      printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",ovl[i]);printf("       Overlap\n");
       for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8d ",e);printf(" Energy\n");
       for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.2f ",lp[e-base]);printf(" log(occupancy)\n");
       for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.2f ",lp[e-base]-lp[mine-base]);printf(" same rel gr st\n");
