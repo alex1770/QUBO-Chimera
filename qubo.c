@@ -3488,13 +3488,13 @@ int pertandgibbs_simple(int tree,double beta,double pert,int bv,gibbstables*gt,i
   int v;
   init_state();
   while(1){// Loop over runs
+    pertstate(pert);
+    if(randfloat()<genp[4])init_state();
     switch(tree){
     case 0:
-      pertstate(pert);
       simplegibbssweep(gt);
       break;
     case 1:
-      pertstate(pert);
       tree1gibbs(randint(2),randint(2),randint(N),gt);
       break;
     }
@@ -3541,11 +3541,14 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   typedef struct {
     int X[NBV];// State
     int e;// Energy
+    int me;// min energy this state has visited
+    int ne;// min energy this state has visited since visiting lowest beta
   } tstate; // Tempering state
   tstate sbuf[nt],ts;
   double een[nt],ven[nt],veo[nt];// Derived energy estimates, variance and std errs
   double ovl[nt-1];// Overlap probabilities for iterative Z-finding
   int d,e,h,i,j,n,r,v,dc,lc,h0,lqc,margin;
+  int nis;// number of independent solutions (minima since hitting lowest beta)
   int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
   double x,y,z,del,nit,tim0,tim1,tim2;
   gibbstables*gt;
@@ -3582,16 +3585,16 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   gt=initgibbstables(nt,be,tree);
   for(i=0;i<nt;i++){
     init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
-    sbuf[i].e=val();
+    sbuf[i].e=sbuf[i].me=sbuf[i].ne=val();
   }
   dc=0;// doubling counter: do linlen lots of 2^dc
   lc=0;// linear counter 0<=lc<linlen
-  nit=0;
+  nit=0;nis=0;
   tim0=cpu();tim1=tim2=0;
   memset(&hist[0],0,sizeof(hist[0]));
   for(e=mine;e<=maxe;e++)lp[e-base]=0;
 
-  while(1){
+  while(mine!=genp[1]||nis<genp[2]){
     tim1-=cpu();
     lc+=1;if(lc==linlen){lc=0;dc+=1;assert(dc<maxdoublings);}
     h=dc*linlen+lc;// position in history
@@ -3607,8 +3610,11 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
           tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
           break;
         }
-        v=val();if(v<mine)mine=v;
+        v=val();if(v<mine){mine=v;nis=0;}
         sbuf[i].e=v;
+        if(v<sbuf[i].me)sbuf[i].me=v;
+        if(v==mine&&sbuf[i].ne>mine)nis++;
+        if(i==0||v<sbuf[i].ne)sbuf[i].ne=v;
         memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
         hist[h].nid[i]++;
         hist[h].ten1[i]+=v;
@@ -3703,8 +3709,9 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
       for(e=mine,n=0;e<=maxe;e++)n+=hist[h].ndj[e-base]-hist[h0].ndj[e-base]>0;
       printf("min_en=%d, max_en=%d, nnz_en=%d, N=%d, nt=%d, genp[]=",mine,maxe,n,N,nt);
       for(i=0;i<ngp;i++)printf("%g%s",genp[i],i<ngp-1?",":"");
-      printf(", CPU=%.2fs, CPU_EMC=%.2fs, CPU_Z=%.2fs, CPU/EMCit=%.3gs, its=%.3g, centre_energy=%g\n",
-             cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h].nid[0],lqc/2.);
+      for(i=j=0;i<nt;i++)j+=(sbuf[i].me==mine);
+      printf(", CPU=%.2fs, CPU_EMC=%.2fs, CPU_Z=%.2fs, CPU/EMCit=%.3gs, its=%.3g, centre_energy=%g, nummine=%d, nind=%d\n",
+             cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h].nid[0],lqc/2.,j,nis);
       prtimes();
       if(outprobfn){
         fp=fopen(outprobfn,"w");
@@ -4070,7 +4077,7 @@ int main(int ac,char**av){
     pertandgibbs(genp[0]==0,genp[1],genp[2],genp[3]);// treemode,beta,pert,target energy
     break;
   case 20:
-    opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// singlevertexmode,beta,pert[,initial target]
+    opt3(weightmode,genp[0]==0,genp[1],genp[2],ngp>3?genp[3]:1000000000,numpo);// treemode,beta,pert[,initial target]
     break;
   case 21:
     findspectrum(weightmode,genp[0]==0,genfile,deb);
