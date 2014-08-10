@@ -635,6 +635,20 @@ int checksym(void){// Checks if symmetric (no external fields)
   return 1;
 }
 
+int gcd(x,y){
+  if(x<0)x=-x;
+  if(y<0)y=-y;
+  if(y==0)return x;
+  return gcd(y,x%y);
+}
+
+int energyquantum(void){// Works out min gap between energies
+  int g,i,v,v0;
+  v0=val();g=0;
+  for(i=0;i<100;i++){init_state();v=val();g=gcd(g,v-v0);}
+  return g;
+}
+
 void pertstate(double p){
   int o,x,y;
   for(x=0;x<N;x++)for(y=0;y<N;y++)if(randfloat()<p)for(o=0;o<2;o++)XB(x,y,o)=randnib();
@@ -2937,7 +2951,7 @@ double*loadbetaset(int weightmode,double betaskip,int*nt){
   return be;
 }
 
-double*loadspecbetaset(int weightmode,int*nt){
+double*loadspecbetaset(int weightmode,int qu,int*nt){
   // Placeholder values
   double bew7[][50]={// Weightmode 7, be[]
     {0},
@@ -2989,7 +3003,7 @@ double*loadspecbetaset(int weightmode,int*nt){
   }
   for(n=1;be0[n]>0;n++);assert(n>0);
   be=(double*)malloc(n*sizeof(double));
-  for(i=0;i<n;i++)be[i]=be0[i];
+  for(i=0;i<n;i++)be[i]=be0[i]/qu;
   *nt=n;
   return be;
 }
@@ -3537,7 +3551,9 @@ double addlog(double x,double y){
 void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   double *be;// Set of betas
   int nt;// Number of temperatures (betas)
-  be=loadspecbetaset(weightmode,&nt);
+  int qu;// energy quantum
+  qu=energyquantum();
+  be=loadspecbetaset(weightmode,qu,&nt);
   typedef struct {
     int X[NBV];// State
     int e;// Energy
@@ -3581,6 +3597,8 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
   printf("Randstart: %d\n",RANDSTART);
   printf("Centre constant: %d\n",lqc);
+  printf("Energy quantum: %d\n",qu);
+  printf("Tree mode: %d\n",tree);
   initrandtab(50000);
   gt=initgibbstables(nt,be,tree);
   for(i=0;i<nt;i++){
@@ -3703,8 +3721,10 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
       for(i=0;i<nt;i++)printf("%8g ",lZ[i]);printf(" log(Z)\n");
       printf("   ");for(i=0;i<nt-1;i++)printf(" %8.3f",ovl[i]);printf("       Overlap\n");
       for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8d ",e);printf(" Energy\n");
-      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.2f ",lp[e-base]);printf(" log(occupancy)\n");
-      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.2f ",lp[e-base]-lp[mine-base]);printf(" same rel gr st\n");
+      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)if(lp[e-base]>-1e10)printf("%8.2f ",lp[e-base]); else printf("   zilch ");
+      printf(" log(occupancy)\n");
+      for(e=MIN(mine+nt-1,maxe);e>=mine;e--)if(lp[e-base]>-1e10)printf("%8.2f ",lp[e-base]-lp[mine-base]); else printf("   zilch ");
+      printf(" same rel gr st\n");
       for(e=MIN(mine+nt-1,maxe);e>=mine;e--)printf("%8.3g ",(double)(hist[h].ndj[e-base]-hist[h0].ndj[e-base]));printf(" ndj\n");
       for(e=mine,n=0;e<=maxe;e++)n+=hist[h].ndj[e-base]-hist[h0].ndj[e-base]>0;
       printf("min_en=%d, max_en=%d, nnz_en=%d, N=%d, nt=%d, genp[]=",mine,maxe,n,N,nt);
@@ -3715,7 +3735,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
       prtimes();
       if(outprobfn){
         fp=fopen(outprobfn,"w");
-        for(e=maxe;e>=mine;e--)fprintf(fp,"%6d %12.3f\n",e,lp[e-base]);
+        for(e=maxe;e>=mine;e--)if(lp[e-base]>-1e10)fprintf(fp,"%6d %12.3f\n",e,lp[e-base]);
         fclose(fp);
       }
       fflush(stdout);
