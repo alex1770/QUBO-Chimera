@@ -3547,7 +3547,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   tstate sbuf[nt],ts;
   double een[nt],ven[nt],veo[nt];// Derived energy estimates, variance and std errs
   double ovl[nt-1];// Overlap probabilities for iterative Z-finding
-  int d,e,h,i,j,n,r,v,dc,lc,h0,lqc,margin;
+  int d,e,h,i,j,n,r,v,dc,lc,h0,lqc,margin,printed;
   int nis;// number of independent solutions (minima since hitting lowest beta)
   int base,mine,maxe;// base energy (0-pt for ndj array), min, max energies
   double x,y,z,del,nit,tim0,tim1,tim2;
@@ -3589,12 +3589,12 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   }
   dc=0;// doubling counter: do linlen lots of 2^dc
   lc=0;// linear counter 0<=lc<linlen
-  nit=0;nis=0;
+  nit=0;nis=0;printed=0;
   tim0=cpu();tim1=tim2=0;
   memset(&hist[0],0,sizeof(hist[0]));
   for(e=mine;e<=maxe;e++)lp[e-base]=0;
 
-  while(mine!=genp[1]||nis<genp[2]){
+  while(mine!=genp[1]||nis<genp[2]||!printed){
     tim1-=cpu();
     lc+=1;if(lc==linlen){lc=0;dc+=1;assert(dc<maxdoublings);}
     h=dc*linlen+lc;// position in history
@@ -3719,6 +3719,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
         fclose(fp);
       }
       fflush(stdout);
+      printed=1;
     }
   }
   freegibbstables(nt,gt);
