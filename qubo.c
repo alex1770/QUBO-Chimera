@@ -1561,21 +1561,16 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   //
   // S0: Randomise configuration; stablek44exhaust; repeat
   // S1: Randomise configuration; stablelineexhaust; repeat
-  // S2: Randomise configuration; hybrid of stablelineexhaust and stable-width2-exhaust
+  // S2: No longer used
   // S3: Randomise configuration; stabletree1exhaust
   // S4: Randomise configuration; stabletree2exhaust
   // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
-  int v,w,bv,lbv,nis,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV],Xlbest[NBV];
+  int v,bv,nis,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV];
   int64 nn,rep,stt,ntr,*stats;
-  double ff,t0,t1,t2,t3,tt,w1,now,work[N+1];
+  double t0,t1,t2,t3,tt,now;
   double parms[6][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2},{0.25,0.2}};
 
-  // These are for hybrid strat 2, not currently used:
-  // work[wid] counts approx number of QBI references in a stable exhaust of width wid
-  for(w=1;w<=N;w++)work[w]=N*(1LL<<4*(w+1))*(w+32/15.)*(N-w+1)*3;
-  ff=N*N/40.;
-  
   if(pr){
     printf("Target number of presumed optima: %d\n",tns);
     printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
@@ -1590,17 +1585,13 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   t2=t0;// t2 = Time of last clean start (new minimum value in "independent" mode)
   stats=(int64*)malloc(MAXST*sizeof(int64));assert(stats);
   memset(Xbest,0,NBV*sizeof(int));
-  if(N>=2&&strat%10==2&&pr)printf("w1/w2 = %g\n",work[2]/(ff*work[1]));
   reset=1;
-  w1=rep=cv=lbv=nis=0;
+  rep=cv=nis=0;
   do{
     if(reset){// Forcibly reset all state after a (presumed) solution, so that runs are independent
       init_state();nis++;cv=val();
       cmin=1000000000;ssize=1024;assert(ssize<=MAXST);memset(stats,0,ssize*sizeof(int64));
       stt=0;// Total count of values found
-      lbv=1000000000;// Local best value (for S2)
-      memset(Xlbest,0,NBV*sizeof(int));// Local best state (for S2)
-      w1=0;// Work done so far at width 1 since last width 2 exhaust or last presumed solution (for S2)
       rep=0;
       reset=0;
       t3=cpu();
@@ -1616,17 +1607,6 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
       break;
     case 1:
       nv=stablestripexhaust(cv,1);
-      break;
-    case 2:// hybrid mode
-      nv=stablestripexhaust(cv,1);w1+=work[1];
-      if(nv<=lbv){lbv=nv;memcpy(Xlbest,XBa,NBV*sizeof(int));}
-      if(N>=2&&ff*w1>=work[2]){
-        if(pr>=2){printf("Width 2 exhaust");fflush(stdout);}
-        memcpy(XBa,Xlbest,NBV*sizeof(int));
-        nv=stablestripexhaust(lbv,2);
-        if(pr>=2)printf("\n");
-        w1=0;lbv=1000000000;
-      }
       break;
     case 3:
       nv=stabletreeexhaust(cv,1,&ntr);
@@ -3788,6 +3768,10 @@ void wanglandau(int weightmode){
   }
 }
 
+void countgroundstates(int weightmode){
+  
+}
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,centreflag,numpo;
   double mint,maxt;
@@ -4108,6 +4092,9 @@ int main(int ac,char**av){
     break;
   case 22:
     wanglandau(weightmode);
+    break;
+  case 23:
+    countgroundstates(weightmode);
     break;
   }// mode
   prtimes();
