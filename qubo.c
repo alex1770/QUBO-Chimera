@@ -3540,10 +3540,9 @@ void opt3(int weightmode,int tree,double beta,double pert,int bv,int tns){
   freegibbstables(1,gt);
 }
 
-double addlog(double x,double y){
+double addlog(double x,double y){// log(e^x+e^y)
   double d=x-y;
   if(d>0){d=-d;y=x;}
-  // y, y+d (d<0)
   if(d<-44)return y;
   return y+log(1+exp(d));
 }
@@ -3574,6 +3573,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   lqc=centreconst();
   if(!checksym()){fprintf(stderr,"Error: findspectrum() uses symmetry and assumes that the model has no external fields\n");exit(1);}
   init_state();v=stabletreeexhaust(val(),1,0);base=v-margin;mine=v;maxe=lqc>>1;
+  //if(ngp>1)mine=genp[1];
   const int maxdoublings=50;
   const int linlen=20;
   const int nhist=maxdoublings*linlen;
@@ -3601,18 +3601,20 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   printf("Tree mode: %d\n",tree);
   initrandtab(50000);
   gt=initgibbstables(nt,be,tree);
+  nis=0;
+  tim0=cpu();tim1=tim2=0;
+
   for(i=0;i<nt;i++){
     init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
     sbuf[i].e=sbuf[i].me=sbuf[i].ne=val();
   }
   dc=0;// doubling counter: do linlen lots of 2^dc
   lc=0;// linear counter 0<=lc<linlen
-  nit=0;nis=0;printed=0;
-  tim0=cpu();tim1=tim2=0;
+  nit=0;printed=0;
   memset(&hist[0],0,sizeof(hist[0]));
   for(e=mine;e<=maxe;e++)lp[e-base]=0;
 
-  while(mine!=genp[1]||nis<genp[2]||!printed){
+  while(mine!=genp[1]||ngp<2||nis<genp[2]||!printed){
     tim1-=cpu();
     lc+=1;if(lc==linlen){lc=0;dc+=1;assert(dc<maxdoublings);}
     h=dc*linlen+lc;// position in history
@@ -3742,6 +3744,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
       printed=1;
     }
   }
+  printf("CPU %g\n",cpu()-tim0);
   freegibbstables(nt,gt);
 }
 
