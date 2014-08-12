@@ -98,6 +98,7 @@ int ngp;// Number of general parameters
 double genp[MAXNGP]={0}; // General parameters
 
 typedef long long int int64;// gcc's 64-bit type
+typedef long long unsigned int uint64;// gcc's 64-bit type
 typedef unsigned char UC;
 
 #define NTB 1024
@@ -401,7 +402,7 @@ int readweights(char *f,int centreflag){
 
 void prstate(FILE*fp,int style,int*X0){
   // style = 0: hex grid xored with X0 (if supplied)
-  // style = 1: hex grid xored with X0 (if supplied), "gauge-fixed"
+  // style = 1: hex grid xored with X0 (if supplied), "gauge-fixed" (suitable if checksym()==1)
   // style = 2: list of vertices
   int nb[16];
   int i,j,o,p,t,x,xor;
@@ -623,7 +624,8 @@ void init_state(void){// Initialise state randomly
   for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)=randnib();
 }
 
-int checksym(void){// Checks if symmetric (no external fields)
+int checkbisym(void){// Checks if bipartite-symmetric (true if couplings are equivalent to no external fields)
+  //                    I.e., energy(state)+energy(state with bipartite half of spins flipped) = constant
   int i,v,x,y,qc;
   qc=centreconst();
   for(i=0;i<100;i++){
@@ -631,6 +633,17 @@ int checksym(void){// Checks if symmetric (no external fields)
     for(x=0;x<N;x++)for(y=0;y<N;y++)XB(x,y,(x+y)&1)^=15;
     v+=val();
     if(v!=qc)return 0;
+  }
+  return 1;
+}
+
+int checksym(void){// Checks if symmetric (true if couplings equivalent to no external fields)
+  //                  I.e., energy(state)=energy(state with all spins flipped)
+  int i,o,v,x,y;
+  for(i=0;i<100;i++){
+    init_state();v=val();
+    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++)XB(x,y,o)^=15;
+    if(v!=val())return 0;
   }
   return 1;
 }
@@ -1517,7 +1530,7 @@ int64 querycumsumlt(int64*cst,int size,int v){return querycumsumle(cst,size,v-1)
 int64 querycumsumeq(int64*cst,int size,int v){return querycumsumle(cst,size,v)-querycumsumlt(cst,size,v);}// ditto, equal to v
 
 #define MAXST (1<<18) // For stats.
-int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
+int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv){
   //
   // Heuristic optimisation, writing back best value found. Can be used to find TTS, the
   // expected time to find an optimum solution, using the strategy labelled by 'strat'.
@@ -1566,7 +1579,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   // S4: Randomise configuration; stabletree2exhaust
   // S(10+n): Do Sn but randomly perturb configuration instead of randomise it entirely
 
-  int v,bv,nis,cmin,cv,nv,ns,new,last,reset,ssize,Xbest[NBV];
+  int v,nis,cmin,cv,nv,ns,new,last,reset,ssize,copied,Xbest[NBV];
   int64 nn,rep,stt,ntr,*stats;
   double t0,t1,t2,t3,tt,now;
   double parms[6][2]={{0.5,0.3},{0.25,0.25},{0.5,0.25},{0.5,0.35},{0.25,0.2},{0.25,0.2}};
@@ -1576,7 +1589,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
     printf("Solutions are %sdependent\n",findtts?"in":"");
   }
-  bv=1000000000;nn=0;
+  nn=0;
   t0=cpu();// Initial time
   t1=0;// Elapsed time threshold for printing update
   // "presumed solution" means "minimum value found so far"
@@ -1584,7 +1597,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
   ntr=0;// Number of treeexhausts (which is nearly number of sweeps)
   t2=t0;// t2 = Time of last clean start (new minimum value in "independent" mode)
   stats=(int64*)malloc(MAXST*sizeof(int64));assert(stats);
-  memset(Xbest,0,NBV*sizeof(int));
+  memset(Xbest,0,NBV*sizeof(int));copied=0;
   reset=1;
   rep=cv=nis=0;
   do{
@@ -1637,7 +1650,8 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat){
     nn++;
     now=cpu();
     new=(cv<bv);
-    if(new){bv=cv;ns=0;ntr=0;memcpy(Xbest,XBa,NBV*sizeof(int));}
+    if(new){bv=cv;ns=0;ntr=0;}
+    if(cv==bv&&!copied){memcpy(Xbest,XBa,NBV*sizeof(int));copied=1;}// this logic ensures a copy if initial bv is optimum
     if(cv==bv){
       if(new&&findtts)t2=now; else ns++;
       if(0){if(new&&findtts){t2=now;printf("NEW BEST\n");} else {ns++;printf("%12g Time to find\n",now-t3);}}
@@ -2403,7 +2417,7 @@ int linLB(int w){
 void timingtests(int strat,double mint,double maxt){
   int d,n,r,c0,c1,ph,wid,v0,upd;
   double t0;
-  opt1(mint,maxt,1,1,0,strat);
+  opt1(mint,maxt,1,1,0,strat,1000000000);
   init_state();
   printf("val=%d\n",val());
   upd=0;
@@ -2431,7 +2445,7 @@ void timingtests(int strat,double mint,double maxt){
 
 void consistencychecks2(int weightmode,int centreflag,int strat,double mint,double maxt){
   int c,d,o,w,lw,ph,phl,r,v0,v1;
-  //opt1(mint,maxt,1,1,0,strat);
+  //opt1(mint,maxt,1,1,0,strat,1000000000);
   printf("val=%d\n",val());
   if(0){
     writeweights("prob");
@@ -2453,7 +2467,7 @@ void consistencychecks2(int weightmode,int centreflag,int strat,double mint,doub
     for(w=1;w<=3;w++){
       for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=-1;r<N;r++){
         init_state();
-        opt1(0,maxt,0,1,0,strat);
+        opt1(0,maxt,0,1,0,strat,1000000000);
         v0=treestripexhaust(d,w,ph,0,r);
         for(c=0;c<N;){
           phl=(c+ph)%(w+1);
@@ -2470,7 +2484,7 @@ void consistencychecks2(int weightmode,int centreflag,int strat,double mint,doub
     for(w=1;w<=3;w++){
       for(d=0;d<2;d++)for(ph=0;ph<=w;ph++){
         init_state();
-        opt1(mint,maxt,0,1,0,strat);
+        opt1(mint,maxt,0,1,0,strat,1000000000);
         v0=val();
         for(c=0;c<N;c++){
           phl=(c+ph)%(w+1);
@@ -3551,7 +3565,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
 
   margin=100;// safety margin for lowest energy
   lqc=centreconst();
-  if(!checksym()){fprintf(stderr,"Error: findspectrum() uses symmetry and assumes that the model has no external fields\n");exit(1);}
+  if(!checkbisym()){fprintf(stderr,"Error: findspectrum() uses symmetry and assumes that the model has no external fields\n");exit(1);}
   init_state();v=stabletreeexhaust(val(),1,0);base=v-margin;mine=v;maxe=lqc>>1;
   //if(ngp>1)mine=genp[1];
   const int maxdoublings=50;
@@ -3735,7 +3749,7 @@ void wanglandau(int weightmode){
   double s,ff,del;
   margin=100;// safety margin for lowest energy
   lqc=centreconst();
-  if(!checksym()){fprintf(stderr,"Error: wanglandau() uses symmetry and assumes that the model has no external fields\n");exit(1);}
+  if(!checkbisym()){fprintf(stderr,"Error: wanglandau() uses symmetry and assumes that the model has no external fields\n");exit(1);}
   init_state();v=stabletreeexhaust(val(),1,0);base=v-margin;mine=v;maxe=lqc>>1;
   const int erange=maxe+1-base;
   int64 hist[erange];
@@ -3768,8 +3782,31 @@ void wanglandau(int weightmode){
   }
 }
 
-void countgroundstates(int weightmode){
-  
+uint64 hash(){// Symmetry-invariant hash, suitable if checksym()==1
+  int o,v,x,y,xor;
+  uint64 h;
+  xor=(XB(0,0,0)&1)*15;
+  h=0;
+  for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){
+    v=XB(x,y,o)^xor;
+    h=h*h+h*9123091820398247ULL+(h>>20)+v;
+  }
+  return h;
+}
+
+void countgroundstates(int weightmode,int tns){
+  int bv,cv,ns;
+  double x;
+  assert(checksym());
+  if(ngp>0)bv=genp[0]; else bv=1000000000;//opt1(0.5,1e9,0,250,&x,13,1000000000);
+ restart:
+  printf("Using bv=%d\n",bv);
+  for(ns=0;ns<tns;ns++){
+    cv=opt1(0,1e9,0,1,&x,13,bv);
+    if(cv<bv){bv=cv;printf("RESTART\n");goto restart;}
+    //prstate(stdout,1,0);
+    printf("HASH %016llx\n",hash());fflush(stdout);
+  }
 }
 
 int main(int ac,char**av){
@@ -3906,13 +3943,13 @@ int main(int ac,char**av){
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
   case 0:// Find minimum value using heuristic strategy strat, not worrying about independence of subsequent minima
-    opt1(mint,maxt,deb,1,0,strat);
+    opt1(mint,maxt,deb,1,0,strat,1000000000);
     break;
   case 1:;// Find rate of solution generation, ensuring that minima are independent
     {
       int v;
       double tts;
-      v=opt1(0.5,maxt,deb,numpo,&tts,strat);
+      v=opt1(0.5,maxt,deb,numpo,&tts,strat,1000000000);
       printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
       break;
     }
@@ -3923,7 +3960,7 @@ int main(int ac,char**av){
       s0=s1=s2=0;
       while(1){
         initweights(weightmode,centreflag);
-        v=opt1(0,maxt,0,500,0,strat);
+        v=opt1(0,maxt,0,500,0,strat,1000000000);
         s0+=1;s1+=v;s2+=v*v;va=(s2-s1*s1/s0)/(s0-1);
         printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
       }
@@ -3931,7 +3968,7 @@ int main(int ac,char**av){
     break;
   case 4:;// Consistency checks
     {
-      opt1(mint,maxt,1,1,0,strat);
+      opt1(mint,maxt,1,1,0,strat,1000000000);
       printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
       int o,v,c0,c1;
       for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
@@ -4005,7 +4042,7 @@ int main(int ac,char**av){
       int64 b,n;
       double s1;
       init_state();
-      //opt1(mint,maxt,deb,1,0,strat);
+      //opt1(mint,maxt,deb,1,0,strat,1000000000);
       for(r=0;r<N;r++){
         n=1LL<<(4*N);
         int g[n];
@@ -4094,7 +4131,10 @@ int main(int ac,char**av){
     wanglandau(weightmode);
     break;
   case 23:
-    countgroundstates(weightmode);
+    countgroundstates(weightmode,numpo);
+    break;
+  case 24:
+    printf("%d %d\n",checkbisym(),checksym());
     break;
   }// mode
   prtimes();
