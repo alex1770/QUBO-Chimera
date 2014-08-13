@@ -2543,7 +2543,7 @@ void getqbounds(int qb[7]){
     }
   }
   qb[6]=MAX(-qb[0],qb[1]);
-  printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",qb[0],qb[1],qb[2],qb[3],qb[4],qb[5],qb[6]);
+  if(deb>=2)printf("qbounds rr: %d %d    mm: %d %d    qq: %d %d %d\n",qb[0],qb[1],qb[2],qb[3],qb[4],qb[5],qb[6]);
 }
 
 double getmaxbeta(int qb[7]){
@@ -2578,7 +2578,7 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
   if(tree){
     double maxbeta;
     maxbeta=getmaxbeta(qb);
-    printf("Maximum beta: %g\n",maxbeta);
+    if(deb>=2)printf("Maximum beta: %g\n",maxbeta);
     for(t=0;t<nt;t++)if(be[t]>maxbeta){fprintf(stderr,"Beta = %g exceeds maximum beta of %g for tree1gibbs()\n",be[t],maxbeta);exit(1);}
   }
   gt=(gibbstables*)malloc(nt*sizeof(gibbstables));assert(gt);
@@ -3876,7 +3876,7 @@ void findspectrum_ds(int weightmode,int tree,const char*outprobfn,int pr){
   nit=0;printed=0;
   memset(&hist[0],0,sizeof(hist[0]));
   for(e=mine;e<=maxe;e++)lp[e-base]=0;
-  if(1){//alter
+  if(0){
     double cheat[24]={354.891, 358.017, 363.142, 371.352, 382.006, 395.402, 410.602, 428.556,
                       449.365, 474.283, 503.631, 537.024, 577.334,  621.79, 677.746, 747.765,
                       840.861, 963.706, 1126.02, 1370.36, 1765.61, 2560.82, 4399.47, 23070};
@@ -3919,7 +3919,7 @@ void findspectrum_ds(int weightmode,int tree,const char*outprobfn,int pr){
     }//d
     tim1+=cpu();
     h0=MAX(h-linlen,0);// subtract off from this point in history
-    //h0=0;//alter
+    //h0=0;
     if(nit>=100000*(tree?1:10)){
       tim2-=cpu();
       // Maximise \prod_{ij}(p_j e^{-\beta_i E_j}/Z_i)^{n_{ij}} over p_j
@@ -3983,7 +3983,7 @@ void findspectrum_ds(int weightmode,int tree,const char*outprobfn,int pr){
         if(it>=5&&x<1e-3)break;
       }//while
       
-      //for(i=0;i<nt;i++)lZ[i]=0.5*lZ[i]+0.5*lZ1[i];//alter
+      //for(i=0;i<nt;i++)lZ[i]=0.5*lZ[i]+0.5*lZ1[i];
       for(h1=h;h1<=h;h1++){
         for(i=0,z=-1e30;i<nt;i++)z=addlog(z,lZ[i]-hist[h1].lZ[i]);
         for(i=0;i<nt;i++)printf("%8.3g ",lZ[i]-hist[h1].lZ[i]-z);printf("   logprob(beta)\n");
@@ -4053,6 +4053,82 @@ void findspectrum_ds(int weightmode,int tree,const char*outprobfn,int pr){
   }
   printf("CPU %g\n",cpu()-tim0);
   freegibbstables(nt,gt);
+}
+
+// Use EMC to find a state with energy<=bv from a clean start
+int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int pr){
+  double *be;// Set of betas
+  int nt;// Number of temperatures (betas)
+  be=loadbetaset(weightmode,betaskip,&nt);
+  typedef struct {
+    int X[NBV];// State
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate sbuf[nt],ts;
+  int i,v;
+  double del;
+  gibbstables*gt;
+
+  if(pr>=2){
+    printf("Number of temperatures: %d\n",nt);
+    for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+    printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+    printf("Randstart: %d\n",RANDSTART);
+    printf("Tree mode: %d\n",tree);
+  }
+  gt=initgibbstables(nt,be,tree);//check timing
+  for(i=0;i<nt;i++){
+    init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+    sbuf[i].e=val();
+  }
+  while(1){
+    for(i=0;i<nt;i++){
+      memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+      switch(tree){
+      case 0:
+        simplegibbssweep(&gt[i]);
+        break;
+      case 1:
+        tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
+        break;
+      }
+      if(nit)(*nit)++;
+      v=val();if(v<=bv){freegibbstables(nt,gt);return v;}
+      sbuf[i].e=v;
+      memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+    }
+    for(i=0;i<nt-1;i++){
+      del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
+      if(del<0||randfloat()<exp(-del)){
+        ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;
+        //ex1[i]++;
+      }
+    }
+  }
+}
+
+// Find TTS using EMC
+void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
+  int ns,cv;
+  int64 nit;
+  double tim0,tim1,now;
+  printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+  printf("Betaskip: %d\n",betaskip);
+  printf("Target number of presumed optima: %d\n",tns);
+  printf("Initial best value: %d\n",bv);
+  printf("RANDSTART: %d\n",RANDSTART);
+  initrandtab(50000);
+  ns=0;tim0=tim1=cpu();nit=0;
+  printf("  Iterations T         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
+  while(ns<tns){
+    cv=opt4a(weightmode,tree,betaskip,bv,&nit,pr);
+    now=cpu();
+    if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
+    printf("%12lld %d %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",
+           nit,tree,bv,ns,now-tim1,now-tim0,(now-tim1)/ns,nit/(double)ns);
+    fflush(stdout);
+  }
+  printf("Time to solution %gs, assuming true minimum is %d. Iterations = %lld\n",(cpu()-tim1)/ns,bv,nit);
 }
 
 int main(int ac,char**av){
@@ -4382,6 +4458,10 @@ int main(int ac,char**av){
   case 24:
     findspectrum_ds(weightmode,genp[0]==0,genfile,deb);
     break;
+  case 25: // mode to optimise using EMC
+    // -P<submode:0=tree,1=vertex>,<-r to use set of betas with the first/hottest r missing>,
+    // <initial bv> (optional). Also uses tns = total number of solutions
+    opt4(weightmode,deb,numpo,genp[0]==0,genp[1],ngp>2?genp[2]:1000000000);
   }// mode
   prtimes();
   if(outstatefile)writestate(outstatefile);
