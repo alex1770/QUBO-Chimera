@@ -3803,15 +3803,15 @@ uint64 hash(){// Symmetry-invariant hash, suitable if checksym()==1
   return h;
 }
 
-void countgroundstates(int weightmode,int tns){
+void countgroundstates(int weightmode,int tns,int strat){
   int bv,cv,ns;
   double x;
   assert(checksym());
-  if(ngp>0)bv=genp[0]; else bv=1000000000;//opt1(0.5,1e9,0,250,&x,13,1000000000);
+  if(ngp>0)bv=genp[0]; else bv=1000000000;
  restart:
   printf("Using bv=%d\n",bv);
   for(ns=0;ns<tns;ns++){
-    cv=opt1(0,1e9,0,1,&x,13,bv);
+    cv=opt1(0,1e9,0,1,&x,strat,bv);
     if(cv<bv){bv=cv;printf("RESTART\n");goto restart;}
     //prstate(stdout,1,0);
     printf("HASH %016llx\n",hash());fflush(stdout);
@@ -4460,7 +4460,7 @@ int main(int ac,char**av){
     wanglandau(weightmode);
     break;
   case 23:
-    countgroundstates(weightmode,numpo);
+    countgroundstates(weightmode,numpo,strat);
     break;
   case 24:
     findspectrum_ds(weightmode,genp[0]==0,genfile,deb);
