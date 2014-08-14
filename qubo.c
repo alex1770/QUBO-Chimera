@@ -2904,7 +2904,10 @@ double*loadbetaset(int weightmode,double betaskip,int*nt){
      2.920,3.783,5.511,50.000},// 8, 0.25
     {0},
     {0.245,0.315,0.383,0.452,0.525,0.595,0.669,0.741,0.820,0.901,0.982,1.071,1.167,1.272,1.398,1.536,
-     1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000}// 10, 0.25
+     1.687,1.868,2.101,2.401,2.786,3.337,4.255,6.248,50.000},// 10, 0.25
+    {0},
+    {0.329,0.388,0.447,0.506,0.566,0.628,0.688,0.747,0.811,0.880,0.946,1.016,1.092,1.173,1.260,1.354,
+     1.470,1.595,1.732,1.899,2.083,2.308,2.583,2.952,3.442,4.183,5.631,50.000}// 12, 0.25
   };
   double bew11[][50]={// Weightmode 11, be[]
     {0},
@@ -4109,26 +4112,30 @@ int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int pr){
 
 // Find TTS using EMC
 void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
-  int ns,cv;
+  int ns,cv,pri;
   int64 nit;
-  double tim0,tim1,now;
+  double tim0,tim1,t1,tt,now;
   printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
   printf("Betaskip: %d\n",betaskip);
   printf("Target number of presumed optima: %d\n",tns);
   printf("Initial best value: %d\n",bv);
   printf("RANDSTART: %d\n",RANDSTART);
   initrandtab(50000);
-  ns=0;tim0=tim1=cpu();nit=0;
+  ns=0;tim0=tim1=cpu();t1=0;nit=0;
   printf("  Iterations T         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
     cv=opt4a(weightmode,tree,betaskip,bv,&nit,pr);
-    now=cpu();
+    now=cpu();tt=now-tim0;
+    pri=(cv<bv||tt>=t1);
     if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
-    printf("%12lld %d %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",
-           nit,tree,bv,ns,now-tim1,now-tim0,(now-tim1)/ns,nit/(double)ns);
+    if(pri||ns==tns){
+      printf("%12lld %d %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",
+             nit,tree,bv,ns,now-tim1,tt,(now-tim1)/ns,nit/(double)ns);
+      t1=MAX(tt*1.1,tt+5);
+    }
     fflush(stdout);
   }
-  printf("Time to solution %gs, assuming true minimum is %d. Iterations = %lld\n",(cpu()-tim1)/ns,bv,nit);
+  printf("Time to solution %gs, assuming true minimum is %d. Iterations/soln = %g\n",(cpu()-tim1)/ns,bv,nit/(double)ns);
 }
 
 int main(int ac,char**av){
