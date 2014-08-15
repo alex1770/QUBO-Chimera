@@ -3316,7 +3316,6 @@ int findeqbmusingtopbeta(int weightmode){
   printf("Number of temperatures: %d\n",nt);
   for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
   printf("Monte Carlo mode %g\n",genp[0]);
-  for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
   int ndmax=5/eps; // 5/eps is rough-and-ready parameter. >=5/eps gives some degree of
   //                  protection against rare events
   int ndgu=0.4*ndmax; // Give-up point
@@ -3338,6 +3337,7 @@ int findeqbmusingtopbeta(int weightmode){
     printf("\nEquilibration length %d\n",eqb);fflush(stdout);
     for(i=0;i<eqbnblk+1;i++)sten0[i]=sten1[i]=sten2[i]=0;
     for(i=0;i<nt;i++)em[i][0]=em[i][1]=em[i][2]=0;
+    for(i=0,nex=0;i<nt-1;i++)ex[i]=0;// Count of pair-exchanges
     nd=0;
     tim0=cpu();
     while(1){// Loop over runs
