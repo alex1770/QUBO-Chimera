@@ -3750,7 +3750,6 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
       printed=1;
     }
   }
-  printf("CPU %g\n",cpu()-tim0);
   freegibbstables(nt,gt);
 }
 
