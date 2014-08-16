@@ -4061,7 +4061,7 @@ void findspectrum_ds(int weightmode,int tree,const char*outprobfn,int pr){
 }
 
 // Use EMC to find a state with energy<=bv from a clean start
-int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int pr){
+int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int qu,int pr){
   double *be;// Set of betas
   int nt;// Number of temperatures (betas)
   be=loadbetaset(weightmode,betaskip,&nt);
@@ -4074,6 +4074,7 @@ int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int pr){
   double del;
   gibbstables*gt;
 
+  for(i=0;i<nt;i++)be[i]/=qu;
   if(pr>=2){
     printf("Number of temperatures: %d\n",nt);
     for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
@@ -4114,19 +4115,21 @@ int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int pr){
 
 // Find TTS using EMC
 void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
-  int ns,cv,pri,last;
+  int ns,cv,pri,last,qu;
   int64 nit;
   double tim0,tim1,t1,tt,now;
+  qu=energyquantum();
   printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
   printf("Betaskip: %d\n",betaskip);
   printf("Target number of presumed optima: %d\n",tns);
   printf("Initial best value: %d\n",bv);
+  printf("Energy quantum: %d\n",qu);
   printf("RANDSTART: %d\n",RANDSTART);
   initrandtab(50000);
   ns=0;tim0=tim1=cpu();t1=0;nit=0;
   printf("  Iterations T         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
-    cv=opt4a(weightmode,tree,betaskip,bv,&nit,pr);
+    cv=opt4a(weightmode,tree,betaskip,bv,&nit,qu,pr);
     now=cpu();tt=now-tim0;
     last=(ngp>=4&&tt>genp[3]);
     pri=(cv<bv||tt>=t1||last);
