@@ -3615,7 +3615,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
   memset(&hist[0],0,sizeof(hist[0]));
   for(e=mine;e<=maxe;e++)lp[e-base]=0;
 
-  while(mine!=genp[1]||ngp<2||nis<genp[2]||!printed){
+  while(mine!=genp[1]||!printed||((ngp<=2||nis<genp[2])&&(ngp<=3||nis==0||cpu()-tim0<genp[3]))){
     tim1-=cpu();
     lc+=1;if(lc==linlen){lc=0;dc+=1;assert(dc<maxdoublings);}
     h=dc*linlen+lc;// position in history
@@ -4114,7 +4114,7 @@ int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int pr){
 
 // Find TTS using EMC
 void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
-  int ns,cv,pri;
+  int ns,cv,pri,last;
   int64 nit;
   double tim0,tim1,t1,tt,now;
   printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
@@ -4128,7 +4128,8 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
   while(ns<tns){
     cv=opt4a(weightmode,tree,betaskip,bv,&nit,pr);
     now=cpu();tt=now-tim0;
-    pri=(cv<bv||tt>=t1);
+    last=(ngp>=4&&tt>genp[3]);
+    pri=(cv<bv||tt>=t1||last);
     if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
     if(pri||ns==tns){
       printf("%12lld %d %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",
@@ -4136,6 +4137,7 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
       t1=MAX(tt*1.1,tt+5);
     }
     fflush(stdout);
+    if(last)break;
   }
   printf("Time to solution %gs, assuming true minimum is %d. Iterations/soln = %g\n",(cpu()-tim1)/ns,bv,nit/(double)ns);
 }
@@ -4467,9 +4469,10 @@ int main(int ac,char**av){
   case 24:
     findspectrum_ds(weightmode,genp[0]==0,genfile,deb);
     break;
-  case 25: // mode to optimise using EMC
+  case 25:
+    // Optimise using EMC
     // -P<submode:0=tree,1=vertex>,<-r to use set of betas with the first/hottest r missing>,
-    // <initial bv> (optional). Also uses tns = total number of solutions
+    // <initial bv> (optional), max time (optional). Also uses tns = total number of solutions
     opt4(weightmode,deb,numpo,genp[0]==0,genp[1],ngp>2?genp[2]:1000000000);
   }// mode
   prtimes();
