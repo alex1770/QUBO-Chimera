@@ -4150,7 +4150,7 @@ int opt5a(int weightmode,int tree,int betaskip,int bv,int64*nit,int qu,int pr){
     }
     for(r0=0;r0<=r;r0++){
       if(r0<r)n=1<<(r-1-r0); else n=1;
-      n*=100;
+      n*=(tree?100:10000);
       for(s=0;s<(1<<r0);s++){
         sbuf=batch[r0][s];
         for(it=0;it<n;it++){
@@ -4198,6 +4198,7 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv,double maxt
   printf("Betaskip: %d\n",betaskip);
   printf("Target number of presumed optima: %d\n",tns);
   printf("Initial best value: %d\n",bv);
+  printf("Treemode: %s\n",tree?"yes":"no");
   printf("Energy quantum: %d\n",qu);
   printf("Max time: %gs\n",maxt);
   printf("TlogT mode: %d\n",tlogt);
