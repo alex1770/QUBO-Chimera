@@ -4082,7 +4082,7 @@ int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int qu,int pr){
     printf("Randstart: %d\n",RANDSTART);
     printf("Tree mode: %d\n",tree);
   }
-  gt=initgibbstables(nt,be,tree);//check timing
+  gt=initgibbstables(nt,be,tree);
   for(i=0;i<nt;i++){
     init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
     sbuf[i].e=val();
@@ -4113,31 +4113,108 @@ int opt4a(int weightmode,int tree,int betaskip,int bv,int64*nit,int qu,int pr){
   }
 }
 
+// Use EMC to find a state with energy<=bv from a clean start
+// Use parallel copies to cope with possible pathological running-time distribution:
+// T*log_2(T) method
+int opt5a(int weightmode,int tree,int betaskip,int bv,int64*nit,int qu,int pr){
+  double *be;// Set of betas
+  int nt;// Number of temperatures (betas)
+  be=loadbetaset(weightmode,betaskip,&nt);
+  const int maxbatches=31;
+  typedef struct {
+    int X[NBV];// State
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate ts,*sbuf,(*(batch[maxbatches]))[nt];
+  int i,r,s,v,r0,r1;
+  int64 it,n;
+  double del;
+  gibbstables*gt;
+
+  for(i=0;i<nt;i++)be[i]/=qu;
+  if(pr>=2){
+    printf("Number of temperatures: %d\n",nt);
+    for(i=0;i<nt;i++)printf("%8.3f ",be[i]);printf("  be[]\n");
+    printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+    printf("Randstart: %d\n",RANDSTART);
+    printf("Tree mode: %d\n",tree);
+  }
+  gt=initgibbstables(nt,be,tree);
+  for(r=0;r<maxbatches;r++){
+    batch[r]=(tstate(*)[nt])malloc((1ULL<<r)*nt*sizeof(tstate));assert(batch[r]);
+    for(s=0;s<(1<<r);s++){
+      for(i=0;i<nt;i++){
+        init_state();memcpy(batch[r][s][i].X,XBa,NBV*sizeof(int));
+        batch[r][s][i].e=val();
+      }
+    }
+    for(r0=0;r0<=r;r0++){
+      if(r0<r)n=1<<(r-1-r0); else n=1;
+      n*=100;
+      for(s=0;s<(1<<r0);s++){
+        sbuf=batch[r0][s];
+        for(it=0;it<n;it++){
+          for(i=0;i<nt;i++){
+            memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+            switch(tree){
+            case 0:
+              simplegibbssweep(&gt[i]);
+              break;
+            case 1:
+              tree1gibbs(randint(2),randint(2),randint(N),&gt[i]);
+              break;
+            }
+            if(nit)(*nit)++;
+            v=val();if(v<=bv){
+              freegibbstables(nt,gt);
+              for(r1=0;r1<=r;r1++)free(batch[r1]);
+              return v;
+            }
+            sbuf[i].e=v;
+            memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+          }//i
+          for(i=0;i<nt-1;i++){
+            del=(be[i+1]-be[i])*(sbuf[i].e-sbuf[i+1].e);
+            if(del<0||randfloat()<exp(-del)){
+              ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;
+              //ex1[i]++;
+            }
+          }//i
+        }//it
+      }//s
+    }//r0
+  }
+  assert(0);
+}
+
 // Find TTS using EMC
-void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv){
+void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv,double maxt,int tlogt){
   int ns,cv,pri,last,qu;
   int64 nit;
   double tim0,tim1,t1,tt,now;
   qu=energyquantum();
   printf("Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+  printf("Randstart: %d\n",RANDSTART);
   printf("Betaskip: %d\n",betaskip);
   printf("Target number of presumed optima: %d\n",tns);
   printf("Initial best value: %d\n",bv);
   printf("Energy quantum: %d\n",qu);
-  printf("RANDSTART: %d\n",RANDSTART);
+  printf("Max time: %gs\n",maxt);
+  printf("TlogT mode: %d\n",tlogt);
   initrandtab(50000);
   ns=0;tim0=tim1=cpu();t1=0;nit=0;
   printf("  Iterations T         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
-    cv=opt4a(weightmode,tree,betaskip,bv,&nit,qu,pr);
+    if(tlogt)cv=opt5a(weightmode,tree,betaskip,bv,&nit,qu,pr); else
+      cv=opt4a(weightmode,tree,betaskip,bv,&nit,qu,pr);
     now=cpu();tt=now-tim0;
-    last=(ngp>=4&&tt>genp[3]);
+    last=(ngp>=4&&tt>maxt);
     pri=(cv<bv||tt>=t1||last);
     if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
     if(pri||ns==tns){
       printf("%12lld %d %10d %6d %8.2f %8.2f  %8.3g   %8.3g\n",
              nit,tree,bv,ns,now-tim1,tt,(now-tim1)/ns,nit/(double)ns);
-      t1=MAX(tt*1.1,tt+5);
+      t1=MAX(tt*1.1,tt+0.5);
     }
     fflush(stdout);
     if(last)break;
@@ -4475,8 +4552,9 @@ int main(int ac,char**av){
   case 25:
     // Optimise using EMC
     // -P<submode:0=tree,1=vertex>,<-r to use set of betas with the first/hottest r missing>,
-    // <initial bv> (optional), max time (optional). Also uses tns = total number of solutions
-    opt4(weightmode,deb,numpo,genp[0]==0,genp[1],ngp>2?genp[2]:1000000000);
+    // <initial bv> (optional), max time (optional), TlogT flag (optional).
+    // Also uses tns = total number of solutions
+    opt4(weightmode,deb,numpo,genp[0]==0,genp[1],ngp>2?genp[2]:1000000000,ngp>3?genp[3]:1e8,ngp>4?genp[4]:0);
   }// mode
   prtimes();
   if(outstatefile)writestate(outstatefile);
