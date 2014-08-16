@@ -1,0 +1,17 @@
+#!/bin/bash
+
+dir=$1
+v=$2
+echo Status of dir=$dir v=$v
+cat prelist-emctts-v$v|while read x; do
+  set $(echo $x)
+  if [[ ${1:0:1} != "#" ]]; then
+    for nbl in `seq $5 $7 $6`; do
+      for seed in `seq $8 $9`; do
+        tail -n1 $dir/emctts-m25-N$1-s$seed-w$2-P$3,-$nbl 2>/dev/null|grep ^Time
+      done|awk '{a+=1;b+=log($NF)/log(2);c+=$NF;}END{printf("N%-2d w%-2d P%d %4d %4d %7.1f %7.1f\n",'$\
+1','$2','$3',a,-'$nbl',b/a,log(c/a)/log(2));}'
+    done
+    echo
+  fi
+done

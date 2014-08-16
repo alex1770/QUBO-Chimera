@@ -1,0 +1,5 @@
+#!/bin/bash
+# destfile command [options]
+# This wrapper is used because schedule.py doesn't have the facility to
+# redirect the output of each job to a separate file.
+${@:2} > $1 2>&1
