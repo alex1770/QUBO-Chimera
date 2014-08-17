@@ -9,7 +9,8 @@ cat prelist-emctts-v$v|while read x; do
     N=$1;w=$2
     maxt=${10:-1e10}
     tlogt=${11:-0}
-    sum=output/weightmode$w/$((N*N*8)).strat13/summary
+    strat=${12:-13}
+    sum=output/weightmode$w/$((N*N*8)).strat$strat/summary
     for seed in `seq $8 $9`; do
       ans=`grep -v ^# $sum|head -$seed|tail -1|awk '{print $2;}'`
       for nbl in `seq $5 $7 $6`; do
