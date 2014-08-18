@@ -127,6 +127,7 @@ unsigned int *randtab;
 int randptr,randlength;
 
 typedef struct {
+  int emin,emax;
   long double *etab0,*etab,m0,m1,Q0,Q1,Q2;
   unsigned int *ftab0,*ftab;
   unsigned char (*septab0)[16][4]; // [16][16][4], static
@@ -146,6 +147,8 @@ typedef struct {
 //   s = i<<2|(j<<1)|k,  (i=0,1,2,3, j=0,1, k=0,1) as from septab0
 //   Z_l = Z-value arising from (x-1,y,0,i)=j, (x,y,0,i)=l, (x+1,y,0,i)=k, (x,y,1)=b  (mutatis mutandis if o=1)
 //   It evaluates all edges from (x,y,o,i), including its self-edge and (x,y,1-o,i)'s self-edge (but none others)
+// septab2a[p][b][s][l] = W_l (a small integer), where exp(-beta*W_l)=etab[W_l]=Z_l and p,b,s,l are as in septab2
+//                        (W_l is beta-independent, which makes septab2a much more compact than septab2)
 // septab3[p][i][j][k] = exp(-be[t]*(-J_{pq}-J_{qp})*statemap[j]*statemap[k]), where
 //                       p=(x,y,0,i), q=(x,y+1,0,i)  (mutatis mutandis if o=1)
 int septab1a_compact,septab2a_compact,septab3a_compact;
@@ -1127,7 +1130,7 @@ double tree1gibbs_sqa(int d,int ph,int r0,gibbstables*gt,double J0,double J1,int
             if(septab2a_compact){
               signed char (*p2a)[2];
               p2a=septab2a[encI(d,c,r,0)][b];
-              for(i=0,s=0;i<4;i++){
+              for(i=0,s=0;i<4;i++){// Considering (c,r,0,i)
                 long double ZZ0,ZZ1;
                 ZZ0=etab[p2a[p0[i]][0]]*ext[i];// (c,r,0,i)=0
                 ZZ1=etab[p2a[p0[i]][1]]/ext[i];// (c,r,0,i)=1
@@ -1162,20 +1165,8 @@ double tree1gibbs_sqa(int d,int ph,int r0,gibbstables*gt,double J0,double J1,int
           long double Zx[16],ZZ0,ZZ1;
           int q,lh0[16],lh1[16];
           q=encI(d,c,r-dir,1);
-#define T1Gstrut(i,Zf,Zt,lf,lt)                                      \
-          for(b=0;b<16;b++){                                         \
-            ZZ0=Zf[b&~(1<<i)]*septab3[q][i][b>>i&1][0];              \
-            ZZ1=Zf[b|(1<<i)]*septab3[q][i][b>>i&1][1];               \
-            Zt[b]=ZZ0+ZZ1;                                           \
-            lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
-          }
-#define T1Gstruta(i,Zf,Zt,lf,lt)                                     \
-          for(b=0;b<16;b++){                                         \
-            ZZ0=Zf[b&~(1<<i)]*etab[septab3a[q][i][b>>i&1][0]];       \
-            ZZ1=Zf[b|(1<<i)]*etab[septab3a[q][i][b>>i&1][1]];        \
-            Zt[b]=ZZ0+ZZ1;                                           \
-            lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
-          }
+          // #define T1Gstrut(i,Zf,Zt,lf,lt)   \ see tree1gibbs
+          // #define T1Gstruta(i,Zf,Zt,lf,lt)  /
           if(septab3a_compact){
             T1Gstruta(0,Z1,Zx,id,lh1);
             T1Gstruta(1,Zx,Z1,lh1,lh0);
@@ -2810,6 +2801,7 @@ gibbstables*initgibbstables(int nt,double *be,int tree){
     int emin,emax;
     emin=MIN(qb[0],-128);
     emax=MAX(qb[1],127);
+    gt[t].emin=emin;gt[t].emax=emax;
     gt[t].etab0=(long double*)malloc((emax-emin+1)*sizeof(long double));
     gt[t].etab=gt[t].etab0-emin;
     gt[t].ftab0=(unsigned int*)malloc(256*sizeof(unsigned int));assert(gt[t].ftab0);
@@ -4446,7 +4438,132 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv,double maxt
   printf("Time to solution %gs, assuming true minimum is %d. Iterations/soln = %g\n",(cpu()-tim1)/ns,bv,nit/(double)ns);
 }
 
-void SQA(int weightmode,int tree){
+void SQA(int weightmode,int tree,double beta,int P){
+  int k,k0,k1,o,r,x,y,qu;
+  int64 nit;
+  double beta_red;// intra-slice (reduced) beta
+  double JP,EJ,Gamma;
+  gibbstables*gt;
+  typedef struct {
+    int Xplus[(N+2)*N*2];
+    int *X;// State
+    int e;// Energy
+  } istate; // Imaginary time slice state
+  istate sl[P];
+
+  qu=energyquantum();
+  printf("Intra-slice Monte Carlo mode: %s\n",tree?"tree":"single-vertex");
+  printf("Overall beta: %g\n",beta);
+  beta_red=beta/P;
+  printf("Intra-slice beta: %g\n",beta_red);
+  //printf("Initial best value: %d\n",bv);
+  printf("Treemode: %s\n",tree?"yes":"no");
+  printf("Energy quantum: %d\n",qu);
+  //printf("Max time: %gs\n",maxt);
+  printf("Imaginary time slices: %d\n",P);
+
+  initrandtab(50000);
+  init_state();
+  // Consider pre-annealing at this point
+  for(k=0;k<P;k++){// Initialise all slices to the same state
+    memset(sl[k].Xplus,0,sizeof(sl[k].Xplus));
+    sl[k].X=sl[k].Xplus+N*2;
+    memcpy(sl[k].X,XBa,NBV*sizeof(int));
+    sl[k].e=val();
+  }
+
+  gt=initgibbstables(1,&beta_red,tree);
+  unsigned char (*septab0)[16][4]=gt->septab0;
+  signed char (*septab2a)[16][16][2]=gt->septab2a;
+  int emin=gt[0].emin;
+  int emax=gt[0].emax;
+  long double EJpow0[emax-emin+1];
+  long double *EJpow=EJpow0-emin;
+  nit=0;
+  for(Gamma=3;Gamma>.5e-8;Gamma/=1.01){
+    JP=-(1/2.)*log(tanh(Gamma*beta_red));
+    EJ=exp(JP);
+    printf("\n");
+    printf("Gamma = %g\n",Gamma);
+    printf("J_perp/PT = %g\n",JP);
+    for(k=0;k<P;k++)printf("%5d ",sl[k].e);printf("\n");
+    EJpow[0]=1;
+    for(r=1;r<=emax;r++)EJpow[r]=EJpow[r-1]*EJ;
+    for(r=-1;r>=emin;r--)EJpow[r]=EJpow[r+1]/EJ;
+
+    // Intra-slice sweep
+    k0=randint(P);
+    for(k1=0;k1<P;k1++){
+      k=(k0+k1)%P;
+      memcpy(XBa,sl[k].X,NBV*sizeof(int));
+      switch(tree){
+      case 0:
+        assert(0);// not yet done simplegibbssweep_sqa(gt);
+        break;
+      case 1:
+        tree1gibbs_sqa(randint(2),randint(2),randint(N),gt,EJ,EJ,sl[(k+P-1)%P].X,sl[(k+1)%P].X);
+        break;
+      }
+      nit++;
+      sl[k].e=val();
+      memcpy(sl[k].X,XBa,NBV*sizeof(int));
+    }
+
+    // Inter-slice sweep
+    for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){
+      int a,b,c,i,s,en,enl,enr,eno,hs[P][2][2];
+      long double z,Z,ZZ0[2][2],ZZ1[2][2];
+      en=enc(x,y,o);eno=enc(x,y,1-o);
+      enl=enc(x-(o==0),y-(o==1),o);
+      enr=enc(x+(o==0),y+(o==1),o);
+      // hs[k][a][b] = choice of b_{k-1} given b_0=a, b_k=b (k>0)
+      if(randptr>randlength-16*P)randptr=randint(randlength-16*P+1);
+      for(i=0;i<4;i++){
+        // Couple b_k = (bit i of sl[k].en) for k=0,...,P-1 with coupling constant EJ
+        // Let e_k denote the external vertices on slice k
+        for(k=0;k<P;k++){
+          int *X=sl[k].X;
+          s=septab0[X[enl]][X[enr]][i];
+          if(k==0){
+            // Initialise ZZ0[a][b]=delta_{ab} Z( b_0=a---e_0 )
+            ZZ0[0][1]=ZZ0[1][0]=0;
+            for(a=0;a<2;a++)ZZ0[a][a]=EJpow[septab2a[en][X[eno]][s][a]];
+          }else{
+            // ZZ0[a][b] = Z( b_0---...---b_{k-1} + b_0---e_0,...,b_{k-1}---e_{k-1}   given b_0=a and b_{k-1}=b )
+            // a=b_0, b=b_{k-1}, c=b_k
+            for(a=0;a<2;a++)for(c=0;c<2;c++){
+              ZZ1[a][c]=0;
+              for(b=0;b<2;b++)ZZ1[a][c]+=ZZ0[a][b]*(c==b?EJ:1/EJ);
+              z=RANDFLOAT*ZZ1[a][c];
+              hs[k][a][c]=(z>=ZZ0[a][0]*(c==0?EJ:1/EJ));
+            }
+            // ZZ1[a][b] = Z( b_0---...---b_k + b_0---e_0,...,b_{k-1}---e_{k-1}   given b_0=a and b_k=b )
+            for(c=0;c<2;c++){
+              Z=EJpow[septab2a[en][X[eno]][s][c]];
+              for(a=0;a<2;a++)ZZ1[a][c]*=Z;
+            }
+            // ZZ1[a][b] = Z( b_0---...---b_k + b_0---e_0,...,b_k---e_k   given b_0=a and b_k=b )
+            for(a=0;a<2;a++)for(b=0;b<2;b++)ZZ0[a][b]=ZZ1[a][b];
+          }
+        }//k
+        Z=(ZZ0[0][0]+ZZ0[1][1])*EJ+(ZZ0[0][1]+ZZ0[1][0])/EJ;
+        z=RANDFLOAT*Z;
+        for(a=0;a<2;a++)for(b=0;b<2;b++){// Get choice of b_0, b_{P-1}
+          z-=ZZ0[a][b]*(a==b?EJ:1/EJ);
+          if(z<0||(a==1&&b==1))goto el0;
+        }
+      el0:;
+        for(k=P-1;k>=0;k--){
+          // a=b_0, b=b_k
+          sl[k].X[en]=(sl[k].X[en]&~(1<<i))|(b<<i);
+          if(k==0)break;
+          b=hs[k][a][b];assert(b==0||b==1);
+        }
+      }//i
+    }
+  }
+  
+  freegibbstables(1,gt);
 }
 
 int main(int ac,char**av){
@@ -4789,7 +4906,8 @@ int main(int ac,char**av){
     break;
   case 26:
     // SQA
-    SQA(weightmode,genp[0]==0);
+    SQA(weightmode,genp[0]==0,genp[1],genp[2]);
+    // genp[] = ~tree, beta, K=#imag time steps
     break;
   }// mode
   prtimes();
