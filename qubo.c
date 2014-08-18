@@ -4439,7 +4439,7 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv,double maxt
 }
 
 void SQA(int weightmode,int tree,double beta,int P){
-  int k,k0,k1,o,r,x,y,qu;
+  int k,k0,k1,o,x,y,qu;
   int64 nit;
   double beta_red;// intra-slice (reduced) beta
   double JP,EJ,Gamma;
@@ -4473,12 +4473,9 @@ void SQA(int weightmode,int tree,double beta,int P){
   }
 
   gt=initgibbstables(1,&beta_red,tree);
+  long double *etab=gt->etab;
   unsigned char (*septab0)[16][4]=gt->septab0;
   signed char (*septab2a)[16][16][2]=gt->septab2a;
-  int emin=gt[0].emin;
-  int emax=gt[0].emax;
-  long double EJpow0[emax-emin+1];
-  long double *EJpow=EJpow0-emin;
   nit=0;
   for(Gamma=3;Gamma>.5e-8;Gamma/=1.01){
     JP=-(1/2.)*log(tanh(Gamma*beta_red));
@@ -4487,9 +4484,6 @@ void SQA(int weightmode,int tree,double beta,int P){
     printf("Gamma = %g\n",Gamma);
     printf("J_perp/PT = %g\n",JP);
     for(k=0;k<P;k++)printf("%5d ",sl[k].e);printf("\n");
-    EJpow[0]=1;
-    for(r=1;r<=emax;r++)EJpow[r]=EJpow[r-1]*EJ;
-    for(r=-1;r>=emin;r--)EJpow[r]=EJpow[r+1]/EJ;
 
     // Intra-slice sweep
     k0=randint(P);
@@ -4527,7 +4521,7 @@ void SQA(int weightmode,int tree,double beta,int P){
           if(k==0){
             // Initialise ZZ0[a][b]=delta_{ab} Z( b_0=a---e_0 )
             ZZ0[0][1]=ZZ0[1][0]=0;
-            for(a=0;a<2;a++)ZZ0[a][a]=EJpow[septab2a[en][X[eno]][s][a]];
+            for(a=0;a<2;a++)ZZ0[a][a]=etab[septab2a[en][X[eno]][s][a]];
           }else{
             // ZZ0[a][b] = Z( b_0---...---b_{k-1} + b_0---e_0,...,b_{k-1}---e_{k-1}   given b_0=a and b_{k-1}=b )
             // a=b_0, b=b_{k-1}, c=b_k
@@ -4539,7 +4533,7 @@ void SQA(int weightmode,int tree,double beta,int P){
             }
             // ZZ1[a][b] = Z( b_0---...---b_k + b_0---e_0,...,b_{k-1}---e_{k-1}   given b_0=a and b_k=b )
             for(c=0;c<2;c++){
-              Z=EJpow[septab2a[en][X[eno]][s][c]];
+              Z=etab[septab2a[en][X[eno]][s][c]];
               for(a=0;a<2;a++)ZZ1[a][c]*=Z;
             }
             // ZZ1[a][b] = Z( b_0---...---b_k + b_0---e_0,...,b_k---e_k   given b_0=a and b_k=b )
