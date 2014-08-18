@@ -1050,6 +1050,223 @@ double tree1gibbs(int d,int ph,int r0,gibbstables*gt){
   return Z3[0];
 }
 
+double tree1gibbs_sqa(int d,int ph,int r0,gibbstables*gt,double J0,double J1,int*X0,int*X1){
+  // As tree1gibbs, but applies external attractive couplings J0 to grid X0 and J1 to grid X1
+  // J0, J1 have already been exponentiated
+  // If d=0 sample the (induced) tree consisting of all verts of columns of parity ph,
+  //               the o=1 (vertically connected) verts of the other columns, and row r0.
+  // If d=1 then same with rows <-> columns.
+  // Comments and variable names are as if in the column case (d=0)
+  // Updates tree to new sample and returns Z of tree
+  // etab[r]=expl(-beta*r)  (r can be negative)
+  int b,c,f,r,s,x0,x1,dir,hc[N][N][16],hs[N][N][16],hr[N][16],id[16];
+  const int check=0;
+  long double z,Z,max,ff,m0,m1,pr[16],Z0[16],Z0a[16],Z1[16],Z2[16],Z3a[16],Z3[16],Z4[16],J0pow[16],J1pow[16];
+  long double *etab=gt->etab;
+  unsigned char (*septab0)[16][4]=gt->septab0;
+  unsigned int (*septab1)[16][16]=gt->septab1;
+  long double (*septab2)[16][16]=gt->septab2;
+  signed char (*septab2a)[16][16][2]=gt->septab2a;
+  long double (*septab3)[4][2][2]=gt->septab3;
+  signed char (*septab3a)[4][2][2]=gt->septab3a;
+  // Z0[s] = const*(Z of current column fragment given that (c,r,1) = s)
+  // Z1[s] = const*(Z of current column fragment, including (c,r,0), given that (c,r,1) = s)
+  // Z2[s] = const*(Z of current column (apart from (c,r0,0)) given that (c,r0,1) = s)
+  // Z3[s] = const*(Z of tree at columns <c given that (c,r0,0) = s)
+  // Z4[s] = const*(Z of tree at columns <=c given that (c,r0,0) = s)
+  // Using |Z|<=m as abuse of notation for m^{-1}<=Z<=m, then after centring
+  // |Z0|<=m1
+  // |Z1|<=m0.m1
+  // |Z2|<=m1^2
+  // |Z3|<=m1
+  // |Z4|<=m0.m1
+
+  TICK(0);
+  J0pow[0]=J0*J0*J0*J0;
+  J1pow[0]=J1*J1*J1*J1;
+  for(b=1;b<16;b++){J0pow[b]=J0pow[b>>1];J1pow[b]=J1pow[b>>1];if(b&1){J0pow[b]/=J0*J0;J1pow[b]/=J1*J1;}}
+  // J0pow[b] = J0^(#0bits-#1bits), so J0pow[s0^s1] = Prod_{i<4} J0^(+/- spin i of s0 * +/- spin i of s1)
+  for(b=0;b<16;b++)id[b]=b;
+  for(s=0;s<16;s++)Z3[s]=1;
+  m0=gt->m0;m1=gt->m1;
+  for(c=0;c<N;c++){
+
+    for(s=0;s<16;s++)Z2[s]=1;
+    TICK(1);
+    for(dir=0;dir<2;dir++){// dir=0 <-> increasing r, dir=1 <-> decreasing r (comments in this loop refer to dir=0)
+      for(s=0;s<16;s++)Z0[s]=1;
+      for(r=dir*(N-1);r!=r0;r+=1-2*dir){
+        // Here Z0[b] = const*(Z of (c,<r,*)_all given that (c,r,1)=b)
+        // (c,r,0) -> (c,r,1)
+        if((c-ph)&1){// thin strand case
+          TICK(2);
+          x0=X0[encI(d,c,r,1)];x1=X1[encI(d,c,r,1)];
+          for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
+            // Doing edge (c,r,0)---(c,r,1) and (c,r,1)---externals
+            Z1[b]=Z0[b]*etab[QBI(d,c,r,0,0,XBI(d,c,r,0),b)]*J0pow[b^x0]*J1pow[b^x1];
+            if(Z1[b]>max)max=Z1[b];
+          }
+          // Now Z1[b] = const*(Z of (c,<r,*)_all+(c,r,0)_int+(c,r,1)_ext given that (c,r,1)=b)
+          if(check)assert(checkbound(Z1,16*gt->Q0*m1));
+          ff=m0*m1/max;for(b=0;b<16;b++)Z1[b]*=ff;
+          if(check)assert(checkbound(Z1,m0*m1));
+          TOCK(2);
+        } else {
+          TICK(3);
+          if(randptr>randlength-64)randptr=randint(randlength-63);
+          int i;
+          long double ext[4];
+          x0=X0[encI(d,c,r,0)];x1=X1[encI(d,c,r,0)];
+          for(i=0;i<4;i++)ext[i]=(((x0>>i)&1)?1/J0:J0)*(((x1>>i)&1)?1/J1:J1);// J0^((-1)^b0)*J1^((-1)^b1)
+          x0=X0[encI(d,c,r,1)];x1=X1[encI(d,c,r,1)];
+          for(b=0,max=0;b<16;b++){// b = state of (c,r,1)
+            unsigned char *p0;
+            unsigned int *p1;
+            p0=septab0[XBI(d,c-1,r,0)][XBI(d,c+1,r,0)];
+            Z=J0pow[b^x0]*J1pow[b^x1];
+            if(septab2a_compact){
+              signed char (*p2a)[2];
+              p2a=septab2a[encI(d,c,r,0)][b];
+              for(i=0,s=0;i<4;i++){
+                long double ZZ0,ZZ1;
+                ZZ0=etab[p2a[p0[i]][0]]*ext[i];// (c,r,0,i)=0
+                ZZ1=etab[p2a[p0[i]][1]]/ext[i];// (c,r,0,i)=1
+                Z*=ZZ0+ZZ1;
+                if(RANDFLOAT*(ZZ0+ZZ1)>=ZZ0)s|=1<<i;
+              }
+            }else{
+              assert(0);// not done non-compact version
+              long double *p2;
+              p1=septab1[encI(d,c,r,0)][b];
+              p2=septab2[encI(d,c,r,0)][b];
+              for(i=0,s=0;i<4;i++){Z*=p2[p0[i]];if(randtab[randptr++]>=p1[p0[i]])s|=1<<i;}
+            }
+            assert(s<16);
+            hc[c][r][b]=s;
+            if(Z>max)max=Z;
+            Z0a[b]=Z;
+            // Z0a[b] = Z( (c-1,r,0)_int + (c,r,0)_all + (c+1,r,0)_int + (c,r,1)_ext given that (c,r,1)=b )
+          }
+          if(check)assert(checkbound(Z0a,16*gt->Q2));
+          ff=m0/max;for(b=0;b<16;b++)Z0a[b]*=ff;
+          if(check)assert(checkbound(Z0a,m0));
+          for(b=0;b<16;b++)Z1[b]=Z0[b]*Z0a[b];// b = state of (c,r,1)
+          // Z1[b] = const*(Z of (c,<=r,*)_all given that (c,r,1)=b)
+          if(check)assert(checkbound(Z1,m0*m1));
+          TOCK(3);
+        }
+        TICK(4);
+        // (c,r,1) -> (c,r+1,1)
+        if(randptr>randlength-64)randptr=randint(randlength-63);
+        {
+          long double Zx[16],ZZ0,ZZ1;
+          int q,lh0[16],lh1[16];
+          q=encI(d,c,r-dir,1);
+#define T1Gstrut(i,Zf,Zt,lf,lt)                                      \
+          for(b=0;b<16;b++){                                         \
+            ZZ0=Zf[b&~(1<<i)]*septab3[q][i][b>>i&1][0];              \
+            ZZ1=Zf[b|(1<<i)]*septab3[q][i][b>>i&1][1];               \
+            Zt[b]=ZZ0+ZZ1;                                           \
+            lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
+          }
+#define T1Gstruta(i,Zf,Zt,lf,lt)                                     \
+          for(b=0;b<16;b++){                                         \
+            ZZ0=Zf[b&~(1<<i)]*etab[septab3a[q][i][b>>i&1][0]];       \
+            ZZ1=Zf[b|(1<<i)]*etab[septab3a[q][i][b>>i&1][1]];        \
+            Zt[b]=ZZ0+ZZ1;                                           \
+            lt[b]=lf[RANDFLOAT*(ZZ0+ZZ1)<ZZ0?b&~(1<<i):b|(1<<i)];    \
+          }
+          if(septab3a_compact){
+            T1Gstruta(0,Z1,Zx,id,lh1);
+            T1Gstruta(1,Zx,Z1,lh1,lh0);
+            T1Gstruta(2,Z1,Zx,lh0,lh1);
+            T1Gstruta(3,Zx,Z0,lh1,hs[c][r]);
+          }else{
+            T1Gstrut(0,Z1,Zx,id,lh1);
+            T1Gstrut(1,Zx,Z1,lh1,lh0);
+            T1Gstrut(2,Z1,Zx,lh0,lh1);
+            T1Gstrut(3,Zx,Z0,lh1,hs[c][r]);
+          }
+          for(b=0;b<16;b++)if(Z0[b]>max)max=Z0[b];
+        }
+        // Z0[b] = const*(Z of (c,<=r,*)_all given that (c,r+1,1)=b)
+        
+        if(check)assert(checkbound(Z0,16*gt->Q1*m0*m1));
+        ff=m1/max;for(b=0;b<16;b++)Z0[b]*=ff;
+        if(check)assert(checkbound(Z0,m1));
+        TOCK(4);
+      }//r
+      for(s=0;s<16;s++)Z2[s]*=Z0[s];
+    }//dir
+    // Z2[b] = const*(Z of (c,not r0,*)_all given that (c,r0,1)=b)
+    TOCK(1);
+    if(check)assert(checkbound(Z2,m1*m1));
+
+    TICK(5);
+    // (c,r0,1) -> (c,r0,0)
+    x0=X0[encI(d,c,r0,1)];x1=X1[encI(d,c,r0,1)];
+    for(s=0;s<16;s++)Z2[s]*=J0pow[s^x0]*J1pow[s^x1];// s = state of (c,r0,1)
+    // Z2[s] = const*(Z of (c,not r0,*)_all + (c,r0,1)_ext given that (c,r0,1)=b)
+    if(randptr>randlength-16)randptr=randint(randlength-15);
+    x0=X0[encI(d,c,r0,0)];x1=X1[encI(d,c,r0,0)];
+    for(b=0,max=0;b<16;b++){// b = state of (c,r0,0)
+      for(s=0,Z=0;s<16;s++){// s = state of (c,r0,1)
+        pr[s]=Z2[s]*etab[QBI(d,c,r0,1,0,s,b)];
+        Z+=pr[s];
+      }
+      for(z=RANDFLOAT*Z,s=0;s<16;s++){z-=pr[s];if(z<=0)break;}
+      assert(s<16);
+      hc[c][r0][b]=s;
+      Z*=J0pow[b^x0]*J1pow[b^x1];
+      if(Z>max)max=Z;
+      Z3a[b]=Z;
+    }
+    // Z3a[b] = const*(Z of (c,*,*)_all given that (c,r0,0)=b)
+    if(check)assert(checkbound(Z3a,16*gt->Q0*m1*m1));
+    ff=m0/max;for(b=0;b<16;b++)Z3a[b]*=ff;
+    if(check)assert(checkbound(Z3a,m0));
+    for(b=0;b<16;b++)Z4[b]=Z3[b]*Z3a[b];// b = state of (c,r0,0)
+    if(check)assert(checkbound(Z4,m0*m1));
+    // Z4[b] = const*(Z of (<=c,*,*)_all given that (c,r0,0)=b)
+    TOCK(5);
+
+    TICK(6);
+    if(randptr>randlength-64)randptr=randint(randlength-63);
+    // (c,r0,0) -> (c+1,r0,0)
+    {
+      long double Zx[16],ZZ0,ZZ1;
+      int q,lh0[16],lh1[16];
+      q=encI(d,c,r0,0);
+      T1Gstrut(0,Z4,Zx,id,lh1);
+      T1Gstrut(1,Zx,Z4,lh1,lh0);
+      T1Gstrut(2,Z4,Zx,lh0,lh1);
+      T1Gstrut(3,Zx,Z3,lh1,hr[c]);
+      for(b=0;b<16;b++)if(Z3[b]>max)max=Z3[b];
+    }
+    TOCK(6);
+    if(check)assert(checkbound(Z3,16*gt->Q1*m0*m1));
+    ff=m1/max;for(b=0;b<16;b++)Z3[b]*=ff;
+    if(check)assert(checkbound(Z3,m1));
+    // Z3[b] = const*(Z of (<=c,*,*)_all given that (c+1,r0,0)=b)
+  }//c
+
+  for(c=N-1;c>=0;c--){
+    f=!((c-ph)&1);
+    XBI(d,c,r0,0)=hr[c][c==N-1?0:XBI(d,c+1,r0,0)];
+    XBI(d,c,r0,1)=hc[c][r0][XBI(d,c,r0,0)];
+    for(r=r0+1;r<N;r++){
+      XBI(d,c,r,1)=hs[c][r][XBI(d,c,r-1,1)];
+      if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+    }
+    for(r=r0-1;r>=0;r--){
+      XBI(d,c,r,1)=hs[c][r][XBI(d,c,r+1,1)];
+      if(f)XBI(d,c,r,0)=hc[c][r][XBI(d,c,r,1)];
+    }
+  }
+  TOCK(0);
+  return Z3[0];
+}
+
 void simplegibbssweep_slow(double beta){
   int d,s,x,y;
   double z,Z,pr[16];
@@ -2934,7 +3151,10 @@ double*loadbetaset(int weightmode,double betaskip,int*nt){
      0.337,0.367,0.399,0.439,0.489,0.552,0.630,0.727,0.850,1.018,1.264,1.626,2.169,3.110,4.850,20.000},// 12, 0.25
     {0},
     {0.054,0.064,0.075,0.086,0.097,0.108,0.119,0.131,0.142,0.155,0.166,0.179,0.192,0.204,0.216,0.230,0.244,0.259,0.275,0.292,
-     0.310,0.333,0.358,0.385,0.419,0.455,0.495,0.545,0.608,0.677,0.763,0.871,1.006,1.190,1.442,1.812,2.417,3.724,20.000}// 14, 0.25
+     0.310,0.333,0.358,0.385,0.419,0.455,0.495,0.545,0.608,0.677,0.763,0.871,1.006,1.190,1.442,1.812,2.417,3.724,20.000},// 14, 0.25
+    {0},
+    {0.150,0.159,0.169,0.179,0.189,0.200,0.211,0.223,0.235,0.248,0.262,0.278,0.293,0.310,0.329,0.350,0.373,0.399,0.428,0.460,0.499,
+     0.540,0.590,0.650,0.727,0.817,0.933,1.071,1.266,1.500,1.802,2.316,2.917,4.100,20.000}// 16, 0.25-0.30, Hand-adjusted using s5
   };
   int i,n,skip;
   double *be0,*be;
@@ -4533,6 +4753,10 @@ int main(int ac,char**av){
     findeqbmusingchisq(weightmode);
     break;
   case 18:
+    // See how long it takes to equilibrate, by measuring error in top beta estimate of <E> compared with best found energy
+    // -P<submode:0=tree,1=vertex>,<prlevel>,<allowable abs error>,
+    // <beta or -r for default set for this N with the first/hottest r missing>,<max equilbration size>,
+    // <start eqb size>,<initial vmin>
     findeqbmusingtopbeta(weightmode);
     break;
   case 19:
