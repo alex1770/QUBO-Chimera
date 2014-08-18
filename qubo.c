@@ -4439,10 +4439,11 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv,double maxt
 }
 
 void SQA(int weightmode,int tree,double beta,int P){
-  int k,k0,k1,o,x,y,qu;
+  int k,k0,k1,o,v,x,y,qu,mine,pri;
   int64 nit;
   double beta_red;// intra-slice (reduced) beta
   double JP,EJ,Gamma;
+  double tim0,t1,tt;
   gibbstables*gt;
   typedef struct {
     int Xplus[(N+2)*N*2];
@@ -4463,7 +4464,7 @@ void SQA(int weightmode,int tree,double beta,int P){
   printf("Imaginary time slices: %d\n",P);
 
   initrandtab(50000);
-  init_state();
+  init_state();mine=val();
   // Consider pre-annealing at this point
   for(k=0;k<P;k++){// Initialise all slices to the same state
     memset(sl[k].Xplus,0,sizeof(sl[k].Xplus));
@@ -4477,13 +4478,22 @@ void SQA(int weightmode,int tree,double beta,int P){
   unsigned char (*septab0)[16][4]=gt->septab0;
   signed char (*septab2a)[16][16][2]=gt->septab2a;
   nit=0;
-  for(Gamma=3;Gamma>.5e-8;Gamma/=1.01){
+  tim0=cpu();t1=0;
+  for(Gamma=3;Gamma>1e-3;Gamma/=1.001){
     JP=-(1/2.)*log(tanh(Gamma*beta_red));
     EJ=exp(JP);
-    printf("\n");
-    printf("Gamma = %g\n",Gamma);
-    printf("J_perp/PT = %g\n",JP);
-    for(k=0;k<P;k++)printf("%5d ",sl[k].e);printf("\n");
+    
+    tt=cpu()-tim0;
+    if(tt>=t1){pri=1;t1=MAX(tt*1.1,tt+1);}else pri=0;
+    for(k=0;k<P;k++){memcpy(XBa,sl[k].X,NBV*sizeof(int));v=sl[k].e=val();mine=MIN(mine,v);}
+    if(pri){
+      printf("\n");
+      printf("Gamma = %g\n",Gamma);
+      printf("J_perp/PT = %g\n",JP);
+      printf("Min energy seen = %d\n",mine);
+      printf("Iterations: %lld\n",nit);
+      for(k=0;k<P;k++)printf("%5d ",sl[k].e);printf("\n");
+    }
 
     // Intra-slice sweep
     k0=randint(P);
@@ -4498,10 +4508,10 @@ void SQA(int weightmode,int tree,double beta,int P){
         tree1gibbs_sqa(randint(2),randint(2),randint(N),gt,EJ,EJ,sl[(k+P-1)%P].X,sl[(k+1)%P].X);
         break;
       }
-      nit++;
       sl[k].e=val();
       memcpy(sl[k].X,XBa,NBV*sizeof(int));
     }
+    if(pri){for(k=0;k<P;k++)printf("%5d ",sl[k].e);printf("\n");}
 
     // Inter-slice sweep
     for(x=0;x<N;x++)for(y=0;y<N;y++)for(o=0;o<2;o++){
@@ -4554,8 +4564,10 @@ void SQA(int weightmode,int tree,double beta,int P){
           b=hs[k][a][b];assert(b==0||b==1);
         }
       }//i
-    }
-  }
+    }//x,y,o
+    nit++;
+
+  }//Gamma
   
   freegibbstables(1,gt);
 }
