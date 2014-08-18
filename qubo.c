@@ -4446,6 +4446,9 @@ void opt4(int weightmode,int pr,int tns,int tree,int betaskip,int bv,double maxt
   printf("Time to solution %gs, assuming true minimum is %d. Iterations/soln = %g\n",(cpu()-tim1)/ns,bv,nit/(double)ns);
 }
 
+void SQA(int weightmode,int tree){
+}
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,centreflag,numpo;
   double mint,maxt;
@@ -4783,6 +4786,11 @@ int main(int ac,char**av){
     // <initial bv> (optional), max time (optional), TlogT flag (optional).
     // Also uses tns = total number of solutions
     opt4(weightmode,deb,numpo,genp[0]==0,genp[1],ngp>2?genp[2]:1000000000,ngp>3?genp[3]:1e8,ngp>4?genp[4]:0);
+    break;
+  case 26:
+    // SQA
+    SQA(weightmode,genp[0]==0);
+    break;
   }// mode
   prtimes();
   if(outstatefile)writestate(outstatefile);
