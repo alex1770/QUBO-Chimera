@@ -14,7 +14,7 @@ cat prelist-emctts-v$v|while read x; do
     for seed in `seq $8 $9`; do
       ans=`grep -w '^ *'$seed $sum|awk '{print $2;}'`
       for nbl in `seq $5 $7 $6`; do
-        echo $dir/emctts-m25-N$N-s$seed-w$w-P$3,-$nbl $dir/qubo -N$N -m25 -w$w -p$4 -s$seed -P$3,-$nbl,$ans,$maxt,$tlogt
+        echo $dir/emctts-m25-N$N-s$seed-w$w-tlogt$tlogt-P$3,-$nbl $dir/qubo -N$N -m25 -w$w -p$4 -s$seed -P$3,-$nbl,$ans,$maxt,$tlogt
       done
     done
   fi
