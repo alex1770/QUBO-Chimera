@@ -3957,7 +3957,7 @@ void findspectrum(int weightmode,int tree,const char*outprobfn,int pr){
              cpu()-tim0,tim1,tim2,tim1/nit,(double)hist[h].nid[0],lqc/2.,j,nis);
       prtimes();
       if(outprobfn){
-        fp=fopen(outprobfn,"w");
+        fp=fopen(outprobfn,"w");assert(fp);
         for(e=maxe;e>=mine;e--)if(lp[e-base]>-1e10)fprintf(fp,"%6d %12.3f\n",e,lp[e-base]);
         fclose(fp);
       }

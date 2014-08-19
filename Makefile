@@ -5,7 +5,7 @@ par:: dummy-par
 # single-threaded version and "make par" makes the multi-threaded version,
 # and compilation is only done when necessary.
 
-CFLAGS:= -Wall -O9
+CFLAGS:= -Wall -O9 -funroll-loops
 LFLAGS:= -lm
 ifeq ($(filter par,$(MAKECMDGOALS)),)
   DUM0:= dummy-par
