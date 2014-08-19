@@ -36,20 +36,35 @@ def bin(n,r):
   else: return 0.
 
 from subprocess import Popen,PIPE
+from optparse import OptionParser
+parser = OptionParser(usage="usage: %prog [options]")
+parser.add_option("-?","--wtf",action="help",help="Show this help message and exit")
+parser.add_option("-o","--output",dest="output",default="png",help="Output format, png or ps (default: png)")
+parser.add_option("-a","--alone",action="store_true",default=False,dest="alone",help="Final graph is standalone (vs to be superimposed)")
+parser.add_option("-p","--percentiles",dest="percentiles",default="[50,90]",help="List of percentiles, or \"average\"")
+parser.add_option("-c","--certainty",dest="certainty",default="TTS",help="Certainty (e.g., 0.99) or \"TTS\"")
+parser.add_option("-n","--cores",dest="cores",default="1",help="Number of cores to assume")
 
-output='png'# 'png' or 'ps'
-standalone=False# Whether final graph will stand alone or be superimposed on another graph
+(opts,args)=parser.parse_args()
+output=opts.output
+standalone=opts.alone
+percentiles=eval(opts.percentiles)
+certainty="TTS" if opts.certainty=="TTS" else float(opts.certainty)
+cores=int(opts.cores)
+print "Output format:",output
+print "Standalone flag:",standalone
+print "Percentiles:",percentiles
+print "Certainty:",certainty
+print "Cores:",cores
 
 weightmodes=[(7,"Range_1"),(11,"Range_7")]
-percentiles=[10,50,90,95,99]
-certainty=0.99
-cores=6
 outdir='sizegraphs'
 colours={1:0x0000ff, 5:0x004488, 10:0x00ffff, 50:0x00ff00,
-         75:0x888800, 90:0xff8800, 95:0xff0000, 99:0x000000}# Match colours from Boixo papers
+         75:0x888800, 90:0xff8800, 95:0xff0000, 99:0x000000,
+         'average':0x8000ff}# Match colours from Boixo papers
 def include(N,S):# Whether to include this (size,strat) pair
   if N==439 or N==502: return 0# Ignore legacy sizes to avoid clutter and keep to complete grids
-  return S==13 and N<=1152
+  return S[:6]=='emctts' or S=='S13' or S=='S14'
   #return 1
   return S in [3,13]
   if standalone: return (N<=800 and S==3) or (N>=512 and N<=1152 and S==13)
@@ -65,16 +80,21 @@ for (wm,wname) in weightmodes:
   dir0='output/weightmode%d'%wm
   for x in os.listdir(dir0):
     # Looking for directories with names like output/weightmode7/512.strat3
+    # or output/weightmode7/2048.emctts-T1-tlogt
     f=x.find('.')
-    if f==-1 or not x[:f].isdigit() or x[f+1:f+6]!='strat' or not x[f+6:].isdigit(): continue
-    N=int(x[:f]);S=int(x[f+6:])
+    if f==-1 or not x[:f].isdigit(): continue
+    N=int(x[:f])
+    if x[f+1:f+6]=='strat': S='S'+x[f+6:]
+    elif x[f+1:f+7]=='emctts': S=x[f+1:]
+    else: continue
     if not include(N,S): continue
     fn=os.path.join(dir0,x,'summary')
     print "Processing file",fn
-    fp=open(fn,'r');l=[]
+    fp=open(fn,'r');l=[];l0=[]
     for y in fp:
       if y=="" or y[0]=='#': continue
-      l.append(log(float(y.split()[2]))/log10)
+      z=float(y.split()[2])
+      l0.append(z);l.append(log(z)/log10)
     fp.close()
     l.sort();n=len(l)
     if n>1:
@@ -82,34 +102,40 @@ for (wm,wname) in weightmodes:
       msd.append((wname,N,S,n,mu,sd))
     #if n!=1000: print >>sys.stderr,"Warning: %d samples in summary file %s"%(n,fn)
     for pc in percentiles:
-      p=pc/100.;lp=log(p);lq=log(1-p)
-      # Interpolating the p-point of the values l[0], ..., l[n-1] as in the comment at the start
-      s=0;pr=n*lq
-      for i in range(n+1):# Find median point of (n choose i)*p^i*(1-p)^(n-i)
-        p1=exp(pr);s+=p1# pr=log( (n choose i)*p^i*(1-p)^(n-i) )
-        if s>=0.5: break
-        pr+=lp-lq+log((n-i)/(i+1.))
-      if i==0 or i==n: print >>sys.stderr,"Warning: Too few datapoints (%d) in summary file %s for %g%% point"%(n,fn,pc);continue
-      t=((s-.5)*l[i-1]+(.5-(s-p1))*l[i])/p1# t = interpolated value of log(time)
-      # Now estimating variance in the estimator to be able to plot error bars
-      v=0;pr=n*lq
-      def s(a,b,t): return ((a-t)**2+(a-t)*(b-t)+(b-t)**2)/3
-      for i in range(n+1):
-        p1=exp(pr)
-        a=l[i-1] if i>0 else l[0]-1
-        b=l[i] if i<n else l[n-1]+1
-        v+=p1*s(a,b,t)
-        if i==n: break
-        pr+=lp-lq+log((n-i)/(i+1.))
-      sd=sqrt(v)
-      t+=log(log(1/(1-certainty))/cores)/log10
+      if pc=='average':
+        assert n>1
+        t=sum(l0)/n;sd=sqrt(sum([(x-t)**2 for x in l0])/(n*(n-1)))
+        sd=(log(t+sd)-log(t))/log10
+        t=log(t)/log10
+      else:
+        p=pc/100.;lp=log(p);lq=log(1-p)
+        # Interpolating the p-point of the values l[0], ..., l[n-1] as in the comment at the start
+        s=0;pr=n*lq
+        for i in range(n+1):# Find median point of (n choose i)*p^i*(1-p)^(n-i)
+          p1=exp(pr);s+=p1# pr=log( (n choose i)*p^i*(1-p)^(n-i) )
+          if s>=0.5: break
+          pr+=lp-lq+log((n-i)/(i+1.))
+        if i==0 or i==n: print >>sys.stderr,"Warning: Too few datapoints (%d) in summary file %s for %g%% point"%(n,fn,pc);continue
+        t=((s-.5)*l[i-1]+(.5-(s-p1))*l[i])/p1# t = interpolated value of log(time)
+        # Now estimating variance in the estimator to be able to plot error bars
+        v=0;pr=n*lq
+        def s(a,b,t): return ((a-t)**2+(a-t)*(b-t)+(b-t)**2)/3
+        for i in range(n+1):
+          p1=exp(pr)
+          a=l[i-1] if i>0 else l[0]-1
+          b=l[i] if i<n else l[n-1]+1
+          v+=p1*s(a,b,t)
+          if i==n: break
+          pr+=lp-lq+log((n-i)/(i+1.))
+        sd=sqrt(v)
+      t+=log((1. if certainty=='TTS' else log(1/(1-certainty)))/cores)/log10
       d.setdefault((pc,S),[]).append((N,t,sd,n))
 
   msd.sort()
   fp=open(outdir+'/'+wname+'-msd.txt','w')
   print >>fp,"     wname     N   S n_samp mean(log10(t)) stderr(log10(t))"
   for (wname,N,S,n,mu,sd) in msd:
-    print >>fp,"%10s %5d %3d %6d         %6.2f          %7.3f"%(wname,N,S,n,mu,sd)
+    print >>fp,"%10s %5d %10s %6d         %6.2f          %7.3f"%(wname,N,S,n,mu,sd)
   fp.close()
 
   fp=open(outdir+'/'+wname+'.txt','w')
@@ -117,7 +143,7 @@ for (wm,wname) in weightmodes:
   for (pc,S) in sorted(list(d)):
     d[(pc,S)].sort()
     for (N,t,sd,n) in d[(pc,S)]:
-      print >>fp,"%10s %5d %3d %6d %6.1f %12g %12g"%(wname,N,S,n,pc,t,sd)
+      print >>fp,"%10s %5d %10s %6d %s %12g %12g"%(wname,N,S,n,pc if pc=='average' else "%7.1f"%pc,t,sd)
     print >>fp
   fp.close()
   
@@ -136,13 +162,13 @@ for (wm,wname) in weightmodes:
   else: print >>p,'set key center top'
   print >>p,'set title "%s / prog-qubo"'%(wname.replace('_',' '))
   print >>p,'set xlabel "Problem size, spaced linearly with sqrt(N)"'
-  if standalone: print >>p,'set ylabel "log_10(total time in us), %g%% certainty, %d core%s"'%(certainty*100,cores,"s"*(cores!=1))
+  if standalone: print >>p,'set ylabel "log_10(total time in us), %s, %d core%s"'%("TTS" if certainty=="TTS" else "%g%% certainty"%(certainty*100),cores,"s"*(cores!=1))
   print >>p,'set y2tics mirror'
   print >>p,'set grid ytics lc rgb "#dddddd" lt 1'
-  s='plot ';l
+  s='plot '
   for (pc,S) in sorted(list(d)):
     if s!='plot ': s+=', '
-    s+='"-" using (sqrt($1)):2:3:xticlabels(1) with yerrorbars lt rgb "#%06x" title "%d%%-S%d", '%(colours[pc],pc,S)
+    s+='"-" using (sqrt($1)):2:3:xticlabels(1) with yerrorbars lt rgb "#%06x" title "%s-%s", '%(colours[pc],pc if pc=='average' else '%d%%'%pc,S)
     s+='"-" using (sqrt($1)):2:3:xticlabels(1) with lines lt rgb "#%06x" notitle'%colours[pc]
   print >>p,s
   for (pc,S) in sorted(list(d)):
