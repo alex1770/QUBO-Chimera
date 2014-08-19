@@ -4712,7 +4712,7 @@ int main(int ac,char**av){
     {
       int v;
       double tts;
-      v=opt1(0.5,maxt,deb,numpo,&tts,strat,1000000000);
+      v=opt1(0.5,maxt,deb,numpo,&tts,strat,ngp>0?genp[0]:1000000000);
       printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
       break;
     }
