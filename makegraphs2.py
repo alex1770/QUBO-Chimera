@@ -40,16 +40,16 @@ from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]")
 parser.add_option("-?","--wtf",action="help",help="Show this help message and exit")
 parser.add_option("-o","--output",dest="output",default="png",help="Output format, png or ps (default: png)")
-parser.add_option("-a","--alone",action="store_true",default=False,dest="alone",help="Final graph is standalone (vs to be superimposed)")
+parser.add_option("-s","--super",action="store_true",default=False,dest="super",help="Final graph is to be superimposed (vs standalone)")
 parser.add_option("-p","--percentiles",dest="percentiles",default="[50,90]",help="List of percentiles, or \"average\"")
-parser.add_option("-c","--certainty",dest="certainty",default="TTS",help="Certainty (e.g., 0.99) or \"TTS\"")
+parser.add_option("-c","--certainty",dest="certainty",default="TTS",help="Certainty (e.g., 0.99) (only in superimpose mode)")
 parser.add_option("-n","--cores",dest="cores",default="1",help="Number of cores to assume")
 
 (opts,args)=parser.parse_args()
 output=opts.output
-standalone=opts.alone
+standalone=not opts.super
 percentiles=eval(opts.percentiles)
-certainty="TTS" if opts.certainty=="TTS" else float(opts.certainty)
+certainty="TTS" if (standalone or opts.certainty=="TTS") else float(opts.certainty)
 cores=int(opts.cores)
 print "Output format:",output
 print "Standalone flag:",standalone
@@ -59,12 +59,16 @@ print "Cores:",cores
 
 weightmodes=[(7,"Range_1"),(11,"Range_7")]
 outdir='sizegraphs'
-colours={1:0x0000ff, 5:0x004488, 10:0x00ffff, 50:0x00ff00,
-         75:0x888800, 90:0xff8800, 95:0xff0000, 99:0x000000,
-         'average':0x8000ff}# Match colours from Boixo papers
+colpc={1:0x0000ff, 5:0x004488, 10:0x00ffff, 50:0x00ff00,
+       75:0x888800, 90:0xff8800, 95:0xff0000, 99:0x000000,
+       'average':0x8000ff}# Match colours from Boixo papers in superimpose mode (function of percentile)
+colseq=[0xff8800, 0x000000, 0x00ffff, 0x8000ff, 0x888800, 0x0000ff, 0xff0000, 0x00ff00, 0x004488]
 def include(N,S):# Whether to include this (size,strat) pair
   if N==439 or N==502: return 0# Ignore legacy sizes to avoid clutter and keep to complete grids
   return S[:6]=='emctts' or S=='S13' or S=='S14'
+  return S=='S13'
+  #return (N<8*14*14 and S=='S13') or (N>=8*14*14 and S=='S14')
+  return S=='S13' or S=='S14'
   #return 1
   return S in [3,13]
   if standalone: return (N<=800 and S==3) or (N>=512 and N<=1152 and S==13)
@@ -151,7 +155,7 @@ for (wm,wname) in weightmodes:
   if output=='ps':
     print >>p,'set terminal postscript color solid "Helvetica" 9'
   elif output=='png':
-    print >>p,'set terminal pngcairo size 1400,960'
+    print >>p,'set terminal pngcairo font "sans,16" size 1400,960'
     print >>p,'set bmargin 5;set lmargin 15;set rmargin 15;set tmargin 5'
   else: assert 0
   ofn="%s/%s%s.%s"%(outdir,wname,"" if standalone else "-tobemerged",output)
@@ -162,19 +166,22 @@ for (wm,wname) in weightmodes:
   else: print >>p,'set key center top'
   print >>p,'set title "%s / prog-qubo"'%(wname.replace('_',' '))
   print >>p,'set xlabel "Problem size, spaced linearly with sqrt(N)"'
-  if standalone: print >>p,'set ylabel "log_10(total time in us), %s, %d core%s"'%("TTS" if certainty=="TTS" else "%g%% certainty"%(certainty*100),cores,"s"*(cores!=1))
+  if standalone: print >>p,'set ylabel "log_10(TTS in s), %d core%s"'%(cores,"s"*(cores!=1))
   print >>p,'set y2tics mirror'
   print >>p,'set grid ytics lc rgb "#dddddd" lt 1'
-  s='plot '
+  s='plot ';cn=0
   for (pc,S) in sorted(list(d)):
+    if standalone: col=colseq[cn]
+    else: col=colpc[pc]
     if s!='plot ': s+=', '
-    s+='"-" using (sqrt($1)):2:3:xticlabels(1) with yerrorbars lt rgb "#%06x" title "%s-%s", '%(colours[pc],pc if pc=='average' else '%d%%'%pc,S)
-    s+='"-" using (sqrt($1)):2:3:xticlabels(1) with lines lt rgb "#%06x" notitle'%colours[pc]
+    s+='"-" using (sqrt($1)):2:3:xticlabels(1) with yerrorbars lt rgb "#%06x" title "%s-%s", '%(col,pc if pc=='average' else '%d%%'%pc,S)
+    s+='"-" using (sqrt($1)):2:3:xticlabels(1) with lines lt rgb "#%06x" notitle'%col
+    cn+=1
   print >>p,s
   for (pc,S) in sorted(list(d)):
     for i in range(2):
       for (N,t,sd,n) in d[(pc,S)]:
-        print >>p,"%d %g %g"%(N,t+6,sd)
+        print >>p,"%d %g %g"%(N,t+(0 if standalone else 6),sd)
       print >>p,"e"
   p.close()
   print "Written graph to %s"%ofn
