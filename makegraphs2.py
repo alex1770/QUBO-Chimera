@@ -39,19 +39,20 @@ from subprocess import Popen,PIPE
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]")
 parser.add_option("-?","--wtf",action="help",help="Show this help message and exit")
-parser.add_option("-o","--output",dest="output",default="png",help="Output format, png or ps (default: png)")
+parser.add_option("-o","--outformat",dest="outformat",default="png",help="Output format, png or ps (default: png)")
+parser.add_option("-O","--outfile",dest="outfile",default=None,help="Instead of running gnuplot, output gnuplot commands to this file (default: None)")
 parser.add_option("-s","--super",action="store_true",default=False,dest="super",help="Final graph is to be superimposed (vs standalone)")
 parser.add_option("-p","--percentiles",dest="percentiles",default="[50,90]",help="List of percentiles, or \"average\"")
 parser.add_option("-c","--certainty",dest="certainty",default="TTS",help="Certainty (e.g., 0.99) (only in superimpose mode)")
 parser.add_option("-n","--cores",dest="cores",default="1",help="Number of cores to assume")
 
 (opts,args)=parser.parse_args()
-output=opts.output
+outformat=opts.outformat
 standalone=not opts.super
 percentiles=eval(opts.percentiles)
 certainty="TTS" if (standalone or opts.certainty=="TTS") else float(opts.certainty)
 cores=int(opts.cores)
-print "Output format:",output
+print "Output format:",outformat
 print "Standalone flag:",standalone
 print "Percentiles:",percentiles
 print "Certainty:",certainty
@@ -138,8 +139,8 @@ for (wm,wname) in weightmodes:
   msd.sort()
   fp=open(outdir+'/'+wname+'-msd.txt','w')
   print >>fp,"     wname     N   S n_samp mean(log10(t)) stderr(log10(t))"
-  for (wname,N,S,n,mu,sd) in msd:
-    print >>fp,"%10s %5d %10s %6d         %6.2f          %7.3f"%(wname,N,S,n,mu,sd)
+  for (wname1,N,S,n,mu,sd) in msd:
+    print >>fp,"%10s %5d %10s %6d         %6.2f          %7.3f"%(wname1,N,S,n,mu,sd)
   fp.close()
 
   fp=open(outdir+'/'+wname+'.txt','w')
@@ -151,14 +152,15 @@ for (wm,wname) in weightmodes:
     print >>fp
   fp.close()
   
-  p=Popen("gnuplot",shell=True,stdin=PIPE).stdin
-  if output=='ps':
+  if opts.outfile: p=open(opts.outfile+'_'+wname,'w')
+  else: p=Popen("gnuplot",shell=True,stdin=PIPE).stdin
+  if outformat=='ps':
     print >>p,'set terminal postscript color solid "Helvetica" 9'
-  elif output=='png':
+  elif outformat=='png':
     print >>p,'set terminal pngcairo font "sans,16" size 1400,960'
     print >>p,'set bmargin 5;set lmargin 15;set rmargin 15;set tmargin 5'
   else: assert 0
-  ofn="%s/%s%s.%s"%(outdir,wname,"" if standalone else "-tobemerged",output)
+  ofn="%s/%s%s.%s"%(outdir,wname,"" if standalone else "-tobemerged",outformat)
   print >>p,'set output "%s"'%ofn
   #print >>p,'set zeroaxis'
   #print >>p,'set xrange [0:101]'
