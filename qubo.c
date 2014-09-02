@@ -58,7 +58,7 @@ int (*Q)[4][7]; // Q[NBV][4][7]
                 // Directions 0-3 corresponds to intra-K_4,4 neighbours, and
                 // 4 = Left or Down, 5 = Right or Up, 6 = self
 int QC;         // Centre constant = (if enabled by -c) sum of pre-shifted energy of state X and X with bipartite half flipped
-                // Only actually constant if Q was derived from an Ising model with no external fields
+                // Only actually constant/meaningful if Q was derived from an Ising model with no external fields
 int (*adj)[4][7][2]; // adj[NBV][4][7][2]
                      // Complete adjacency list, including both directions along an edge and self-loops
                      // adj[p][i][d]={q,j} <-> d^th neighbour of encoded vertex p, index i, is 
@@ -4572,6 +4572,208 @@ void SQA(int weightmode,int tree,double beta,int P){
   freegibbstables(1,gt);
 }
 
+typedef struct {
+  double p;// perturbation prob of lower-ranked potential exchangee
+  int f;// whether resulted in an exchange
+} epdat;
+int cmpep(const void*p,const void*q){
+  double z=((epdat*)p)->p-((epdat*)q)->p;
+  if(z!=0)return (z>0)-(z<0);
+  return ((epdat*)q)->f-((epdat*)p)->f;
+}
+
+// Pseudo parallel tempering
+int ppta(int weightmode,int strat,int bv,int qu,int64*nit){
+  int f,i,n,nt,it,itb,nel,upd;
+  const int maxnt=20, maxnel=1000;
+  typedef struct {
+    int X[NBV];// State
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate sbuf[maxnt],ts;
+  epdat epl[maxnel];
+  int ex[maxnt-1],ex0[maxnt-1];
+  double pp0,ttp,drift,pp[maxnt];
+  for(i=0;i<maxnt-1;i++)ex[i]=ex0[i]=0;
+  nt=2;
+  pp0=ngp>4?genp[4]:0.5;
+  for(i=0;i<nt;i++){
+    init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));sbuf[i].e=val();pp[i]=pp0*pow(0.5,i);
+  }
+  it=0;// Total iterations
+  itb=0;// Iterations since last nt increase
+  nel=0;
+  ttp=ngp>3?genp[3]:0.25;// target transition prb
+  drift=ngp>5?genp[5]:0.1;
+  upd=ngp>6?genp[6]:(strat%10==3?1000:50);// Update every upd steps
+  printf("ttp=%g pp0=%g drift=%g upd=%d\n",ttp,pp0,drift,upd);
+  while(1){
+
+    it++;itb++;
+    for(i=0;i<nt;i++){
+      memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+      pertstate(pp[i]);
+      sbuf[i].e=stabletreeexhaust(val(),strat%10-2,0);
+      if(sbuf[i].e<=bv){if(nit)*nit+=it;return sbuf[i].e;}
+      memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+    }
+    for(i=0;i<nt-1;i++){
+      //if(i==0)printf("%12g %d XXX\n",pp[1],sbuf[i].e<=sbuf[i+1].e);
+      ex0[i]++;
+      if((f=(sbuf[i].e<=sbuf[i+1].e))){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
+      if(i==nt-2){epl[nel%maxnel].p=pp[nt-1];epl[nel%maxnel].f=f;nel++;}
+    }
+
+    pp[nt-1]*=exp((randfloat()-.5)*drift);pp[nt-1]=MIN(pp[nt-1],nt>=2?pp[nt-2]:1);
+    i=floor(sqrt(itb)+.5);
+    if(i*i==itb){// adjust pp[nt-1]
+      int bi;
+      double v,vmin,p0,p1;
+      n=MIN(nel,maxnel);
+      qsort(epl,n,sizeof(epdat),cmpep);
+      //for(i=0;i<n;i++)printf("%12g %d\n",epl[i].p,epl[i].f);
+      printf("%12g - %12g\n",epl[0].p,epl[n-1].p);
+      vmin=0;bi=-1;
+      for(i=0,v=0;i<n;i++){
+        v+=epl[i].f-ttp;// v=(1-ttp)*(#1s @ <=i) - ttp*(#0s @ <=i)
+        if(v<vmin){vmin=v;bi=i;}
+      }
+      printf("%d %d %g\n",bi,n,epl[bi].p);
+      // best i is somewhere between bi and bi+1
+      if(bi==-1)p0=0; else p0=epl[bi].p;
+      if(bi==n-1)p1=nt>=2?pp[nt-2]:1; else p1=epl[bi+1].p;
+      pp[nt-1]=(p0+p1)/2;
+
+      for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
+      for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
+      printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
+      printf("\n");
+      fflush(stdout);
+    }
+
+    if(it%upd==0&&nt<maxnt&&pp[nt-1]*NBV>.5){
+      printf("Introducing level %d at it=%d\n",nt+1,it);
+      sbuf[nt]=sbuf[nt-1];
+      pp[nt]=pp[nt-1]*.5;
+      nt++;
+      nel=0;
+      itb=0;
+    }
+    
+  }
+}
+
+// Pseudo parallel tempering
+// Assumes geometric pp[i], but I think this is flawed.
+// E.g., when pp[i] get very small then exchange prob starts going up
+// Can have small pp[i] at the end (i near nt) force all the pp[i] apart in
+// a positive feedback loop
+int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
+  int f,i,nt,it,upd;
+  const int maxnt=100;
+  typedef struct {
+    int X[NBV];// State
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate sbuf[maxnt],ts;
+  int ex[maxnt-1],ex0[maxnt-1];
+  double ff,ttp,pp0,pp[maxnt];
+  for(i=0;i<maxnt-1;i++)ex[i]=ex0[i]=0;
+  nt=3;ff=0.5;
+  pp0=ngp>4?genp[4]:0.5;
+  for(i=0;i<nt;i++){
+    init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));sbuf[i].e=val();pp[i]=pp0*pow(ff,i);
+  }
+  it=0;// Total iterations
+  ttp=ngp>3?genp[3]:0.25;// target transition prb
+  upd=ngp>6?genp[6]:(strat%10==3?100:10);// Update every upd steps
+  printf("ttp=%g pp0=%g upd=%d\n",ttp,pp0,upd);
+  while(1){
+
+    it++;
+    for(i=0;i<nt;i++){
+      memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+      pertstate(pp[i]);
+      sbuf[i].e=stabletreeexhaust(val(),strat%10-2,0);
+      if(sbuf[i].e<=bv){if(nit)*nit+=it;return sbuf[i].e;}
+      memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+    }
+    for(i=0;i<nt-1;i++){
+      //if(i==0)printf("%12g %d XXX\n",pp[1],sbuf[i].e<=sbuf[i+1].e);
+      ex0[i]++;
+      if((f=(sbuf[i].e<=sbuf[i+1].e))){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
+    }
+
+    if(it%upd==0){// adjust all pp[]
+      for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
+      for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
+      printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
+      printf("\n");
+      fflush(stdout);
+
+      double hm,fadj,maxadj=1.1;
+      if(1){// HM
+        for(i=0,hm=0;i<nt-1;i++){
+          if(ex[i]==0){fadj=maxadj;goto adj;}
+          hm+=ex0[i]/(double)ex[i];
+        }
+        hm=(nt-1)/hm;
+      }else{// AM
+        for(i=0,hm=0;i<nt-1;i++){
+          hm+=ex[i]/(double)ex0[i];
+        }
+        hm=hm/(nt-1);
+      }
+      fadj=pow(ttp/hm,0.1);fadj=MIN(fadj,maxadj);fadj=MAX(fadj,1/maxadj);
+    adj:
+      printf("hm=%g fadj=%g\n",hm,fadj);
+      ff=MIN(fadj*ff,1);
+      for(i=0;i<nt;i++)pp[i]=0.5*pow(ff,i);
+      for(i=0;i<maxnt-1;i++)ex[i]=ex0[i]=0;
+
+      if(nt<maxnt&&pp[nt-1]*NBV>0.2){
+        printf("Introducing level %d at it=%d\n",nt+1,it);
+        sbuf[nt]=sbuf[nt-1];
+        pp[nt]=pp[nt-1]*.5;
+        nt++;
+      }
+    }
+    
+
+  }
+}
+
+// Pseudo parallel tempering
+void ppt(int weightmode,int strat,int tns,int bv,double maxt){
+  int ns,cv,pri,last,qu;
+  int64 nit;
+  double tim0,tim1,t1,tt,now;
+  qu=energyquantum();
+  printf("Target number of presumed optima: %d\n",tns);
+  printf("Initial best value: %d\n",bv);
+  printf("Energy quantum: %d\n",qu);
+  printf("Max time: %gs\n",maxt);
+  ns=0;tim0=tim1=cpu();t1=0;nit=0;
+  printf("  Iterations         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
+  while(ns<tns){
+    cv=(genp[2]==0?ppta(weightmode,strat,bv,qu,&nit):pptb(weightmode,strat,bv,qu,&nit));
+    now=cpu();tt=now-tim0;
+    last=(tt>maxt);
+    pri=(cv<bv||tt>=t1||last);
+    if(cv<bv){ns=0;tim1=now;nit=0;bv=cv;} else ns++;
+    if(pri||ns==tns){
+      printf("%12lld %10d %6d %8.2f %8.2f  %8.3g   %8.3g RESULTS\n",
+             nit,bv,ns,now-tim1,tt,(now-tim1)/ns,nit/(double)ns);
+      t1=MAX(tt*1.1,tt+0.5);
+    }
+    fflush(stdout);
+    if(last)break;
+  }
+  printf("Time to solution %gs, assuming true minimum is %d. Iterations/soln = %g\n",(cpu()-tim1)/ns,bv,nit/(double)ns);
+}
+
+
+
 int main(int ac,char**av){
   int opt,wn,mode,strat,weightmode,centreflag,numpo;
   double mint,maxt;
@@ -4903,17 +5105,22 @@ int main(int ac,char**av){
   case 24:
     findspectrum_ds(weightmode,genp[0]==0,genfile,deb);
     break;
-  case 25:
-    // Optimise using EMC
+  case 25: // Optimise using EMC
     // -P<submode:0=tree,1=vertex>,<-r to use set of betas with the first/hottest r missing>,
     // <initial bv> (optional), max time (optional), TlogT flag (optional).
     // Also uses tns = total number of solutions
     opt4(weightmode,deb,numpo,genp[0]==0,genp[1],ngp>2?genp[2]:1000000000,ngp>3?genp[3]:1e8,ngp>4?genp[4]:0);
     break;
-  case 26:
-    // SQA
+  case 26: // Simulated Quantum Annealing
     SQA(weightmode,genp[0]==0,genp[1],genp[2]);
     // genp[] = ~tree, beta, K=#imag time steps
+    break;
+  case 27: // Pseudo parallel tempering
+    // -P<initial bv> (optional), max time (optional),
+    // 0=ppta/1=pptb, ttp,
+    // pp0, drift(ppta), update-interval
+    // Also uses tns = total number of solutions
+    ppt(weightmode,strat,numpo,ngp>0?genp[0]:1000000000,ngp>1?genp[1]:1e100);
     break;
   }// mode
   prtimes();
