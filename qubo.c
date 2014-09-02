@@ -4676,9 +4676,9 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
     int e;// Energy
   } tstate; // Tempering state
   tstate sbuf[maxnt],ts;
-  int ex[maxnt-1],ex0[maxnt-1];
+  double ex[maxnt-1],ex0[maxnt-1];
   double ff,ttp,pp0,pp[maxnt];
-  for(i=0;i<maxnt-1;i++)ex[i]=ex0[i]=0;
+  for(i=0;i<maxnt-1;i++){ex[i]=0.5;ex0[i]=1;}
   nt=3;ff=0.5;
   pp0=ngp>4?genp[4]:0.5;
   for(i=0;i<nt;i++){
@@ -4707,35 +4707,44 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
     if(it%upd==0){// adjust all pp[]
       for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
       for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
-      printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
+      printf("    ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/ex0[i]);printf("\n");
       printf("\n");
       fflush(stdout);
 
       double hm,fadj,maxadj=1.1;
-      if(1){// HM
+      switch(2){
+      case 0:// HM
         for(i=0,hm=0;i<nt-1;i++){
-          if(ex[i]==0){fadj=maxadj;goto adj;}
-          hm+=ex0[i]/(double)ex[i];
+          if(ex[i]==0){hm=0;fadj=maxadj;goto adj;}
+          hm+=(ex0[i]+0.0)/(ex[i]+0.0);
         }
         hm=(nt-1)/hm;
-      }else{// AM
-        for(i=0,hm=0;i<nt-1;i++){
-          hm+=ex[i]/(double)ex0[i];
-        }
+        break;
+      case 1:// AM
+        for(i=0,hm=0;i<nt-1;i++)hm+=ex[i]/ex0[i];
         hm=hm/(nt-1);
+        break;
+      case 2:// First
+        hm=ex[0]/ex0[0];
+        break;
       }
       fadj=pow(ttp/hm,0.1);fadj=MIN(fadj,maxadj);fadj=MAX(fadj,1/maxadj);
     adj:
       printf("hm=%g fadj=%g\n",hm,fadj);
       ff=MIN(fadj*ff,1);
       for(i=0;i<nt;i++)pp[i]=0.5*pow(ff,i);
-      for(i=0;i<maxnt-1;i++)ex[i]=ex0[i]=0;
+      for(i=0;i<maxnt-1;i++){ex[i]*=.7;ex0[i]*=.7;}
 
-      if(nt<maxnt&&pp[nt-1]*NBV>0.2){
+      if(nt<maxnt&&pp[nt-1]*NBV>0.5){
         printf("Introducing level %d at it=%d\n",nt+1,it);
         sbuf[nt]=sbuf[nt-1];
         pp[nt]=pp[nt-1]*.5;
         nt++;
+      }
+      if(0&&nt>=3&&pp[nt-1]*NBV<0.1){
+        printf("Removing level %d at it=%d\n",nt,it);
+        nt--;
+        memmove(sbuf,sbuf+1,nt*sizeof(tstate));
       }
     }
     
