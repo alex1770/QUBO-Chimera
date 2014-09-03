@@ -4695,7 +4695,8 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
       memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
       pertstate(pp[i]);
       sbuf[i].e=stabletreeexhaust(val(),strat%10-2,0);
-      if(sbuf[i].e<=bv){if(nit)*nit+=it;return sbuf[i].e;}
+      if(nit)(*nit)++;
+      if(sbuf[i].e<=bv)return sbuf[i].e;
       memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
     }
     for(i=0;i<nt-1;i++){
