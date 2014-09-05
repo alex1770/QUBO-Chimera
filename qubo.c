@@ -4664,10 +4664,7 @@ int ppta(int weightmode,int strat,int bv,int qu,int64*nit){
 }
 
 // Pseudo parallel tempering
-// Assumes geometric pp[i], but I think this is flawed.
-// E.g., when pp[i] get very small then exchange prob starts going up
-// Can have small pp[i] at the end (i near nt) force all the pp[i] apart in
-// a positive feedback loop
+// Assumes geometric pp[i], uses ex[0] (time-weighted average)
 int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
   int f,i,nt,it,upd;
   const int maxnt=100;
@@ -4677,7 +4674,7 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
   } tstate; // Tempering state
   tstate sbuf[maxnt],ts;
   double ex[maxnt-1],ex0[maxnt-1];
-  double ff,ttp,pp0,pp[maxnt];
+  double ff,ttp,pp0,decay,pp[maxnt];
   for(i=0;i<maxnt-1;i++){ex[i]=0.5;ex0[i]=1;}
   nt=3;ff=0.5;
   pp0=ngp>4?genp[4]:0.5;
@@ -4687,7 +4684,8 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
   it=0;// Total iterations
   ttp=ngp>3?genp[3]:0.25;// target transition prb
   upd=ngp>6?genp[6]:(strat%10==3?100:10);// Update every upd steps
-  printf("ttp=%g pp0=%g upd=%d\n",ttp,pp0,upd);
+  decay=ngp>5?genp[5]:0.;
+  printf("ttp=%g pp0=%g upd=%d decay=%g\n",ttp,pp0,upd,decay);
   while(1){
 
     it++;
@@ -4734,7 +4732,7 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
       printf("hm=%g fadj=%g\n",hm,fadj);
       ff=MIN(fadj*ff,1);
       for(i=0;i<nt;i++)pp[i]=0.5*pow(ff,i);
-      for(i=0;i<maxnt-1;i++){ex[i]*=.7;ex0[i]*=.7;}
+      for(i=0;i<maxnt-1;i++){ex[i]*=decay;ex0[i]*=decay;}
 
       if(nt<maxnt&&pp[nt-1]*NBV>0.5){
         printf("Introducing level %d at it=%d\n",nt+1,it);
@@ -4745,8 +4743,136 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
       if(0&&nt>=3&&pp[nt-1]*NBV<0.1){
         printf("Removing level %d at it=%d\n",nt,it);
         nt--;
-        memmove(sbuf,sbuf+1,nt*sizeof(tstate));
+        //memmove(sbuf,sbuf+1,nt*sizeof(tstate));
       }
+    }
+    
+
+  }
+}
+
+double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,int pr){
+  int i,gt0,gt1;
+  double g,p,x,p1,x1;
+  x=0;p=0;g=g0;
+  gt0=(p>=ttp);// p>=ttp flag
+  if(rx)*rx=-1;
+  for(i=0;i<=n;i++){
+    if(i<n)x1=epl[i].p; else x1=pp0;
+    p1=p+g*(x1-x);gt1=(p1>=ttp);
+    if(rx&&gt0==0&&gt1==1){assert(p1>p);*rx=(ttp-p)/(p1-p)*(x1-x)+x;if(pr)printf("Interp ttp=%g from (%g,%g) to (%g,%g) --> %g\n",ttp,x,p,x1,p1,*rx);}
+    x=x1;p=p1;gt0=gt1;
+    if(pr)printf("%12g ... %12g %12g\n",g,x,p);
+    if(p>0.5)p=0.5;
+    if(i==n)break;
+    if(epl[i].f)g-=1/(m*p); else g+=1/(m*(1-p));
+    if(g<0)g=0;
+  }
+  return p;
+}
+
+// Pseudo parallel tempering
+// Assumes geometric pp[i], uses ex[0] (historical)
+int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
+  int f,i,n,nh,nt,upd,itnl;
+  int64 t,it;
+  const int maxnt=100,maxhist=1000;
+  typedef struct {
+    int X[NBV];// State
+    int e;// Energy
+  } tstate; // Tempering state
+  tstate sbuf[maxnt],ts;
+  epdat epl[maxhist];
+  double ex[maxnt-1],ex0[maxnt-1],ef,e0[maxnt],e1[maxnt];
+  double ff,ttp,pp0,pp[maxnt];
+  double g0;// Initial gradient of inferred probability function
+  double mass;// Mass in Lagrangian for ditto
+  double nlthr;
+  for(i=0;i<maxnt-1;i++){ex[i]=ex0[i]=0;}
+  for(i=0;i<maxnt;i++)e0[i]=e1[i]=0;ef=0.05;
+  nt=2;ff=1;
+  pp0=ngp>4?genp[4]:0.5;
+  for(i=0;i<nt;i++){
+    init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));sbuf[i].e=val();pp[i]=pp0*pow(ff,i);
+  }
+  it=0;// Total iterations
+  ttp=ngp>3?genp[3]:0.35;// target transition prb
+  itnl=ngp>5?genp[5]:(strat%10==3?50:5);// Min its to introduce new level
+  upd=ngp>6?genp[6]:(strat%10==3?100:10);// Update density factor
+  nlthr=ngp>7?genp[7]:0.5;// New level energy gap threshold
+  printf("ttp=%g pp0=%g upd=%d itnl=%d nlthr=%g\n",ttp,pp0,upd,itnl,nlthr);
+  nh=0;
+  mass=10;g0=1;
+  while(1){
+    for(i=0;i<nt;i++){
+      memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
+      pertstate(pp[i]);
+      sbuf[i].e=stabletreeexhaust(val(),strat%10-2,0);
+      if(nit)(*nit)++;
+      if(sbuf[i].e<=bv)return sbuf[i].e;
+      memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
+    }
+    for(i=0;i<nt-1;i++){
+      //if(i==0)printf("%12g %d XXX\n",pp[1],sbuf[i].e<=sbuf[i+1].e);
+      ex0[i]++;
+      if((f=(sbuf[i].e<=sbuf[i+1].e))){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
+      if(i==0){epl[nh%maxhist].p=pp[1];epl[nh%maxhist].f=f;nh++;}
+    }
+    for(i=0;i<nt;i++){e0[i]=(1-ef)*e0[i]+ef*1;e1[i]=(1-ef)*e1[i]+ef*sbuf[i].e;}
+    it++;
+
+    t=floor(sqrt(upd*it+upd-0.5));
+    if(t*t>=upd*it){// adjust all pp[] based on getting pp[1] right and using geometric sequence
+      double g,p,g1,gf,p0,p1,pp1;
+      n=MIN(nh,maxhist);
+      qsort(epl,n,sizeof(epdat),cmpep);
+      //for(i=0;i<n;i++)printf("%12g %d\n",epl[i].p,epl[i].f);
+      printf("%12lld %9.2f: %12g - %12g\n",it,cpu(),epl[0].p,epl[n-1].p);
+      
+      gf=1.1;
+      p0=dolag(mass,g0,pp0,n,epl,ttp,0,0);
+      if(p0<0.499999){
+        while(1){
+          g1=g0*gf;
+          p1=dolag(mass,g1,pp0,n,epl,ttp,0,0);
+          if(g0>100||p1>0.499999)break;
+          g0=g1;p0=p1;
+        }
+      }else{
+        while(1){
+          g1=g0;p1=p0;
+          g0=g1/gf;
+          p0=dolag(mass,g0,pp0,n,epl,ttp,0,0);
+          if(g0<1e-3||p0<0.499999)break;
+        }
+      }
+      while(p1-p0>1e-3){
+        g=(g0+g1)/2;
+        p=dolag(mass,g,pp0,n,epl,ttp,0,0);
+        if(p>0.499999){g1=g;p1=p;}else{g0=g;p0=p;}
+      }
+      g0=(g0+g1)/2;
+      p=dolag(mass,g0,pp0,n,epl,ttp,&pp1,0);
+      //printf("Chose p=%g\n",pp1);
+      ff=pp1/pp0;
+      for(i=1;i<nt;i++)pp[i]=pp[i-1]*ff;
+      for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
+      for(i=0;i<nt;i++)printf(" %8.1f",e1[i]/e0[i]);printf("\n");
+      for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
+      printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
+
+      if(it>=itnl&&nt<maxnt&&pp[nt-1]*NBV>0.5&&e1[nt-2]/e0[nt-2]-e1[nt-1]/e0[nt-1]>nlthr){
+        printf("Introducing level %d\n",nt+1);
+        sbuf[nt]=sbuf[nt-1];
+        pp[nt]=pp[nt-1]*.5;
+        nt++;
+      }
+      if(0&&nt>=3&&pp[nt-1]*NBV<0.1){
+        printf("Removing level %d\n",nt);
+        nt--;
+        //memmove(sbuf,sbuf+1,nt*sizeof(tstate));
+      }
+      printf("\n");fflush(stdout);
     }
     
 
@@ -4766,7 +4892,12 @@ void ppt(int weightmode,int strat,int tns,int bv,double maxt){
   ns=0;tim0=tim1=cpu();t1=0;nit=0;
   printf("  Iterations         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
-    cv=(genp[2]==0?ppta(weightmode,strat,bv,qu,&nit):pptb(weightmode,strat,bv,qu,&nit));
+    switch((int)(genp[2])){
+    case 0: cv=ppta(weightmode,strat,bv,qu,&nit); break;
+    case 1: cv=pptb(weightmode,strat,bv,qu,&nit); break;
+    case 2: cv=pptc(weightmode,strat,bv,qu,&nit); break;
+    default: assert(0);
+    }
     now=cpu();tt=now-tim0;
     last=(tt>maxt);
     pri=(cv<bv||tt>=t1||last);
