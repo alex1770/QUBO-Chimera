@@ -4572,97 +4572,6 @@ void SQA(int weightmode,int tree,double beta,int P){
   freegibbstables(1,gt);
 }
 
-typedef struct {
-  double p;// perturbation prob of lower-ranked potential exchangee
-  int f;// whether resulted in an exchange
-} epdat;
-int cmpep(const void*p,const void*q){
-  double z=((epdat*)p)->p-((epdat*)q)->p;
-  if(z!=0)return (z>0)-(z<0);
-  return ((epdat*)q)->f-((epdat*)p)->f;
-}
-
-// Pseudo parallel tempering
-int ppta(int weightmode,int strat,int bv,int qu,int64*nit){
-  int f,i,n,nt,it,itb,nel,upd;
-  const int maxnt=20, maxnel=1000;
-  typedef struct {
-    int X[NBV];// State
-    int e;// Energy
-  } tstate; // Tempering state
-  tstate sbuf[maxnt],ts;
-  epdat epl[maxnel];
-  int ex[maxnt-1],ex0[maxnt-1];
-  double pp0,ttp,drift,pp[maxnt];
-  for(i=0;i<maxnt-1;i++)ex[i]=ex0[i]=0;
-  nt=2;
-  pp0=ngp>4?genp[4]:0.5;
-  for(i=0;i<nt;i++){
-    init_state();memcpy(sbuf[i].X,XBa,NBV*sizeof(int));sbuf[i].e=val();pp[i]=pp0*pow(0.5,i);
-  }
-  it=0;// Total iterations
-  itb=0;// Iterations since last nt increase
-  nel=0;
-  ttp=ngp>3?genp[3]:0.25;// target transition prb
-  drift=ngp>5?genp[5]:0.1;
-  upd=ngp>6?genp[6]:(strat%10==3?1000:50);// Update every upd steps
-  printf("ttp=%g pp0=%g drift=%g upd=%d\n",ttp,pp0,drift,upd);
-  while(1){
-
-    it++;itb++;
-    for(i=0;i<nt;i++){
-      memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
-      pertstate(pp[i]);
-      sbuf[i].e=stabletreeexhaust(val(),strat%10-2,0);
-      if(sbuf[i].e<=bv){if(nit)*nit+=it;return sbuf[i].e;}
-      memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
-    }
-    for(i=0;i<nt-1;i++){
-      //if(i==0)printf("%12g %d XXX\n",pp[1],sbuf[i].e<=sbuf[i+1].e);
-      ex0[i]++;
-      if((f=(sbuf[i].e<=sbuf[i+1].e))){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
-      if(i==nt-2){epl[nel%maxnel].p=pp[nt-1];epl[nel%maxnel].f=f;nel++;}
-    }
-
-    pp[nt-1]*=exp((randfloat()-.5)*drift);pp[nt-1]=MIN(pp[nt-1],nt>=2?pp[nt-2]:1);
-    i=floor(sqrt(itb)+.5);
-    if(i*i==itb){// adjust pp[nt-1]
-      int bi;
-      double v,vmin,p0,p1;
-      n=MIN(nel,maxnel);
-      qsort(epl,n,sizeof(epdat),cmpep);
-      //for(i=0;i<n;i++)printf("%12g %d\n",epl[i].p,epl[i].f);
-      printf("%12g - %12g\n",epl[0].p,epl[n-1].p);
-      vmin=0;bi=-1;
-      for(i=0,v=0;i<n;i++){
-        v+=epl[i].f-ttp;// v=(1-ttp)*(#1s @ <=i) - ttp*(#0s @ <=i)
-        if(v<vmin){vmin=v;bi=i;}
-      }
-      printf("%d %d %g\n",bi,n,epl[bi].p);
-      // best i is somewhere between bi and bi+1
-      if(bi==-1)p0=0; else p0=epl[bi].p;
-      if(bi==n-1)p1=nt>=2?pp[nt-2]:1; else p1=epl[bi+1].p;
-      pp[nt-1]=(p0+p1)/2;
-
-      for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
-      for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
-      printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
-      printf("\n");
-      fflush(stdout);
-    }
-
-    if(it%upd==0&&nt<maxnt&&pp[nt-1]*NBV>.5){
-      printf("Introducing level %d at it=%d\n",nt+1,it);
-      sbuf[nt]=sbuf[nt-1];
-      pp[nt]=pp[nt-1]*.5;
-      nt++;
-      nel=0;
-      itb=0;
-    }
-    
-  }
-}
-
 // Pseudo parallel tempering
 // Assumes geometric pp[i], uses ex[0] (time-weighted average)
 int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
@@ -4698,7 +4607,6 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
       memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
     }
     for(i=0;i<nt-1;i++){
-      //if(i==0)printf("%12g %d XXX\n",pp[1],sbuf[i].e<=sbuf[i+1].e);
       ex0[i]++;
       if((f=(sbuf[i].e<=sbuf[i+1].e))){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
     }
@@ -4751,6 +4659,15 @@ int pptb(int weightmode,int strat,int bv,int qu,int64*nit){
   }
 }
 
+typedef struct {
+  double p;// perturbation prob of lower-ranked potential exchangee
+  int n0,n1;// How many resulted in non-exchange, exchange
+} epdat;
+int cmpep(const void*p,const void*q){
+  double z=((epdat*)p)->p-((epdat*)q)->p;
+  return (z>0)-(z<0);
+}
+
 double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,int pr){
   int i,gt0,gt1;
   double g,p,x,p1,x1;
@@ -4765,7 +4682,8 @@ double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,
     if(pr)printf("%12g ... %12g %12g\n",g,x,p);
     if(p>0.5)p=0.5;
     if(i==n)break;
-    if(epl[i].f)g-=1/(m*p); else g+=1/(m*(1-p));
+    //if(epl[i].f)g-=1/(m*p); else g+=1/(m*(1-p));
+    g+=(epl[i].n0/(1-p)-epl[i].n1/p)/m;
     if(g<0)g=0;
   }
   return p;
@@ -4774,9 +4692,9 @@ double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,
 // Pseudo parallel tempering
 // Assumes geometric pp[i], uses ex[0] (historical)
 int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
-  int f,i,n,nh,nt,upd,itnl;
+  int f,i,j,n,nh,nt,upd,itnl,nn[2];
   int64 t,it;
-  const int maxnt=100,maxhist=1000;
+  const int maxnt=1000,maxhist=10000;
   typedef struct {
     int X[NBV];// State
     int e;// Energy
@@ -4788,6 +4706,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
   double g0;// Initial gradient of inferred probability function
   double mass;// Mass in Lagrangian for ditto
   double nlthr;
+  double tim0,tim1;
   for(i=0;i<maxnt-1;i++){ex[i]=ex0[i]=0;}
   for(i=0;i<maxnt;i++)e0[i]=e1[i]=0;ef=0.05;
   nt=2;ff=1;
@@ -4803,7 +4722,10 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
   printf("ttp=%g pp0=%g upd=%d itnl=%d nlthr=%g\n",ttp,pp0,upd,itnl,nlthr);
   nh=0;
   mass=10;g0=1;
+  nn[0]=nn[1]=0;// number of non-exchanges and exchanges between level 0 and 1 since last pp[] adjustment
+  tim0=tim1=0;
   while(1){
+    tim0-=cpu();
     for(i=0;i<nt;i++){
       memcpy(XBa,sbuf[i].X,NBV*sizeof(int));
       pertstate(pp[i]);
@@ -4813,21 +4735,26 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
       memcpy(sbuf[i].X,XBa,NBV*sizeof(int));
     }
     for(i=0;i<nt-1;i++){
-      //if(i==0)printf("%12g %d XXX\n",pp[1],sbuf[i].e<=sbuf[i+1].e);
       ex0[i]++;
-      if((f=(sbuf[i].e<=sbuf[i+1].e))){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
-      if(i==0){epl[nh%maxhist].p=pp[1];epl[nh%maxhist].f=f;nh++;}
+      //f=(sbuf[i].e<=sbuf[i+1].e);//alter equality case?
+      f=(sbuf[i].e<sbuf[i+1].e||(sbuf[i].e==sbuf[i+1].e&&randint(2)));
+      if(f){ts=sbuf[i];sbuf[i]=sbuf[i+1];sbuf[i+1]=ts;ex[i]++;}
+      if(i==0)nn[f]++;
     }
     for(i=0;i<nt;i++){e0[i]=(1-ef)*e0[i]+ef*1;e1[i]=(1-ef)*e1[i]+ef*sbuf[i].e;}
     it++;
+    tim0+=cpu();
 
     t=floor(sqrt(upd*it+upd-0.5));
     if(t*t>=upd*it){// adjust all pp[] based on getting pp[1] right and using geometric sequence
       double g,p,g1,gf,p0,p1,pp1;
+      if(nh<maxhist)j=nh; else j=randint(maxhist);
+      epl[j].p=pp[1];epl[j].n0=nn[0];epl[j].n1=nn[1];nn[0]=nn[1]=0;nh++;
       n=MIN(nh,maxhist);
+      printf("%12lld %9.2f : %12lld %9.2f + %9.2f : hist %d (max %d)\n",*nit,cpu(),it,tim0,tim1,nh,maxhist);
+      tim1-=cpu();
       qsort(epl,n,sizeof(epdat),cmpep);
-      //for(i=0;i<n;i++)printf("%12g %d\n",epl[i].p,epl[i].f);
-      printf("%12lld %9.2f: %12g - %12g\n",it,cpu(),epl[0].p,epl[n-1].p);
+      //for(i=0;i<n;i++)printf("EPL %18.14g %6d %6d\n",epl[i].p,epl[i].n0,epl[i].n1);
       
       gf=1.1;
       p0=dolag(mass,g0,pp0,n,epl,ttp,0,0);
@@ -4851,7 +4778,8 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
         p=dolag(mass,g,pp0,n,epl,ttp,0,0);
         if(p>0.499999){g1=g;p1=p;}else{g0=g;p0=p;}
       }
-      g0=(g0+g1)/2;
+      // (g1 might be an overshoot, because the dolag() function is eventually constant in g, but g0 should be OK)
+      //printf("Using g0=%g\n",g0);
       p=dolag(mass,g0,pp0,n,epl,ttp,&pp1,0);
       //printf("Chose p=%g\n",pp1);
       ff=pp1/pp0;
@@ -4872,10 +4800,9 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
         nt--;
         //memmove(sbuf,sbuf+1,nt*sizeof(tstate));
       }
+      tim1+=cpu();
       printf("\n");fflush(stdout);
     }
-    
-
   }
 }
 
@@ -4893,7 +4820,6 @@ void ppt(int weightmode,int strat,int tns,int bv,double maxt){
   printf("  Iterations         bv     ns    t(bv)   t(all)  t(bv)/ns     its/ns\n");fflush(stdout);
   while(ns<tns){
     switch((int)(genp[2])){
-    case 0: cv=ppta(weightmode,strat,bv,qu,&nit); break;
     case 1: cv=pptb(weightmode,strat,bv,qu,&nit); break;
     case 2: cv=pptc(weightmode,strat,bv,qu,&nit); break;
     default: assert(0);
