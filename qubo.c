@@ -4668,14 +4668,16 @@ int cmpep(const void*p,const void*q){
   return (z>0)-(z<0);
 }
 
-double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,int pr){
+double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,double *rp,int pr){
   int i,gt0,gt1;
-  double g,p,x,p1,x1;
+  double g,p,s,x,p1,x1;
   x=0;p=0;g=g0;
   gt0=(p>=ttp);// p>=ttp flag
-  if(rx)*rx=-1;
+  if(rx)*rx=pp0;
+  s=0;
   for(i=0;i<=n;i++){
     if(i<n)x1=epl[i].p; else x1=pp0;
+    s+=m/2*g*g*(x1-x);
     p1=p+g*(x1-x);gt1=(p1>=ttp);
     if(rx&&gt0==0&&gt1==1){assert(p1>p);*rx=(ttp-p)/(p1-p)*(x1-x)+x;if(pr)printf("Interp ttp=%g from (%g,%g) to (%g,%g) --> %g\n",ttp,x,p,x1,p1,*rx);}
     x=x1;p=p1;gt0=gt1;
@@ -4685,8 +4687,10 @@ double dolag(double m,double g0,double pp0,int n,epdat*epl,double ttp,double*rx,
     //if(epl[i].f)g-=1/(m*p); else g+=1/(m*(1-p));
     g+=(epl[i].n0/(1-p)-epl[i].n1/p)/m;
     if(g<0)g=0;
+    s-=epl[i].n0*log(1-p)+epl[i].n1*log(p);
   }
-  return p;
+  if(rp)*rp=p;
+  return s;
 }
 
 // Pseudo parallel tempering
@@ -4705,7 +4709,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
   double ff,ttp,pp0,pp[maxnt];
   double g0;// Initial gradient of inferred probability function
   double mass;// Mass in Lagrangian for ditto
-  double nlthr;
+  double phi,nlthr;
   double tim0,tim1;
   for(i=0;i<maxnt-1;i++){ex[i]=ex0[i]=0;}
   for(i=0;i<maxnt;i++)e0[i]=e1[i]=0;ef=0.05;
@@ -4724,6 +4728,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
   mass=10;g0=1;
   nn[0]=nn[1]=0;// number of non-exchanges and exchanges between level 0 and 1 since last pp[] adjustment
   tim0=tim1=0;
+  phi=(sqrt(5)-1)/2;
   while(1){
     tim0-=cpu();
     for(i=0;i<nt;i++){
@@ -4747,7 +4752,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
 
     t=floor(sqrt(upd*it+upd-0.5));
     if(t*t>=upd*it){// adjust all pp[] based on getting pp[1] right and using geometric sequence
-      double g,p,g1,gf,p0,p1,pp1;
+      double p,s,g1,g2,g3,s0,s1,s2,s3,gf,pp1;
       if(nh<maxhist)j=nh; else j=randint(maxhist);
       epl[j].p=pp[1];epl[j].n0=nn[0];epl[j].n1=nn[1];nn[0]=nn[1]=0;nh++;
       n=MIN(nh,maxhist);
@@ -4756,32 +4761,30 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
       qsort(epl,n,sizeof(epdat),cmpep);
       //for(i=0;i<n;i++)printf("EPL %18.14g %6d %6d\n",epl[i].p,epl[i].n0,epl[i].n1);
       
+      // g0  g2  g3  g1
       gf=1.1;
-      p0=dolag(mass,g0,pp0,n,epl,ttp,0,0);
-      if(p0<0.499999){
-        while(1){
-          g1=g0*gf;
-          p1=dolag(mass,g1,pp0,n,epl,ttp,0,0);
-          if(g0>100||p1>0.499999)break;
-          g0=g1;p0=p1;
-        }
-      }else{
-        while(1){
-          g1=g0;p1=p0;
-          g0=g1/gf;
-          p0=dolag(mass,g0,pp0,n,epl,ttp,0,0);
-          if(g0<1e-3||p0<0.499999)break;
+      g2=g1=g0;s2=dolag(mass,g0,pp0,n,epl,ttp,0,0,0);
+      while(g2>1e-3){
+        g0=g2/gf;s0=dolag(mass,g0,pp0,n,epl,ttp,0,0,0);
+        if(s0>s2)break;
+        g2=g0;
+      }
+      while(g2<100){
+        g1=g2*gf;s1=dolag(mass,g1,pp0,n,epl,ttp,0,0,0);
+        if(s1>s2)break;
+        g0=g2;g2=g1;
+      }
+      g2=g1-phi*(g1-g0);s2=dolag(mass,g2,pp0,n,epl,ttp,0,0,0);
+      g3=g0+phi*(g1-g0);s3=dolag(mass,g3,pp0,n,epl,ttp,0,0,0);
+      while(g1-g0>1e-4){
+        if(s2<s3){
+          g1=g3;s1=s3;g3=g2;s3=s2;g2=g1-phi*(g1-g0);s2=dolag(mass,g2,pp0,n,epl,ttp,0,0,0);
+        }else{
+          g0=g2;s0=s2;g2=g3;s2=s3;g3=g0+phi*(g1-g0);s3=dolag(mass,g3,pp0,n,epl,ttp,0,0,0);
         }
       }
-      while(p1-p0>1e-3){
-        g=(g0+g1)/2;
-        p=dolag(mass,g,pp0,n,epl,ttp,0,0);
-        if(p>0.499999){g1=g;p1=p;}else{g0=g;p0=p;}
-      }
-      // (g1 might be an overshoot, because the dolag() function is eventually constant in g, but g0 should be OK)
-      //printf("Using g0=%g\n",g0);
-      p=dolag(mass,g0,pp0,n,epl,ttp,&pp1,0);
-      //printf("Chose p=%g\n",pp1);
+      s=dolag(mass,g0,pp0,n,epl,ttp,&pp1,&p,0);
+      printf("Chose pp1=%g. g0=%g finalp=%g s/it=%g\n",pp1,g0,p,s/it);
       ff=pp1/pp0;
       for(i=1;i<nt;i++)pp[i]=pp[i-1]*ff;
       for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
