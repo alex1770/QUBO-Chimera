@@ -1796,6 +1796,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv
     printf("Target number of presumed optima: %d\n",tns);
     printf("Min time to run: %gs\nMax time to run: %gs\n",mint,maxt);
     printf("Solutions are %sdependent\n",findtts?"in":"");
+    printf("       Nodes         bv       nsol     t_bv    t_all  t_bv/nsol    nts/nis   nis/nsol\n");
   }
   nn=0;
   t0=cpu();// Initial time
@@ -4727,7 +4728,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
   itnl=ngp>5?genp[5]:(strat%10==3?50:5);// Min its to introduce new level
   upd=ngp>6?genp[6]:(strat%10==3?100:10);// Update density factor
   nlthr=ngp>7?genp[7]:0.5;// New level energy gap threshold
-  printf("ttp=%g pp0=%g upd=%d itnl=%d nlthr=%g\n",ttp,pp0,upd,itnl,nlthr);
+  if(deb>=2)printf("ttp=%g pp0=%g upd=%d itnl=%d nlthr=%g\n",ttp,pp0,upd,itnl,nlthr);
   nh=0;
   mass=10;g0=1;
   nn[0]=nn[1]=0;// number of non-exchanges and exchanges between level 0 and 1 since last pp[] adjustment
@@ -4740,8 +4741,8 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
       sbuf[i].e=stabletreeexhaust(val(),strat%10-2,0);
       if(nit)(*nit)++;
       if(sbuf[i].e<=bv){
-        printf("Final nt=%d its=%lld nu=%lld\n",nt,it,nu);
-        if(it<=maxrwhist){
+        if(deb>=2)printf("Final nt=%d its=%lld nu=%lld\n",nt,it,nu);
+        if(deb>=3&&it<=maxrwhist){
           j=i;printf("RWHIST");
           while(1){
             printf(" %d",j);
@@ -4749,7 +4750,6 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
             j=rwhist[it][j];
           }
           printf("\n");
-          //exit(1);
         }
         return sbuf[i].e;
       }
@@ -4782,7 +4782,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
       if(nh<maxhist)j=nh; else j=randint(maxhist);
       epl[j].p=pp[1];epl[j].n0=nn[0];epl[j].n1=nn[1];nn[0]=nn[1]=0;nh++;
       n=MIN(nh,maxhist);
-      printf("%12lld %9.2f : %12lld %9.2f + %9.2f : hist %d (max %d)\n",*nit,cpu(),it,tim0,tim1,nh,maxhist);
+      if(deb>=4)printf("%12lld %9.2f : %12lld %9.2f + %9.2f : hist %d (max %d)\n",*nit,cpu(),it,tim0,tim1,nh,maxhist);
       tim1-=cpu();
       qsort(epl,n,sizeof(epdat),cmpep);
       //for(i=0;i<n;i++)printf("EPL %18.14g %6d %6d\n",epl[i].p,epl[i].n0,epl[i].n1);
@@ -4817,13 +4817,15 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
         ff=pp1/pp0;
       }else ff=ttp;
       for(i=1;i<nt;i++)pp[i]=pp[i-1]*ff;
-      for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
-      for(i=0;i<nt;i++)printf(" %8.1f",e1[i]/e0[i]);printf("\n");
-      for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
-      printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
+      if(deb>=4){
+        for(i=0;i<nt;i++)printf(" %8d",sbuf[i].e);printf("\n");
+        for(i=0;i<nt;i++)printf(" %8.1f",e1[i]/e0[i]);printf("\n");
+        for(i=0;i<nt;i++)printf(" %8.5f",pp[i]);printf("\n");
+        printf("     ");for(i=0;i<nt-1;i++)printf(" %8.3f",ex[i]/(double)ex0[i]);printf("\n");
+      }
 
       if(it>=itnl&&nt<maxnt&&pp[nt-1]*NBV>0.5&&e1[nt-2]/e0[nt-2]-e1[nt-1]/e0[nt-1]>nlthr){
-        printf("Introducing level %d\n",nt+1);
+        if(deb>=4)printf("Introducing level %d\n",nt+1);
         if(it<maxrwhist)rwhist[it-1][nt]=rwhist[it-1][nt-1];
         sbuf[nt]=sbuf[nt-1];
         pp[nt]=pp[nt-1]*.5;
@@ -4836,7 +4838,7 @@ int pptc(int weightmode,int strat,int bv,int qu,int64*nit){
       }
       nu++;
       tim1+=cpu();
-      printf("\n");fflush(stdout);
+      if(deb>=4){printf("\n");fflush(stdout);}
     }
   }
 }
