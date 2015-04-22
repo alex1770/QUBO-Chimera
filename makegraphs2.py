@@ -26,14 +26,7 @@
 # The above is actually applied to log_10(time)
 
 import os,sys
-from scipy.special import gamma,gammaln
 from math import log,exp,sqrt
-def fact(x): return gamma(x+1)
-def logfact(x): return gammaln(x+1)
-def logbin(n,r): return logfact(n)-logfact(r)-logfact(n-r)
-def bin(n,r):
-  if r>=0 and r<=n: return exp(logbin(n,r))
-  else: return 0.
 
 from subprocess import Popen,PIPE
 from optparse import OptionParser
@@ -45,12 +38,14 @@ parser.add_option("-s","--super",action="store_true",default=False,dest="super",
 parser.add_option("-p","--percentiles",dest="percentiles",default="[50,90]",help="List of percentiles, or \"average\"")
 parser.add_option("-c","--certainty",dest="certainty",default="TTS",help="Certainty (e.g., 0.99) (only in superimpose mode)")
 parser.add_option("-n","--cores",dest="cores",default="1",help="Number of cores to assume")
+parser.add_option("-m","--min",dest="min",default="",help="Values to be minned, e.g., 'S3/S4,S13/S14'")
 
 (opts,args)=parser.parse_args()
 outformat=opts.outformat
 standalone=not opts.super
 percentiles=eval(opts.percentiles)
 certainty="TTS" if (standalone or opts.certainty=="TTS") else float(opts.certainty)
+if opts.certainty!="TTS" and standalone: print>>sys.stderr,"Warning: reverting to TTS because not in superimpose mode"
 cores=int(opts.cores)
 print "Output format:",outformat
 print "Standalone flag:",standalone
@@ -66,6 +61,8 @@ colpc={1:0x0000ff, 5:0x004488, 10:0x00ffff, 50:0x00ff00,
 colseq=[0xff8800, 0x000000, 0x00ffff, 0x8000ff, 0x888800, 0x0000ff, 0xff0000, 0x00ff00, 0x004488]
 def include(N,S):# Whether to include this (size,strat) pair
   if N==439 or N==502: return 0# Ignore legacy sizes to avoid clutter and keep to complete grids
+  #return N>8 and (S[:2]=='DW' or S=='S13' or S=='S14' or S=='PPT-T1' or S=='PPT-T2')
+  return N>8 and (S[:2]=='DW' or S=='S3' or S=='S4' or S=='S13' or S=='S14' or S=='PPT-T1' or S=='PPT-T2')
   return S[:6]=='emctts' or S=='S13' or S=='S14' or S=='PPT-T1' or S=='PPT-T2'
   return S=='S13'
   #return (N<8*14*14 and S=='S13') or (N>=8*14*14 and S=='S14')
@@ -92,11 +89,24 @@ for (wm,wname) in weightmodes:
     if x[f+1:f+6]=='strat': S='S'+x[f+6:]
     elif x[f+1:f+7]=='emctts': S=x[f+1:]
     elif x[f+1:f+4]=='PPT': S=x[f+1:]
+    elif x[f+1:f+3]=='DW': S=x[f+1:]
     else: continue
     if not include(N,S): continue
     fn=os.path.join(dir0,x,'summary')
     print "Processing file",fn
-    fp=open(fn,'r');l=[];l0=[]
+    fp=open(fn,'r')
+    if x[f+1:f+3]=='DW':
+      # D-Wave summary file contains ready-made percentile values, in the form:
+      # Percentile  Certainty  log_10(Time/us)  Error
+      for y in fp:
+        if y=="" or y[0]=='#': continue
+        (pc,c,t,sd)=[float(w) for w in y.split()]
+        if pc in percentiles:
+          t-=log(log(1/(1-c)))/log10+6# Convert from certainty form (us) into TTS (s)
+          t+=log(1. if certainty=='TTS' else log(1/(1-certainty)))/log10# Possibly convert back to certainty form
+          d.setdefault((pc,S),[]).append((N,t,sd,1))# Using fictitious number (1) of samples
+      fp.close();continue
+    l=[];l0=[]
     for y in fp:
       if y=="" or y[0]=='#': continue
       z=float(y.split()[2])
@@ -136,6 +146,26 @@ for (wm,wname) in weightmodes:
         sd=sqrt(v)
       t+=log((1. if certainty=='TTS' else log(1/(1-certainty)))/cores)/log10
       d.setdefault((pc,S),[]).append((N,t,sd,n))
+  
+  if opts.min!="":
+    for m in opts.min.split(','):
+      lm=m.split('/')
+      ld=list(d)
+      for (pc,S) in ld:
+        if (pc,S) not in d: continue
+        if S in lm:
+          bv=None
+          for y in lm:
+            k=(pc,y)
+            if k in d:
+              if bv==None: bv=d[k]
+              else:# bv=pointwisemin(bv,d[k])
+                e={}
+                for (N,t,sd,n) in bv+d[k]:
+                  if N not in e or t<e[N][1]: e[N]=(N,t,sd,n)
+                bv=e.values();bv.sort()
+              del d[k]
+          d[(pc,m)]=bv[:]
 
   msd.sort()
   fp=open(outdir+'/'+wname+'-msd.txt','w')
@@ -168,7 +198,7 @@ for (wm,wname) in weightmodes:
   if standalone: print >>p,'set key left'
   else: print >>p,'set key center top'
   print >>p,'set title "%s / prog-qubo"'%(wname.replace('_',' '))
-  print >>p,'set xlabel "Problem size, spaced linearly with sqrt(N)"'
+  print >>p,'set xlabel "Problem size, N, spaced linearly with sqrt(N)"'
   if standalone: print >>p,'set ylabel "log_10(TTS in s), %d core%s"'%(cores,"s"*(cores!=1))
   print >>p,'set y2tics mirror'
   print >>p,'set grid ytics lc rgb "#dddddd" lt 1'
