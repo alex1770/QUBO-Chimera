@@ -1738,7 +1738,7 @@ int64 querycumsumlt(int64*cst,int size,int v){return querycumsumle(cst,size,v-1)
 int64 querycumsumeq(int64*cst,int size,int v){return querycumsumle(cst,size,v)-querycumsumlt(cst,size,v);}// ditto, equal to v
 
 #define MAXST (1<<18) // For stats.
-int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv){
+int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv,int targenergy){
   //
   // Heuristic optimisation, writing back best value found. Can be used to find TTS, the
   // expected time to find an optimum solution, using the strategy labelled by 'strat'.
@@ -1809,6 +1809,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv
   memset(Xbest,0,NBV*sizeof(int));copied=0;
   reset=1;
   rep=cv=nis=0;
+  if(targenergy>-1000000000)bv=targenergy;
   do{
     if(reset){// Forcibly reset all state after a (presumed) solution, so that runs are independent
       init_state();nis++;cv=val();
@@ -1842,6 +1843,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv
     default:
       fprintf(stderr,"Unknown strategy %d\n",strat);exit(1);
     }
+    nv=MAX(nv,targenergy);
     if(nv<cv)rep=0;
     cv=nv;
     if(cmin==1000000000)cmin=cv-ssize/2;
@@ -2626,7 +2628,7 @@ int linLB(int w){
 void timingtests(int strat,double mint,double maxt){
   int d,n,r,c0,c1,ph,wid,v0,upd;
   double t0;
-  opt1(mint,maxt,1,1,0,strat,1000000000);
+  opt1(mint,maxt,1,1,0,strat,1000000000,-1000000000);
   init_state();
   printf("val=%d\n",val());
   upd=0;
@@ -2676,7 +2678,7 @@ void consistencychecks2(int weightmode,int centreflag,int strat,double mint,doub
     for(w=1;w<=3;w++){
       for(d=0;d<2;d++)for(ph=0;ph<=w;ph++)for(r=-1;r<N;r++){
         init_state();
-        opt1(0,maxt,0,1,0,strat,1000000000);
+        opt1(0,maxt,0,1,0,strat,1000000000,-1000000000);
         v0=treestripexhaust(d,w,ph,0,r);
         for(c=0;c<N;){
           phl=(c+ph)%(w+1);
@@ -2693,7 +2695,7 @@ void consistencychecks2(int weightmode,int centreflag,int strat,double mint,doub
     for(w=1;w<=3;w++){
       for(d=0;d<2;d++)for(ph=0;ph<=w;ph++){
         init_state();
-        opt1(mint,maxt,0,1,0,strat,1000000000);
+        opt1(mint,maxt,0,1,0,strat,1000000000,-1000000000);
         v0=val();
         for(c=0;c<N;c++){
           phl=(c+ph)%(w+1);
@@ -4029,7 +4031,7 @@ void countgroundstates(int weightmode,int tns,int strat){
  restart:
   printf("Using bv=%d\n",bv);
   for(ns=0;ns<tns;ns++){
-    cv=opt1(0,1e9,0,1,&x,strat,bv);
+    cv=opt1(0,1e9,0,1,&x,strat,bv,-1000000000);
     if(cv<bv){bv=cv;printf("RESTART\n");goto restart;}
     //prstate(stdout,1,0);
     printf("HASH %016llx\n",hash());fflush(stdout);
@@ -4880,15 +4882,16 @@ void ppt(int weightmode,int strat,int tns,int bv,double maxt){
 
 
 int main(int ac,char**av){
-  int opt,wn,mode,strat,weightmode,centreflag,numpo;
+  int opt,wn,mode,strat,weightmode,centreflag,numpo,targenergy;
   double mint,maxt;
   char *inprobfile,*outprobfile,*outstatefile,*genfile;
 
   wn=-1;inprobfile=outprobfile=outstatefile=0;seed=time(0);seed2=0;mint=10;maxt=1e10;statemap[0]=0;statemap[1]=1;
-  weightmode=7;centreflag=0;mode=1;N=8;strat=3;deb=1;ext=1;numpo=500;ngp=0;genfile=0;
-  while((opt=getopt(ac,av,"cf:m:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
+  weightmode=7;centreflag=0;mode=1;N=8;strat=13;deb=1;ext=1;numpo=500;ngp=0;genfile=0;targenergy=-1000000000;
+  while((opt=getopt(ac,av,"ce:f:m:n:N:o:O:p:P:s:S:t:T:v:w:x:X:"))!=-1){
     switch(opt){
     case 'c': centreflag=1;break;
+    case 'e': targenergy=atoi(optarg);break;
     case 'f': genfile=strdup(optarg);break;
     case 'm': mode=atoi(optarg);break;
     case 'n': wn=atoi(optarg);break;
@@ -4925,6 +4928,7 @@ int main(int ac,char**av){
       fprintf(stderr,"       -c   Centre energy (default false). Adds constant to energy so that energies {-1,-2,-3,...}\n");
       fprintf(stderr,"            transform to {1,2,3,...} or {0,1,2,...} (according to parity) when you flip the spins of one\n");
       fprintf(stderr,"            half of the bipartite graph. Used to make QUBO mode give answers comparable to Ising mode.\n");
+      fprintf(stderr,"       -e   Target energy (default no target). Stop searching when find this energy.\n");
       fprintf(stderr,"       -f   general file used in some modes\n");
       fprintf(stderr,"       -m   mode of operation:\n");
       fprintf(stderr,"            0   Try to find minimum value by heuristic search\n");
@@ -4943,10 +4947,11 @@ int main(int ac,char**av){
       fprintf(stderr,"       -S   search strategy for heuristic search (0,1,2)\n");
       fprintf(stderr,"            0      Exhaust K44s repeatedly\n");
       fprintf(stderr,"            1      Exhaust lines repeatedly\n");
-      fprintf(stderr,"            3      Exhaust maximal treewidth 1 subgraphs (default)\n");
+      fprintf(stderr,"            3      Exhaust maximal treewidth 1 subgraphs\n");
       fprintf(stderr,"            4      Exhaust maximal treewidth 2 subgraphs\n");
       fprintf(stderr,"            5      Exhaust maximal treewidth 3 subgraphs\n");
       fprintf(stderr,"            10+n   As strategy n but with partial random state init\n");
+      fprintf(stderr,"                   (Default 13)\n");
       fprintf(stderr,"       -t   min run time for some modes\n");
       fprintf(stderr,"       -T   max run time for some modes\n");
       fprintf(stderr,"       -v   0,1,2,... verbosity level\n");
@@ -5010,16 +5015,17 @@ int main(int ac,char**av){
   printf("%d working node%s out of %d\n",wn,wn==1?"":"s",NV);
   printf("States are %d,%d\n",statemap[0],statemap[1]);
   printf("Weight-choosing mode: %d\n",weightmode);
+  if(targenergy>-1000000000)printf("Target energy: %d\n",targenergy);
   if(outprobfile){writeweights(outprobfile);printf("Wrote weight matrix to file \"%s\"\n",outprobfile);}
   switch(mode){
   case 0:// Find minimum value using heuristic strategy strat, not worrying about independence of subsequent minima
-    opt1(mint,maxt,deb,1,0,strat,1000000000);
+    opt1(mint,maxt,deb,1,0,strat,1000000000,targenergy);
     break;
   case 1:;// Find rate of solution generation, ensuring that minima are independent
     {
       int v;
       double tts;
-      v=opt1(0.5,maxt,deb,numpo,&tts,strat,ngp>0?genp[0]:1000000000);
+      v=opt1(0.5,maxt,deb,numpo,&tts,strat,ngp>0?genp[0]:1000000000,targenergy);
       printf("Time to solution %gs, assuming true minimum is %d\n",tts,v);
       break;
     }
@@ -5030,7 +5036,7 @@ int main(int ac,char**av){
       s0=s1=s2=0;
       while(1){
         initweights(weightmode,centreflag);
-        v=opt1(0,maxt,0,500,0,strat,1000000000);
+        v=opt1(0,maxt,0,500,0,strat,1000000000,targenergy);
         s0+=1;s1+=v;s2+=v*v;va=(s2-s1*s1/s0)/(s0-1);
         printf("%12g %12g %12g %12g\n",s0,s1/s0,sqrt(va),sqrt(va/s0));
       }
@@ -5038,7 +5044,7 @@ int main(int ac,char**av){
     break;
   case 4:;// Consistency checks
     {
-      opt1(mint,maxt,1,1,0,strat,1000000000);
+      opt1(mint,maxt,1,1,0,strat,1000000000,targenergy);
       printf("Full exhaust %d\n",stripexhaust(0,0,N,0));
       int o,v,c0,c1;
       for(o=0;o<2;o++)for(c0=0;c0<N;c0++)for(c1=c0+1;c1<=N;c1++){
