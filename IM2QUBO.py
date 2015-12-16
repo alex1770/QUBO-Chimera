@@ -7,6 +7,9 @@
 # and lines like
 # 3 4 0 1   4 4 0 1    2
 # which means J_{(3,4,0,1),(4,4,0,1)}=2
+#
+# (Possibly the sign in the above comments should be inverted)
+# This program is a near-duplicate of convIsingtoQuboformat.py
 
 import sys
 h={};J={};V={};con=0

@@ -24,6 +24,8 @@
 # an order on vertices and J() is chosen such that J(v,v')=0 for v>v'.  The classic {-1,1}
 # spin-glass has J(v,v')=(+/-)1 for v<v' and J(v,v')=0 for v>=v'.  (Boixo format only has
 # entries for J(v,v') when v<v'.)
+#
+# Looks like this program is a near-duplicate of IM2QUBO.py
 
 import sys
 
