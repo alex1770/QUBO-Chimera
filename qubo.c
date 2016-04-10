@@ -1862,7 +1862,7 @@ int opt1(double mint,double maxt,int pr,int tns,double *findtts,int strat,int bv
     now=cpu();
     new=(cv<bv);
     if(new){bv=cv;ns=0;ntr=0;}
-    if(cv==bv&&!copied){memcpy(Xbest,XBa,NBV*sizeof(int));copied=1;}// this logic ensures a copy if initial bv is optimum
+    if(new||(cv==bv&&!copied)){memcpy(Xbest,XBa,NBV*sizeof(int));copied=1;}// this logic ensures a copy if initial bv is optimum
     if(cv==bv){
       if(new&&findtts)t2=now; else ns++;
       if(0){if(new&&findtts){t2=now;printf("NEW BEST\n");} else {ns++;printf("%12g Time to find\n",now-t3);}}
