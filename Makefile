@@ -11,7 +11,7 @@ ifeq ($(filter par,$(MAKECMDGOALS)),)
   DUM0:= dummy-par
   DUM1:= dummy-sing
 else
-  CFLAGS:= $(CFLAGS) -fopenmp -DPARALLEL
+  CFLAGS:= $(CFLAGS) -fopenmp
   DUM0:= dummy-sing
   DUM1:= dummy-par
 endif
