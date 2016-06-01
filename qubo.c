@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,9 +6,6 @@
 #include <math.h>
 #include <getopt.h>
 #include <assert.h>
-#ifdef PARALLEL
-#include <omp.h>
-#endif
 
 #include "normal.c"
 
@@ -651,7 +649,7 @@ int checksym(void){// Checks if symmetric (true if couplings equivalent to no ex
   return 1;
 }
 
-int gcd(x,y){
+int gcd(int x,int y){
   if(x<0)x=-x;
   if(y<0)y=-y;
   if(y==0)return x;
@@ -2144,7 +2142,7 @@ int fullexhaust(){
       } 
       mul0=nok[enc(c,r,0)];
       mul1=nok[encp(c-1,r,0)]*nok[enc(c,r,1)];
-#ifdef PARALLEL
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
       for(br=0;br<bm;br++){
@@ -2227,7 +2225,7 @@ int fullexhaust(){
           pre2[bc0][s0]=QB(c,r,1,2,s,bc);
         }
       }
-#ifdef PARALLEL
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
       for(br=0;br<bm;br++){// br = state of non-c columns
